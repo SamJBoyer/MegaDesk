@@ -1,6 +1,6 @@
 <summary>
 
-Fresh helmsman project
+MegaDesk is my personal idea-to-product software development pipeline that I plan to continuously taylor to my interests. 
 
 </summary> 
 <remotes>
