@@ -3,14 +3,30 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "commander"
+name = "supervisor"
 version = "0.1.0"
-description = "MegaDesk Supervisor / process lifecycle manager"
+description = "MegaDesk Supervisor: process lifecycle manager (BE) + operator panel (FE)"
 requires-python = ">=3.10"
 dependencies = [
     "redis>=5.0.0",
     "megadesk",
 ]
 
+[project.optional-dependencies]
+# Install Executive + dearpygui into the MegaDesk env, then:
+#   pip install -e .[canvas]
+canvas = [
+    "dearpygui>=2.0",
+]
+
+[project.entry-points."MegaDesk.nodes"]
+supervisor = "supervisor_node:get_exec_spec"
+
+[project.scripts]
+supervisor = "commander.__main__:main"
+
+[tool.setuptools]
+py-modules = ["supervisor_node"]
+
 [tool.setuptools.packages.find]
-include = ["commander*"]
+include = ["commander*", "frontend*"]

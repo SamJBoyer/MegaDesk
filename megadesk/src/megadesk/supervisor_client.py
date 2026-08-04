@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import subprocess
+import sys
 import time
 import uuid
 from typing import Optional
@@ -15,6 +17,7 @@ except ImportError:  # pragma: no cover
 REDIS_HOST = "localhost"
 REDIS_PORT = 6379
 COMMANDER_ALIVE_KEY = "GBD:COMMANDER:ALIVE"
+SUPERVISOR_NODE_NAME = "supervisor"
 
 
 class SupervisorClient:
@@ -70,3 +73,52 @@ class SupervisorClient:
 
     def stop_node(self, name: str) -> Optional[str]:
         return self.request("stop_node", name)
+
+    def killall(self) -> None:
+        self.client.publish("KILLALL", "1")
+
+
+def ensure_supervisor_running(
+    *,
+    timeout: float = 12.0,
+    host: str = REDIS_HOST,
+    port: int = REDIS_PORT,
+) -> bool:
+    """Spawn the Supervisor BeSpec if the commander is not already alive.
+
+    Used when the Supervisor FE is dropped on the canvas (chicken-and-egg:
+    ``launch_node`` requires the commander, so the commander BeSpec is started
+    directly from its ``MegaDesk.nodes`` BE spec).
+    """
+    if redis is None:
+        return False
+
+    client = SupervisorClient(caller_identity="bootstrap", host=host, port=port)
+    if client.backend_ok():
+        return True
+
+    from megadesk.discovery import get_backend
+
+    spec = get_backend(SUPERVISOR_NODE_NAME)
+    if spec is None:
+        return False
+
+    creationflags = 0
+    if sys.platform == "win32":
+        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+
+    subprocess.Popen(
+        list(spec.argv),
+        cwd=spec.cwd or None,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        creationflags=creationflags,
+    )
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if client.backend_ok():
+            return True
+        time.sleep(0.25)
+    return client.backend_ok()

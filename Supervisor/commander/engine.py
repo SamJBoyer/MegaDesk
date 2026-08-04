@@ -8,7 +8,7 @@ from typing import Optional
 
 import redis
 
-from megadesk import BeSpec, discover_backends, get_backend
+from megadesk import SUPERVISOR_NODE_NAME, BeSpec, discover_backends, get_backend
 
 from commander.process_registry import ProcessRegistry, launch_spec
 
@@ -28,9 +28,17 @@ class ExecutionEngine:
         self.discover_backends()
 
     def discover_backends(self) -> dict[str, BeSpec]:
-        """Refresh the in-memory map of name → BeSpec from MegaDesk.nodes."""
+        """Refresh the in-memory map of name → BeSpec from MegaDesk.nodes.
+
+        Excludes the Supervisor BeSpec itself — the commander must not launch
+        another commander via ``launch_node``.
+        """
         with self._lock:
-            self._backends = discover_backends()
+            self._backends = {
+                name: spec
+                for name, spec in discover_backends().items()
+                if name != SUPERVISOR_NODE_NAME
+            }
             log.info(
                 "Discovered %d BE node(s): %s",
                 len(self._backends),
@@ -47,6 +55,8 @@ class ExecutionEngine:
         name = name.strip()
         if not name:
             raise NodeLaunchError("Empty node name")
+        if name == SUPERVISOR_NODE_NAME:
+            raise NodeLaunchError("Cannot launch supervisor via launch_node")
 
         with self._lock:
             spec = self._backends.get(name)

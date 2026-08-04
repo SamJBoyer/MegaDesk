@@ -10,16 +10,22 @@ from megadesk.discovery import (
 )
 from megadesk.exec_spec import BeSpec, FeSpec, Mode
 from megadesk import frame_pump
-from megadesk.supervisor_client import SupervisorClient
+from megadesk.supervisor_client import (
+    SUPERVISOR_NODE_NAME,
+    SupervisorClient,
+    ensure_supervisor_running,
+)
 
 __all__ = [
     "ENTRY_POINT_GROUP",
     "BeSpec",
     "FeSpec",
     "Mode",
+    "SUPERVISOR_NODE_NAME",
     "SupervisorClient",
     "discover_backends",
     "discover_frontends",
+    "ensure_supervisor_running",
     "frame_pump",
     "get_backend",
     "has_backend",

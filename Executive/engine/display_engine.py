@@ -642,11 +642,20 @@ class DisplayEngine:
         self.redraw()
 
     def _maybe_launch_backend(self, node_name: str) -> None:
-        """Ping Supervisor when the dropped MegaDesk node exposes a BE."""
+        """Ping Supervisor when the dropped MegaDesk node exposes a BE.
+
+        The Supervisor node is special: its BE *is* the commander, so dropping
+        it bootstraps ``python -m commander`` via its BeSpec instead of Redis
+        ``launch_node`` (which requires the commander to already be up).
+        """
         if not fe_has_backend(node_name):
             return
         try:
-            from megadesk import SupervisorClient
+            from megadesk import SUPERVISOR_NODE_NAME, SupervisorClient, ensure_supervisor_running
+
+            if node_name == SUPERVISOR_NODE_NAME:
+                ensure_supervisor_running()
+                return
 
             client = SupervisorClient(caller_identity="executive")
             if not client.redis_ok() or not client.backend_ok():

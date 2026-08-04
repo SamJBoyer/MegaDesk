@@ -1,6 +1,20 @@
 <summary>
 
-MegaDesk is my personal idea-to-product software development pipeline that I plan to continuously taylor to my interests. 
+MegaDesk is my personal idea-to-product software development platform. The current goals is to create a lucid-chart like GUI that supports sophsiticated 
+
+Essentially lucid-chart but with better meta-data engineering. 
+
+Tools:
+- Supervisor
+- Executive
+
+Productivity 
+- MergeManager
+
+
+
+- Plant
+- TicketDispatcher 
 
 </summary> 
 <remotes>

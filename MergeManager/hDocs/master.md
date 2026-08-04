@@ -1,6 +1,6 @@
 <summary>
 
-Fresh helmsman project
+MergeManager is 
 
 </summary> 
 <remotes>

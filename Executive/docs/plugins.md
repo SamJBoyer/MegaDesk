@@ -54,6 +54,11 @@ If the same entry point also returns a `BeSpec` for `"BE"`, Executive publishes
 Redis `launch_node:<identity>` with the node name so Supervisor can start the
 backend process.
 
+**Supervisor** is the exception: dropping its FE bootstraps the commander from
+its own `BeSpec` (`megadesk.ensure_supervisor_running`) because `launch_node`
+requires the commander to already be running. Install with
+`pip install -e ../Supervisor[canvas]`.
+
 ## Built-in BaseNode (sticky / container)
 
 Built-ins still subclass `BaseNode` and self-register under `nodes/`.

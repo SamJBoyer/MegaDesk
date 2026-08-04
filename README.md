@@ -11,8 +11,8 @@ Sadly, Lucid's MCP tool is pretty bad which makes it so the visual language of t
 
 
 Individual modules:
-- Executive: endless Dear PyGui canvas. Discovers FE nodes from `MegaDesk.nodes` via `get_exec_spec("FE")`. Dropping a node that also has a BE pings Supervisor over Redis.
-- Supervisor: process lifecycle manager. Discovers BE nodes via `get_exec_spec("BE")` and launches them as managed subprocesses (`launch_node` / `stop_node`).
+- Executive: endless Dear PyGui canvas. Discovers FE nodes from `MegaDesk.nodes` via `get_exec_spec("FE")`. Dropping a node that also has a BE pings Supervisor over Redis (Supervisor itself is bootstrapped from its BeSpec).
+- Supervisor: FE + BE node — commander process lifecycle manager (`launch_node` / `stop_node`) plus canvas operator panel (`pip install -e .[canvas]`).
 - Plant: BE-only node — Redis WORKORDER poller that launches Docker agent sandboxes.
 - MergeManager: FE-only Dear PyGui tool that merges finished worktrees into the agents branch.
 - TicketDispatcher: FE-only Dear PyGui tool that lists `agent-ready` GitHub issues and publishes WORKORDERs.

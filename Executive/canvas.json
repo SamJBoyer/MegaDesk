@@ -13,7 +13,50 @@
       "definition": "A visibility/lock group for canvas members in the hierarchy."
     }
   ],
-  "members": {},
+  "members": {
+    "e99ee2a6-fb62-4e2a-b7d8-3e418a74c943": {
+      "canvas_id": "e99ee2a6-fb62-4e2a-b7d8-3e418a74c943",
+      "type": "megadesk",
+      "nickname": "supervisor",
+      "node_name": "supervisor",
+      "position": [
+        459.0,
+        291.0
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 480.0,
+        "height": 420.0,
+        "node_name": "supervisor"
+      }
+    },
+    "aefcc796-a48d-4025-8c50-c892d200ce62": {
+      "canvas_id": "aefcc796-a48d-4025-8c50-c892d200ce62",
+      "type": "megadesk",
+      "nickname": "merge_manager",
+      "node_name": "merge_manager",
+      "position": [
+        -1317.9435058804952,
+        -1092.1346021375718
+      ],
+      "scale": [
+        5.376170695411185,
+        3.1590217946341186
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 220.0,
+        "height": 140.0,
+        "node_name": "merge_manager"
+      }
+    }
+  },
   "hierarchy": {
     "layers": [
       {
@@ -21,7 +64,10 @@
         "name": "Layer 1",
         "visible": true,
         "locked": false,
-        "children": []
+        "children": [
+          "e99ee2a6-fb62-4e2a-b7d8-3e418a74c943",
+          "aefcc796-a48d-4025-8c50-c892d200ce62"
+        ]
       },
       {
         "id": "a83fcdba-7667-4aee-a558-bfc6c9d3c14b",

@@ -57,6 +57,11 @@ Caller identity scopes every request/ack pair.
 Typical Executive path: after dropping an FE node that also exposes a BE,
 publish `launch_node:<identity>` with the node name.
 
+**Supervisor bootstrap:** dropping the `supervisor` FE does **not** use
+`launch_node` (the commander is not up yet). Executive / the FE call
+`megadesk.ensure_supervisor_running()`, which spawns the Supervisor `BeSpec`
+(`python -m commander`) directly and waits for `GBD:COMMANDER:ALIVE`.
+
 ---
 
 ## GBD:COMMANDER:ALIVE
