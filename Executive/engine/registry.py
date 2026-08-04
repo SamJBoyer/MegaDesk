@@ -1,8 +1,8 @@
-"""Discover and register node types from built-ins and pip plugins.
+"""Discover and register node types from built-ins and MegaDesk FE plugins.
 
-* ``nodes/`` — default nodes shipped with Executive (sticky, container, …)
-* entry points ``executive.nodes`` — external ``BaseNode`` subclasses installed
-  via pip into the ``loot`` env (``pip install -e ../my-tool[canvas]``)
+* ``nodes/`` — default BaseNode types shipped with Executive (sticky, container, …)
+* entry points ``MegaDesk.nodes`` — thin FeSpec tools (see ``megadesk_registry``)
+* legacy ``executive.nodes`` — still accepted for BaseNode plugins
 """
 
 from __future__ import annotations
@@ -163,9 +163,12 @@ def _discover_pip_nodes() -> None:
 
 
 def discover_nodes() -> None:
-    """Register built-in ``nodes/*`` packages, then pip ``executive.nodes`` plugins."""
+    """Register built-ins, legacy BaseNode plugins, and MegaDesk FE specs."""
+    from engine.megadesk_registry import discover_megadesk_frontends
+
     _discover_builtin_nodes()
     _discover_pip_nodes()
+    discover_megadesk_frontends()
 
 
 def create_node(type_guid: str, **kwargs) -> BaseNode:

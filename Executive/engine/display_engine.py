@@ -8,8 +8,14 @@ import dearpygui.dearpygui as dpg
 
 from engine.autocomplete import apply_completion, match_terms
 from engine.base_node import BaseNode
-from engine.canvas_model import CanvasModel
-from engine.icons import ICON_PX, get_icon_texture
+from engine.canvas_model import CanvasMember, CanvasModel
+from engine.icons import ICON_PX, get_icon_texture, get_icon_texture_for_path
+from engine.megadesk_registry import (
+    all_fe_specs,
+    fe_has_backend,
+    palette_key,
+    parse_palette_key,
+)
 from engine.registry import all_node_types, get_node_class
 
 
@@ -105,9 +111,9 @@ class DisplayEngine:
 
     # --- hit testing ---
 
-    def hit_test(self, world_x: float, world_y: float) -> Optional[BaseNode]:
+    def hit_test(self, world_x: float, world_y: float) -> Optional[CanvasMember]:
         # Prefer smaller / non-container nodes so frames don't steal child clicks
-        hits: list[BaseNode] = []
+        hits: list[CanvasMember] = []
         for node in self.model.members.values():
             if not self.model.is_visible(node.canvas_id):
                 continue
@@ -116,7 +122,7 @@ class DisplayEngine:
         if not hits:
             return None
 
-        def rank(n: BaseNode) -> tuple:
+        def rank(n: CanvasMember) -> tuple:
             _, _, w, h = n.bounds()
             return (1 if n.is_container else 0, w * h)
 
@@ -195,8 +201,12 @@ class DisplayEngine:
 
         if self._palette_drag_type:
             mx, my = self._draw_mouse_pos()
-            cls = get_node_class(self._palette_drag_type)
-            label = cls.nickname if cls else self._palette_drag_type
+            megadesk_name = parse_palette_key(self._palette_drag_type)
+            if megadesk_name is not None:
+                label = megadesk_name
+            else:
+                cls = get_node_class(self._palette_drag_type)
+                label = cls.nickname if cls else self._palette_drag_type
             dpg.draw_text(
                 (mx + 12, my + 12),
                 f"+ {label}",
@@ -225,10 +235,10 @@ class DisplayEngine:
 
     # --- selection / mutation ---
 
-    def select(self, node: Optional[BaseNode], *, sync_hierarchy: bool = True) -> None:
+    def select(self, node: Optional[CanvasMember], *, sync_hierarchy: bool = True) -> None:
         self.select_many([node] if node else [], sync_hierarchy=sync_hierarchy)
 
-    def select_many(self, nodes: list[BaseNode], *, sync_hierarchy: bool = True) -> None:
+    def select_many(self, nodes: list[CanvasMember], *, sync_hierarchy: bool = True) -> None:
         for cid in list(self.selected_ids):
             member = self.model.members.get(cid)
             if member:
@@ -272,7 +282,7 @@ class DisplayEngine:
         self.refresh_layer_bar()
         self.refresh_hierarchy_panel()
 
-    def _nodes_in_marquee(self) -> list[BaseNode]:
+    def _nodes_in_marquee(self) -> list[CanvasMember]:
         """Return visible, unlocked nodes whose bounds intersect the screen marquee."""
         sx0, sy0 = self._marquee_start
         sx1, sy1 = self._marquee_end
@@ -285,7 +295,7 @@ class DisplayEngine:
         min_x, max_x = min(wx0, wx1), max(wx0, wx1)
         min_y, max_y = min(wy0, wy1), max(wy0, wy1)
 
-        hits: list[BaseNode] = []
+        hits: list[CanvasMember] = []
         for node in self.model.members.values():
             if not self.model.is_visible(node.canvas_id):
                 continue
@@ -618,11 +628,32 @@ class DisplayEngine:
             return
         mx, my = self._draw_mouse_pos()
         wx, wy = self.screen_to_world(mx, my)
-        node = self.model.add_node(type_guid, position=(wx, wy), layer_id=layer_id)
+        megadesk_name = parse_palette_key(type_guid)
+        if megadesk_name is not None:
+            node = self.model.add_megadesk_node(
+                megadesk_name, position=(wx, wy), layer_id=layer_id
+            )
+            self._maybe_launch_backend(megadesk_name)
+        else:
+            node = self.model.add_node(type_guid, position=(wx, wy), layer_id=layer_id)
         self.select(node)
         self.refresh_layer_bar()
         self.refresh_hierarchy_panel()
         self.redraw()
+
+    def _maybe_launch_backend(self, node_name: str) -> None:
+        """Ping Supervisor when the dropped MegaDesk node exposes a BE."""
+        if not fe_has_backend(node_name):
+            return
+        try:
+            from megadesk import SupervisorClient
+
+            client = SupervisorClient(caller_identity="executive")
+            if not client.redis_ok() or not client.backend_ok():
+                return
+            client.launch_node(node_name)
+        except Exception:
+            pass
 
     def _cancel_palette(self) -> None:
         self._palette_drag_type = None
@@ -668,7 +699,7 @@ class DisplayEngine:
 
     # --- sticky text edit + autocomplete ---
 
-    def _begin_text_edit(self, node: BaseNode) -> None:
+    def _begin_text_edit(self, node: CanvasMember) -> None:
         if not hasattr(node, "get_text"):
             node.on_double_click()
             return
@@ -805,41 +836,59 @@ class DisplayEngine:
                 autosize_x=False,
                 autosize_y=False,
             ):
-                types = all_node_types()
-                for i in range(0, len(types), cols):
+                palette_entries: list[tuple[str, str, str, str | None]] = []
+                # (palette_key, label, description, icon_path)
+                for cls in all_node_types():
+                    path = cls.resolve_icon_path()
+                    palette_entries.append(
+                        (cls.global_guid, cls.nickname, cls.description or "", path)
+                    )
+                for spec in all_fe_specs():
+                    palette_entries.append(
+                        (
+                            palette_key(spec.name),
+                            spec.name,
+                            spec.description or "",
+                            spec.icon,
+                        )
+                    )
+
+                for i in range(0, len(palette_entries), cols):
                     with dpg.group(horizontal=True):
-                        for cls in types[i : i + cols]:
-                            tex = get_icon_texture(cls)
+                        for key, label, description, icon_path in palette_entries[
+                            i : i + cols
+                        ]:
+                            tex = get_icon_texture_for_path(icon_path, tag_suffix=key)
                             with dpg.group():
                                 btn = dpg.add_image_button(
                                     tex,
                                     width=ICON_PX,
                                     height=ICON_PX,
-                                    user_data=cls.global_guid,
+                                    user_data=key,
                                 )
-                                handler_tag = f"palette_handlers::{cls.global_guid}"
+                                handler_tag = f"palette_handlers::{key}"
                                 if dpg.does_item_exist(handler_tag):
                                     dpg.delete_item(handler_tag)
                                 with dpg.item_handler_registry(tag=handler_tag):
                                     dpg.add_item_activated_handler(
                                         callback=self._on_palette_press,
-                                        user_data=cls.global_guid,
+                                        user_data=key,
                                     )
                                     dpg.add_item_active_handler(
                                         callback=self._on_palette_active,
-                                        user_data=cls.global_guid,
+                                        user_data=key,
                                     )
                                 dpg.bind_item_handler_registry(btn, handler_tag)
                                 dpg.add_text(
-                                    cls.nickname,
+                                    label,
                                     wrap=cell_w - 4,
                                     color=(40, 40, 45, 255),
                                 )
                                 with dpg.tooltip(btn):
-                                    dpg.add_text(cls.nickname)
-                                    if cls.description:
+                                    dpg.add_text(label)
+                                    if description:
                                         dpg.add_text(
-                                            cls.description,
+                                            description,
                                             wrap=220,
                                             color=(90, 90, 95, 255),
                                         )

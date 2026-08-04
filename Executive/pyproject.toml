@@ -10,6 +10,8 @@ readme = "docs/plugins.md"
 requires-python = ">=3.10"
 dependencies = [
     "dearpygui>=2.0",
+    "megadesk",
+    "redis>=5.0.0",
 ]
 
 [project.optional-dependencies]

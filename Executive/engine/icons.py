@@ -50,15 +50,19 @@ def _ensure_default_texture() -> int | str:
     return _DEFAULT_TAG
 
 
-def get_icon_texture(node_cls: Type[BaseNode]) -> int | str:
-    """Return a texture tag for ``node_cls`` (cached; falls back to black square)."""
-    path = node_cls.resolve_icon_path()
+def get_icon_texture_for_path(path: str | None, *, tag_suffix: str) -> int | str:
+    """Return a texture for an image path (cached; falls back to black square)."""
     cache_key = path or "__default__"
     existing = _CACHE.get(cache_key)
     if existing is not None and dpg.does_item_exist(existing):
         return existing
 
-    if path is None:
+    if not path:
+        return _ensure_default_texture()
+
+    from pathlib import Path
+
+    if not Path(path).is_file():
         return _ensure_default_texture()
 
     _ensure_registry()
@@ -66,13 +70,13 @@ def get_icon_texture(node_cls: Type[BaseNode]) -> int | str:
         width, height, _channels, data = dpg.load_image(path)
     except Exception:
         logger.warning(
-            "Failed to load icon for %s (%r); using default black square",
-            getattr(node_cls, "global_guid", node_cls.__name__),
+            "Failed to load icon %r (%s); using default black square",
             path,
+            tag_suffix,
         )
         return _ensure_default_texture()
 
-    tag = f"executive_node_icon::{node_cls.global_guid}"
+    tag = f"executive_node_icon::{tag_suffix}"
     if dpg.does_item_exist(tag):
         dpg.delete_item(tag)
 
@@ -85,3 +89,12 @@ def get_icon_texture(node_cls: Type[BaseNode]) -> int | str:
     )
     _CACHE[cache_key] = tag
     return tag
+
+
+def get_icon_texture(node_cls: Type[BaseNode]) -> int | str:
+    """Return a texture tag for ``node_cls`` (cached; falls back to black square)."""
+    path = node_cls.resolve_icon_path()
+    return get_icon_texture_for_path(
+        path,
+        tag_suffix=getattr(node_cls, "global_guid", node_cls.__name__),
+    )

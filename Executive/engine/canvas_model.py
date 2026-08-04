@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from uuid import uuid4
 
 from engine.base_node import BaseNode
+from engine.megadesk_member import TYPE_DISCRIMINATOR, MegaDeskMember
+from engine.megadesk_registry import get_fe_spec
 from engine.registry import create_node, get_node_class
 
+CanvasMember = Union[BaseNode, MegaDeskMember]
 
 DEFAULT_CANVAS_PATH = Path(__file__).resolve().parent.parent / "canvas.json"
 
@@ -49,7 +52,7 @@ class CanvasModel:
     def __init__(self, path: Optional[Path] = None) -> None:
         self.path = Path(path) if path else DEFAULT_CANVAS_PATH
         self.terms: list[dict[str, str]] = []
-        self.members: dict[str, BaseNode] = {}
+        self.members: dict[str, CanvasMember] = {}
         self.layers: list[dict[str, Any]] = []
         self._member_layer: dict[str, str] = {}  # canvas_id -> layer_id
 
@@ -80,6 +83,18 @@ class CanvasModel:
 
         for canvas_id, member in iterable:
             type_guid = member.get("type")
+            if type_guid == TYPE_DISCRIMINATOR:
+                node_name = member.get("node_name") or (member.get("data") or {}).get(
+                    "node_name"
+                )
+                if not node_name:
+                    continue
+                spec = get_fe_spec(str(node_name))
+                if spec is None:
+                    continue
+                node = MegaDeskMember.from_member_dict(member, spec)
+                self.members[node.canvas_id] = node
+                continue
             cls = get_node_class(type_guid)
             if cls is None:
                 continue
@@ -228,6 +243,25 @@ class CanvasModel:
         self.save()
         return node
 
+    def add_megadesk_node(
+        self,
+        name: str,
+        position: tuple[float, float],
+        layer_id: Optional[str] = None,
+        data: Optional[dict[str, Any]] = None,
+    ) -> MegaDeskMember:
+        spec = get_fe_spec(name)
+        if spec is None:
+            raise KeyError(f"Unknown MegaDesk FE node: {name}")
+        node = MegaDeskMember(spec, position=position, data=data)
+        node.on_create()
+        self.members[node.canvas_id] = node
+        target_id = layer_id or self.layers[0]["id"]
+        self._member_layer[node.canvas_id] = target_id
+        self._relink_containment(node.canvas_id)
+        self.save()
+        return node
+
     def delete_node(self, canvas_id: str) -> None:
         node = self.members.get(canvas_id)
         if not node:
@@ -324,7 +358,7 @@ class CanvasModel:
                 parent.on_object_exit(child_id)
         child.parents.clear()
 
-    def _node_fully_inside(self, outer: BaseNode, inner: BaseNode) -> bool:
+    def _node_fully_inside(self, outer: CanvasMember, inner: CanvasMember) -> bool:
         ox, oy, ow, oh = outer.bounds()
         ix, iy, iw, ih = inner.bounds()
         return ix >= ox and iy >= oy and ix + iw <= ox + ow and iy + ih <= oy + oh
@@ -336,7 +370,7 @@ class CanvasModel:
             return
 
         # Prefer deepest (smallest area) containing container
-        best: BaseNode | None = None
+        best: CanvasMember | None = None
         best_area = float("inf")
         for cid, candidate in self.members.items():
             if cid == moved_id:
