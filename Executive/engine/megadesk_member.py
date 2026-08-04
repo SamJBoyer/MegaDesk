@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 import dearpygui.dearpygui as dpg
@@ -15,7 +15,12 @@ TYPE_DISCRIMINATOR = "megadesk"
 
 
 class MegaDeskMember:
-    """Lightweight canvas member backed by an FeSpec build() callable."""
+    """Lightweight canvas member backed by an FeSpec build() callable.
+
+    When the FE window is open it is world-anchored: position is in canvas
+    world coords, while width/height stay in screen pixels (windows do not
+    scale with zoom — same model as ``alt_canvas_test``).
+    """
 
     is_container: bool = False
 
@@ -55,6 +60,13 @@ class MegaDeskMember:
         self._selected = False
         self._window_tag: Optional[str] = None
 
+    @property
+    def window_tag(self) -> Optional[str]:
+        return self._window_tag
+
+    def is_gui_open(self) -> bool:
+        return bool(self._window_tag and dpg.does_item_exist(self._window_tag))
+
     def to_member_dict(self) -> dict[str, Any]:
         self.data["width"] = self.width
         self.data["height"] = self.height
@@ -90,6 +102,9 @@ class MegaDeskMember:
         return self.position[0], self.position[1], w, h
 
     def contains_point(self, x: float, y: float) -> bool:
+        # Open GUIs receive input via their DPG window; placard hit is for closed state.
+        if self.is_gui_open():
+            return False
         bx, by, bw, bh = self.bounds()
         return bx <= x <= bx + bw and by <= y <= by + bh
 
@@ -113,6 +128,8 @@ class MegaDeskMember:
     def hit_resize_handle(
         self, world_x: float, world_y: float, zoom: float = 1.0
     ) -> Optional[str]:
+        if self.is_gui_open():
+            return None
         half = HANDLE_HALF / max(zoom, 1e-6)
         for hid, (hx, hy) in self.handle_centers().items():
             if abs(world_x - hx) <= half and abs(world_y - hy) <= half:
@@ -146,6 +163,8 @@ class MegaDeskMember:
         self.scale_y = new_h / max(self.height, 1e-6)
 
     def draw_resize_handles(self, drawlist: str | int, world_to_screen) -> None:
+        if self.is_gui_open():
+            return
         x, y, w, h = self.bounds()
         pmin = world_to_screen(x, y)
         pmax = world_to_screen(x + w, y + h)
@@ -175,6 +194,19 @@ class MegaDeskMember:
         world_to_screen,
         selected: bool = False,
     ) -> None:
+        sx, sy = world_to_screen(self.position[0], self.position[1])
+        if self.is_gui_open():
+            # Screen-pixel footprint under the floating window (does not zoom).
+            dpg.draw_rectangle(
+                (sx - 2, sy - 2),
+                (sx + self.width + 2, sy + self.height + 2),
+                color=(180, 190, 210, 120),
+                fill=(230, 235, 245, 40),
+                thickness=1,
+                parent=drawlist,
+            )
+            return
+
         x, y, w, h = self.bounds()
         p0 = world_to_screen(x, y)
         p1 = world_to_screen(x + w, y + h)
@@ -237,15 +269,62 @@ class MegaDeskMember:
         if other_id in self.children:
             self.children.remove(other_id)
 
-    def on_double_click(self) -> None:
+    def open_window(self, global_pos: tuple[float, float]) -> None:
+        """Build or focus the FE window at a global (viewport) pixel position."""
         tag = f"megadesk::{self.canvas_id}"
         self._window_tag = tag
+
+        if dpg.does_item_exist(tag):
+            dpg.set_item_pos(tag, list(global_pos))
+            try:
+                dpg.focus_item(tag)
+            except Exception:
+                pass
+            return
 
         def _on_close() -> None:
             self._window_tag = None
 
+        width = max(1, int(self.width))
+        height = max(1, int(self.height))
+        # Migrate old thin-placard footprints to the real FE default size.
+        if width <= 240 and self.spec.default_width > width:
+            width = int(self.spec.default_width)
+        if height <= 160 and self.spec.default_height > height:
+            height = int(self.spec.default_height)
         try:
-            self.spec.build(tag, pos=None, on_close=_on_close)
+            self.spec.build(
+                tag,
+                pos=global_pos,
+                on_close=_on_close,
+                width=width,
+                height=height,
+                no_move=False,
+                no_resize=False,
+            )
         except TypeError:
-            # Allow build(tag) only
-            self.spec.build(tag)
+            try:
+                self.spec.build(tag, pos=global_pos, on_close=_on_close)
+            except TypeError:
+                self.spec.build(tag)
+
+        if dpg.does_item_exist(tag):
+            w = dpg.get_item_width(tag)
+            h = dpg.get_item_height(tag)
+            if w:
+                self.width = float(w)
+            if h:
+                self.height = float(h)
+            self.scale_x = 1.0
+            self.scale_y = 1.0
+
+    def on_double_click(self) -> None:
+        # Host (DisplayEngine) should call open_window with a real pos; this is a
+        # fallback that opens at the default DPG position if invoked alone.
+        if self.is_gui_open():
+            try:
+                dpg.focus_item(self._window_tag)
+            except Exception:
+                pass
+            return
+        self.open_window(global_pos=(80.0, 80.0))

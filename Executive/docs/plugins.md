@@ -34,9 +34,9 @@ def get_exec_spec(mode: Mode):
             name="my_tool",
             description="…",
             icon=None,
-            default_width=220,
-            default_height=140,
-            build=build_ui,  # (tag, *, pos=None, on_close=None) -> window_tag
+            default_width=480,
+            default_height=420,
+            build=build_ui,  # (tag, *, pos=None, on_close=None, width=…, height=…, no_move=…, no_resize=…) -> window_tag
         )
     return None  # FE-only
 ```
@@ -46,9 +46,12 @@ def get_exec_spec(mode: Mode):
 my_tool = "my_tool.node:get_exec_spec"
 ```
 
-Executive discovers FE specs at startup, shows them in Drop-in, places a thin
-placard on drop (`type: "megadesk"` + `node_name` in `canvas.json`), and opens
-`build()` on double-click.
+Executive discovers FE specs at startup and shows them in Drop-in. Dropping a
+tool onto the canvas places a MegaDesk member (`type: "megadesk"` + `node_name`
+in `canvas.json`) and immediately opens the full Dear PyGui window world-anchored
+at the drop point. Pan/zoom keeps windows glued to the board; title-bar drag /
+corner resize write back into the member's world position and pixel size. Closing
+the window leaves a placard; double-click reopens it.
 
 If the same entry point also returns a `BeSpec` for `"BE"`, Executive publishes
 Redis `launch_node:<identity>` with the node name so Supervisor can start the

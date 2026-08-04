@@ -98,12 +98,13 @@ def main() -> None:
     engine.refresh_hierarchy_panel()
     engine.refresh_terms_panel()
     engine.on_viewport_resize()
+    engine.open_all_megadesk_guis()
     engine.redraw()
 
     dpg.set_viewport_resize_callback(lambda *args: engine.on_viewport_resize())
 
     while dpg.is_dearpygui_running():
-        # Keep floating chrome above the primary canvas without stealing focus every frame
+        engine.sync_megadesk_windows()
         dpg.render_dearpygui_frame()
 
     model.save()
