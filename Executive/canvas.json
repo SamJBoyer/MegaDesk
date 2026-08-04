@@ -1,0 +1,375 @@
+{
+  "terms": [
+    {
+      "term": "Sticky",
+      "definition": "A colored text note that can be edited with a double-click."
+    },
+    {
+      "term": "Container",
+      "definition": "A frame that parents any objects fully inside its bounds."
+    },
+    {
+      "term": "Layer",
+      "definition": "A visibility/lock group for canvas members in the hierarchy."
+    }
+  ],
+  "members": {
+    "b9d98dd4-855e-4dfe-9540-f7b8e548c829": {
+      "canvas_id": "b9d98dd4-855e-4dfe-9540-f7b8e548c829",
+      "type": "sticky",
+      "nickname": "Sticky",
+      "position": [
+        467.2518257765881,
+        130.8788521347681
+      ],
+      "scale": [
+        1.0,
+        0.9838907554077008
+      ],
+      "parents": [
+        "0783921b-053e-440d-9876-93c9a9ff9e18"
+      ],
+      "children": [],
+      "data": {
+        "text": "Sticky",
+        "fill": [
+          255,
+          245,
+          160,
+          240
+        ],
+        "edge": [
+          70,
+          70,
+          75,
+          255
+        ],
+        "width": 160.0,
+        "height": 160.0
+      }
+    },
+    "3a19efca-37ae-48a3-9090-246ab42f15ca": {
+      "canvas_id": "3a19efca-37ae-48a3-9090-246ab42f15ca",
+      "type": "sticky",
+      "nickname": "Sticky",
+      "position": [
+        259.91768388000025,
+        482.1221721499998
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [
+        "0783921b-053e-440d-9876-93c9a9ff9e18"
+      ],
+      "children": [],
+      "data": {
+        "text": "Sticky",
+        "fill": [
+          255,
+          245,
+          160,
+          240
+        ],
+        "edge": [
+          70,
+          70,
+          75,
+          255
+        ],
+        "width": 160.0,
+        "height": 160.0
+      }
+    },
+    "cd50fa0a-cacb-41af-b001-d7504279460d": {
+      "canvas_id": "cd50fa0a-cacb-41af-b001-d7504279460d",
+      "type": "sticky",
+      "nickname": "Sticky",
+      "position": [
+        162.3290992615545,
+        45.99261338549196
+      ],
+      "scale": [
+        1.4523123362596562,
+        1.5809053562288007
+      ],
+      "parents": [
+        "0783921b-053e-440d-9876-93c9a9ff9e18"
+      ],
+      "children": [],
+      "data": {
+        "text": "Sticky",
+        "fill": [
+          255,
+          245,
+          160,
+          240
+        ],
+        "edge": [
+          70,
+          70,
+          75,
+          255
+        ],
+        "width": 160.0,
+        "height": 160.0
+      }
+    },
+    "8a8440e6-c820-4a84-a750-d703126defe0": {
+      "canvas_id": "8a8440e6-c820-4a84-a750-d703126defe0",
+      "type": "container",
+      "nickname": "Container",
+      "position": [
+        -740.8917706464895,
+        -171.4446661910858
+      ],
+      "scale": [
+        5.5471117303892665,
+        6.207849758511198
+      ],
+      "parents": [],
+      "children": [
+        "0783921b-053e-440d-9876-93c9a9ff9e18"
+      ],
+      "data": {
+        "edge": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "width": 320.0,
+        "height": 240.0
+      }
+    },
+    "de53cb96-3e09-4e95-a224-5ed96e468405": {
+      "canvas_id": "de53cb96-3e09-4e95-a224-5ed96e468405",
+      "type": "sticky",
+      "nickname": "Sticky",
+      "position": [
+        -200.04570586910015,
+        614.8692247793001
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [
+        "0783921b-053e-440d-9876-93c9a9ff9e18"
+      ],
+      "children": [],
+      "data": {
+        "text": "Sticky",
+        "fill": [
+          255,
+          245,
+          160,
+          240
+        ],
+        "edge": [
+          70,
+          70,
+          75,
+          255
+        ],
+        "width": 160.0,
+        "height": 160.0
+      }
+    },
+    "9eeb22db-8b08-4c88-9eab-66c1f82a858e": {
+      "canvas_id": "9eeb22db-8b08-4c88-9eab-66c1f82a858e",
+      "type": "sticky",
+      "nickname": "Sticky",
+      "position": [
+        -83.00839574690028,
+        356.4128126910999
+      ],
+      "scale": [
+        1.7345652701918766,
+        1.3624967235562508
+      ],
+      "parents": [
+        "0783921b-053e-440d-9876-93c9a9ff9e18"
+      ],
+      "children": [],
+      "data": {
+        "text": "Sticky",
+        "fill": [
+          255,
+          245,
+          160,
+          240
+        ],
+        "edge": [
+          70,
+          70,
+          75,
+          255
+        ],
+        "width": 160.0,
+        "height": 160.0
+      }
+    },
+    "d6177547-8843-408f-a83e-b840ea80ed42": {
+      "canvas_id": "d6177547-8843-408f-a83e-b840ea80ed42",
+      "type": "sticky",
+      "nickname": "Sticky",
+      "position": [
+        -88.63282783121048,
+        97.35751052273012
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [
+        "0783921b-053e-440d-9876-93c9a9ff9e18"
+      ],
+      "children": [],
+      "data": {
+        "text": "Sticky",
+        "fill": [
+          255,
+          245,
+          160,
+          240
+        ],
+        "edge": [
+          70,
+          70,
+          75,
+          255
+        ],
+        "width": 160.0,
+        "height": 160.0
+      }
+    },
+    "59ed2845-4d6c-445c-b3a5-8c6e494f6e14": {
+      "canvas_id": "59ed2845-4d6c-445c-b3a5-8c6e494f6e14",
+      "type": "sticky",
+      "nickname": "Sticky",
+      "position": [
+        451.82329400000026,
+        625.317959
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [
+        "0783921b-053e-440d-9876-93c9a9ff9e18"
+      ],
+      "children": [],
+      "data": {
+        "text": "Sticky",
+        "fill": [
+          255,
+          245,
+          160,
+          240
+        ],
+        "edge": [
+          70,
+          70,
+          75,
+          255
+        ],
+        "width": 160.0,
+        "height": 160.0
+      }
+    },
+    "0783921b-053e-440d-9876-93c9a9ff9e18": {
+      "canvas_id": "0783921b-053e-440d-9876-93c9a9ff9e18",
+      "type": "container",
+      "nickname": "Container",
+      "position": [
+        -342.6373709498203,
+        -4.45083179356004
+      ],
+      "scale": [
+        3.29877180921819,
+        3.5202095158065
+      ],
+      "parents": [
+        "8a8440e6-c820-4a84-a750-d703126defe0"
+      ],
+      "children": [
+        "b9d98dd4-855e-4dfe-9540-f7b8e548c829",
+        "de53cb96-3e09-4e95-a224-5ed96e468405",
+        "9eeb22db-8b08-4c88-9eab-66c1f82a858e",
+        "3a19efca-37ae-48a3-9090-246ab42f15ca",
+        "d6177547-8843-408f-a83e-b840ea80ed42",
+        "59ed2845-4d6c-445c-b3a5-8c6e494f6e14",
+        "cd50fa0a-cacb-41af-b001-d7504279460d"
+      ],
+      "data": {
+        "edge": [
+          0,
+          0,
+          0,
+          255
+        ],
+        "width": 320.0,
+        "height": 240.0
+      }
+    },
+    "5b62c113-9e0c-498a-84fb-1a3395d2c698": {
+      "canvas_id": "5b62c113-9e0c-498a-84fb-1a3395d2c698",
+      "type": "gbd",
+      "nickname": "GBD",
+      "position": [
+        1022.6622272480002,
+        -37.703040056000106
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "manifest_path": "ol.yaml",
+        "log_lines": [],
+        "rows": [
+          {
+            "path": "ol.yaml",
+            "valid": null,
+            "guid": null
+          }
+        ],
+        "width": 480.0,
+        "height": 420.0
+      }
+    }
+  },
+  "hierarchy": {
+    "layers": [
+      {
+        "id": "00000000-0000-0000-0000-000000000001",
+        "name": "Layer 1",
+        "visible": true,
+        "locked": false,
+        "children": [
+          "b9d98dd4-855e-4dfe-9540-f7b8e548c829",
+          "3a19efca-37ae-48a3-9090-246ab42f15ca",
+          "cd50fa0a-cacb-41af-b001-d7504279460d",
+          "8a8440e6-c820-4a84-a750-d703126defe0",
+          "de53cb96-3e09-4e95-a224-5ed96e468405",
+          "9eeb22db-8b08-4c88-9eab-66c1f82a858e",
+          "d6177547-8843-408f-a83e-b840ea80ed42",
+          "59ed2845-4d6c-445c-b3a5-8c6e494f6e14",
+          "0783921b-053e-440d-9876-93c9a9ff9e18",
+          "5b62c113-9e0c-498a-84fb-1a3395d2c698"
+        ]
+      },
+      {
+        "id": "a83fcdba-7667-4aee-a558-bfc6c9d3c14b",
+        "name": "Balls",
+        "visible": true,
+        "locked": true,
+        "children": []
+      }
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "executive"
+version = "0.1.0"
+description = "Infinite Dear PyGui whiteboard host for deployable BaseNode GUIs"
+readme = "docs/plugins.md"
+requires-python = ">=3.10"
+dependencies = [
+    "dearpygui>=2.0",
+]
+
+[project.optional-dependencies]
+canvas = [
+    "dearpygui>=2.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["engine*", "nodes*", "executive*"]
