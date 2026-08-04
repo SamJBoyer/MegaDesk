@@ -1,4 +1,4 @@
-"""Launched-node process registry and graceful→force shutdown (EE-8–10)."""
+"""Launched-node process registry and graceful→force shutdown."""
 
 from __future__ import annotations
 
@@ -7,6 +7,8 @@ import sys
 import time
 from dataclasses import dataclass, field
 from typing import Optional
+
+from megadesk import BeSpec
 
 
 @dataclass
@@ -48,6 +50,16 @@ class ProcessRegistry:
     def alive_nodes(self) -> list[ManagedProcess]:
         return [n for n in self._nodes.values() if n.alive]
 
+    def stop(self, nickname: str, grace_seconds: float | None = None) -> bool:
+        """Stop one managed node by name. Returns True if an entry existed."""
+        entry = self._nodes.pop(nickname, None)
+        if entry is None:
+            return False
+        if grace_seconds is None:
+            grace_seconds = 1.0 if sys.platform == "win32" else 3.0
+        self._shutdown_one(entry, grace_seconds=grace_seconds)
+        return True
+
     def kill_all(self, grace_seconds: float | None = None) -> None:
         if grace_seconds is None:
             grace_seconds = 1.0 if sys.platform == "win32" else 3.0
@@ -61,8 +73,6 @@ class ProcessRegistry:
         pid = proc.pid
 
         if sys.platform == "win32":
-            # Graceful tree signal (WM_CLOSE), brief wait, then force the tree.
-            # Always end with /F /T so orphaned children cannot survive.
             if proc.poll() is None:
                 _taskkill(pid, force=False)
                 deadline = time.time() + grace_seconds
@@ -98,35 +108,25 @@ class ProcessRegistry:
             pass
 
 
-def launch_node(nickname: str, directory: str, target: str) -> ManagedProcess:
-    """Launch CLAM PyNode contract: python <target> -n <nickname> -i localhost -p 6379."""
-    python = sys.executable or "python"
-    command = [
-        python,
-        "-u",
-        target,
-        "-n",
-        nickname,
-        "-i",
-        "localhost",
-        "-p",
-        "6379",
-    ]
+def launch_spec(spec: BeSpec) -> ManagedProcess:
+    """Launch a BeSpec argv as a managed subprocess."""
+    command = list(spec.argv)
+    cwd = spec.cwd or None
     creationflags = 0
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
 
     proc = subprocess.Popen(
         command,
-        cwd=directory,
+        cwd=cwd,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         text=True,
         creationflags=creationflags,
     )
     return ManagedProcess(
-        nickname=nickname,
+        nickname=spec.name,
         command=command,
-        cwd=directory,
+        cwd=cwd or "",
         process=proc,
     )

@@ -1,0 +1,11 @@
+pyproject.toml
+src/megadesk/__init__.py
+src/megadesk/discovery.py
+src/megadesk/exec_spec.py
+src/megadesk/frame_pump.py
+src/megadesk/supervisor_client.py
+src/megadesk.egg-info/PKG-INFO
+src/megadesk.egg-info/SOURCES.txt
+src/megadesk.egg-info/dependency_links.txt
+src/megadesk.egg-info/requires.txt
+src/megadesk.egg-info/top_level.txt

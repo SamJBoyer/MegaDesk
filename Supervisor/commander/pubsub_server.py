@@ -1,10 +1,9 @@
-"""Pub/Sub event surface for register, validate, execute, and KILLALL."""
+"""Pub/Sub event surface for launch_node, stop_node, and KILLALL."""
 
 from __future__ import annotations
 
 import logging
 import threading
-import time
 from typing import Optional
 
 import redis
@@ -18,14 +17,12 @@ from commander.redis_provision import (
 
 log = logging.getLogger("gbd.commander")
 
-REGISTER_PATTERN = "register_manifest:*"
-EXECUTE_PATTERN = "execute_manifest:*"
-VALIDATE_PATTERN = "validate_manifest:*"
+LAUNCH_PATTERN = "launch_node:*"
+STOP_PATTERN = "stop_node:*"
 KILLALL_CHANNEL = "KILLALL"
 
 
 def _identity_from_channel(channel: str, prefix: str) -> Optional[str]:
-    # channel like register_manifest:<identity>
     parts = channel.split(":", 1)
     if len(parts) != 2 or parts[0] != prefix:
         return None
@@ -74,7 +71,7 @@ class CommanderServer:
 
     def _listen_loop(self) -> None:
         pubsub = self.realtime.pubsub(ignore_subscribe_messages=True)
-        pubsub.psubscribe(REGISTER_PATTERN, EXECUTE_PATTERN, VALIDATE_PATTERN)
+        pubsub.psubscribe(LAUNCH_PATTERN, STOP_PATTERN)
         pubsub.subscribe(KILLALL_CHANNEL)
         try:
             while not self._stop.is_set():
@@ -117,45 +114,31 @@ class CommanderServer:
         if not isinstance(channel, str):
             return
 
-        if channel.startswith("register_manifest:"):
-            identity = _identity_from_channel(channel, "register_manifest")
+        if channel.startswith("launch_node:"):
+            identity = _identity_from_channel(channel, "launch_node")
             if not identity:
                 return
-            self._on_register(identity, data.strip())
-        elif channel.startswith("execute_manifest:"):
-            identity = _identity_from_channel(channel, "execute_manifest")
+            self._on_launch(identity, data.strip())
+        elif channel.startswith("stop_node:"):
+            identity = _identity_from_channel(channel, "stop_node")
             if not identity:
                 return
-            self._on_execute(identity, data.strip())
-        elif channel.startswith("validate_manifest:"):
-            identity = _identity_from_channel(channel, "validate_manifest")
-            if not identity:
-                return
-            self._on_validate(identity, data.strip())
+            self._on_stop(identity, data.strip())
 
-    def _on_register(self, identity: str, path: str) -> None:
+    def _on_launch(self, identity: str, name: str) -> None:
         try:
-            guid = self.engine.register(path)
-            _ack(self.realtime, identity, f"SUCCESS {guid}")
-            log.info("Registered %s -> %s", path, guid)
+            self.engine.launch(name)
+            _ack(self.realtime, identity, "SUCCESS")
+            log.info("launch_node %s OK", name)
         except Exception as exc:
-            log.warning("Register failed for %s: %s", path, exc)
+            log.warning("launch_node failed for %s: %s", name, exc)
             _ack(self.realtime, identity, "FAILED")
 
-    def _on_validate(self, identity: str, path: str) -> None:
+    def _on_stop(self, identity: str, name: str) -> None:
         try:
-            self.engine.validate_path(path)
+            self.engine.stop(name)
             _ack(self.realtime, identity, "SUCCESS")
-            log.info("Validated OK: %s", path)
+            log.info("stop_node %s OK", name)
         except Exception as exc:
-            log.warning("Validate failed for %s: %s", path, exc)
-            _ack(self.realtime, identity, "FAILED")
-
-    def _on_execute(self, identity: str, guid: str) -> None:
-        try:
-            self.engine.execute(guid)
-            _ack(self.realtime, identity, "SUCCESS")
-            log.info("Executed GUID %s", guid)
-        except Exception as exc:
-            log.warning("Execute failed for %s: %s", guid, exc)
+            log.warning("stop_node failed for %s: %s", name, exc)
             _ack(self.realtime, identity, "FAILED")

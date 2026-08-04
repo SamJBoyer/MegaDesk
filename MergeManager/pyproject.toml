@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "merge-manager"
+version = "0.1.0"
+description = "MegaDesk FE node: merge finished agent worktrees"
+requires-python = ">=3.10"
+dependencies = [
+    "dearpygui>=1.11.1",
+    "redis>=5.0.0",
+    "megadesk",
+]
+
+[project.entry-points."MegaDesk.nodes"]
+merge_manager = "merge_manager_node:get_exec_spec"
+
+[tool.setuptools]
+py-modules = ["app", "merge", "redis_packets", "merge_manager_node"]

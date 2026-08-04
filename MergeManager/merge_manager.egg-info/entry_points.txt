@@ -1,0 +1,2 @@
+[MegaDesk.nodes]
+merge_manager = merge_manager_node:get_exec_spec

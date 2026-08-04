@@ -3,14 +3,13 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "commander"
+name = "megadesk"
 version = "0.1.0"
-description = "MegaDesk Supervisor / process lifecycle manager"
+description = "Shared MegaDesk node exec-spec contract and discovery"
 requires-python = ">=3.10"
 dependencies = [
     "redis>=5.0.0",
-    "megadesk",
 ]
 
 [tool.setuptools.packages.find]
-include = ["commander*"]
+where = ["src"]

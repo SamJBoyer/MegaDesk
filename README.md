@@ -11,15 +11,16 @@ Sadly, Lucid's MCP tool is pretty bad which makes it so the visual language of t
 
 
 Individual modules:
-- Executive: short for executive board. This was my first shot at a canvas. It's was developed in the wrong direction and has a significantly over-bearing contract which I need to refine. I put a pin in this to develop the GUIS I actually wanted to use. I thought doing that before designing hte canvas would help me figure out how the canvas should be designed. 
-- Supervisor: somewhat functional idea for a life-cycle manager 
-- Plant: Centralized service that parses work orders and launches docker containers with agents. This should have a seperate FE/BE connected by REDIS, but that hasn't been developed yet. 
-- MergeManager: functional GUI that works with Plant to merge work from worktrees into an agents branch. No FE/BE split required because nothing really happens if this goes down because it mainly just piggibacks off REDIS. 
-- TicketDispatcher: a functional GUI that takes Git tags marked "agent-ready", displays them, and then submits a workorder for them on click. 
+- Executive: endless Dear PyGui canvas. Discovers FE nodes from `MegaDesk.nodes` via `get_exec_spec("FE")`. Dropping a node that also has a BE pings Supervisor over Redis.
+- Supervisor: process lifecycle manager. Discovers BE nodes via `get_exec_spec("BE")` and launches them as managed subprocesses (`launch_node` / `stop_node`).
+- Plant: BE-only node — Redis WORKORDER poller that launches Docker agent sandboxes.
+- MergeManager: FE-only Dear PyGui tool that merges finished worktrees into the agents branch.
+- TicketDispatcher: FE-only Dear PyGui tool that lists `agent-ready` GitHub issues and publishes WORKORDERs.
 
+Shared contract: installable `megadesk` package (`FeSpec` / `BeSpec`, entry-point discovery, Supervisor client). See `c.md`.
 
-When to use a FE/BE split? 
+When to use a FE/BE split?
 
 1. Stateful things should
 2. Procs that launch/manage other procs should
-3. Stateless procs shouldn't 
+3. Stateless procs shouldn't

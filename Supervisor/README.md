@@ -1,12 +1,14 @@
-# GBD Commander
+# Supervisor
 
-Windows supervisor backend for GBD. Provisions Redis, accepts manifest register/validate/execute requests over Pub/Sub, and launches node processes.
+MegaDesk process lifecycle manager. Provisions Redis, discovers BE nodes from
+installed `MegaDesk.nodes` entry points, and launches them as managed subprocesses
+via Redis Pub/Sub (`launch_node` / `stop_node` / `KILLALL`).
 
 ## Setup
 
 ```bat
-pip install -r requirements.txt
-rem or: pip install -e .
+pip install -e ../megadesk
+pip install -e .
 ```
 
 ## Run
@@ -18,7 +20,7 @@ rem or: python -m commander
 
 ## Smoke test
 
-With Redis available and a valid `ol.yaml` (plus any `~NODES/` targets on disk):
+With Redis available and Plant installed (`pip install -e ../Plant`):
 
 ```bat
 python -m commander.smoke_test
@@ -27,5 +29,4 @@ python -m commander.smoke_test
 ## Layout
 
 - `commander/` — Python package (`client`, `engine`, `pubsub_server`, …)
-- `ol.yaml` — MVP manifest fixture (paths resolve relative to this repo root)
-- `hDocs/`, `HELMSMAN.md`, `PRD.md` — product / Helmsman docs
+- `hDocs/`, `HELMSMAN.md`, `PRD.md` — product / Helmsman docs (PRD still describes the old manifest model)

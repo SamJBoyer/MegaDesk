@@ -1,7 +1,9 @@
-"""End-to-end smoke test: register/execute ol.yaml → TrialRunnerOL → KILLALL.
+"""End-to-end smoke test: launch_node plant → stop / KILLALL.
 
 Usage (with commander already running, or this script starts one):
     python -m commander.smoke_test
+
+Requires the Plant package installed into the same env (MegaDesk.nodes entry point).
 """
 
 from __future__ import annotations
@@ -10,17 +12,20 @@ import subprocess
 import sys
 import time
 
+from megadesk import discover_backends
+
 from commander.client import PubSubClient
 from commander.paths import REPO_ROOT
 from commander.redis_provision import (
     COMMANDER_ALIVE_KEY,
-    connect_param_db,
     is_commander_alive,
     provision_redis,
 )
 
+NODE_NAME = "plant"
 
-def _trial_runner_pids() -> list[str]:
+
+def _plant_pids() -> list[str]:
     ps = subprocess.run(
         [
             "powershell",
@@ -28,8 +33,8 @@ def _trial_runner_pids() -> list[str]:
             "-Command",
             "Get-CimInstance Win32_Process | "
             "Where-Object { "
-            "$_.CommandLine -match 'python(\\.exe)?\\s+-u\\s+trial_runner\\.py' "
-            "-and $_.CommandLine -match '-n\\s+TrialRunnerOL' "
+            "$_.CommandLine -match 'PlantManager' "
+            "-and $_.CommandLine -notmatch 'smoke_test' "
             "} | Select-Object -ExpandProperty ProcessId",
         ],
         capture_output=True,
@@ -38,14 +43,15 @@ def _trial_runner_pids() -> list[str]:
     )
     return [p.strip() for p in ps.stdout.splitlines() if p.strip().isdigit()]
 
-EXPECTED_PARAMS = {
-    "experiment_path": "AS_OL.txt",
-    "target_dir": "assets/elbow/track",
-    "start": "assets/elbow/halfway.json",
-    "threshold": "1",
-    "speed": "5",
-    "frame_rate": "60",
-}
+
+def _force_kill_plant() -> None:
+    for pid in _plant_pids():
+        subprocess.run(
+            ["taskkill", "/F", "/T", "/PID", pid],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
 
 def _fail(msg: str) -> int:
@@ -58,7 +64,15 @@ def _ok(msg: str) -> None:
 
 
 def main() -> int:
-    print("=== GBD smoke test (ol.yaml -> TrialRunnerOL) ===")
+    print(f"=== Supervisor smoke test (launch_node {NODE_NAME}) ===")
+    backends = discover_backends()
+    if NODE_NAME not in backends:
+        return _fail(
+            f"BE node {NODE_NAME!r} not discovered. "
+            "Install Plant editable: pip install -e ../Plant (and megadesk)."
+        )
+    _ok(f"Discovered BE nodes: {', '.join(sorted(backends))}")
+
     try:
         realtime = provision_redis()
     except Exception as exc:
@@ -83,61 +97,48 @@ def main() -> int:
     _ok("Commander alive")
 
     client = PubSubClient(caller_identity="smoke-test", timeout=8.0)
-    manifest = str(REPO_ROOT / "ol.yaml")
 
-    # Validate (no GUID)
-    vack = client.validate(manifest)
-    if not vack or not vack.startswith("SUCCESS"):
-        return _fail(f"validate ack={vack}")
-    _ok(f"validate → {vack}")
+    # Clear orphans from prior runs so PID checks are meaningful.
+    _force_kill_plant()
+    time.sleep(0.5)
 
-    # Register
-    rack = client.register(manifest)
-    if not rack or not rack.startswith("SUCCESS "):
-        return _fail(f"register ack={rack}")
-    guid = rack.split(" ", 1)[1].strip()
-    _ok(f"register → GUID {guid}")
+    lack = client.launch_node(NODE_NAME)
+    if not lack or not lack.startswith("SUCCESS"):
+        return _fail(f"launch_node ack={lack}")
+    _ok(f"launch_node -> {lack}")
 
-    # Execute
-    eack = client.execute(guid)
-    if not eack or not eack.startswith("SUCCESS"):
-        return _fail(f"execute ack={eack}")
-    _ok(f"execute → {eack}")
-
-    # Redis params on DB 1
-    params_db = connect_param_db()
-    key = "PARAMETERS_TrialRunnerOL"
-    got = params_db.hgetall(key)
-    if not got:
-        return _fail(f"missing Redis hash {key} on DB 1")
-    for field, expected in EXPECTED_PARAMS.items():
-        actual = str(got.get(field, ""))
-        if actual != expected:
-            return _fail(f"param {field}: expected {expected!r}, got {actual!r}")
-    _ok(f"Redis DB1 {key} matches §6.3")
-
-    # Confirm TrialRunnerOL process is alive
     time.sleep(1.5)
-    live = _trial_runner_pids()
+    live = _plant_pids()
     if not live:
-        return _fail("TrialRunnerOL process not found after execute")
-    _ok(f"TrialRunnerOL process alive pid={live}")
+        return _fail("PlantManager process not found after launch_node")
+    _ok(f"PlantManager process alive pid={live}")
 
-    # KILLALL (graceful then force)
-    client.killall()
+    sack = client.stop_node(NODE_NAME)
+    if not sack or not sack.startswith("SUCCESS"):
+        return _fail(f"stop_node ack={sack}")
+    _ok(f"stop_node -> {sack}")
+
     deadline = time.time() + 8
-    while time.time() < deadline and _trial_runner_pids():
+    while time.time() < deadline and _plant_pids():
         time.sleep(0.25)
-    leftover = _trial_runner_pids()
+    leftover = _plant_pids()
     if leftover:
-        return _fail(f"TrialRunnerOL still alive after KILLALL: {leftover}")
-    _ok("KILLALL stopped TrialRunnerOL")
+        client.killall()
+        time.sleep(0.5)
+        _force_kill_plant()
+        deadline = time.time() + 5
+        while time.time() < deadline and _plant_pids():
+            time.sleep(0.25)
+        leftover = _plant_pids()
+        if leftover:
+            return _fail(f"PlantManager still alive after stop/KILLALL: {leftover}")
+    _ok("PlantManager stopped")
 
-    # Invalid validate check
-    bad = client.validate(str(REPO_ROOT / "does-not-exist.yaml"))
+    # Unknown node should FAIL
+    bad = client.launch_node("does-not-exist-node")
     if bad and bad.startswith("SUCCESS"):
-        return _fail("invalid manifest unexpectedly validated SUCCESS")
-    _ok(f"invalid manifest → {bad}")
+        return _fail("unknown node unexpectedly launched SUCCESS")
+    _ok(f"unknown node -> {bad}")
 
     if commander_proc is not None:
         commander_proc.terminate()

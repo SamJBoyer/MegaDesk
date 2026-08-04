@@ -8,11 +8,12 @@ import re
 import subprocess
 import threading
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 from urllib.parse import urlparse
 
 import dearpygui.dearpygui as dpg
 import redis
+from megadesk import frame_pump
 
 POLL_INTERVAL_SEC = 3.0
 REDIS_HOST = "localhost"
@@ -25,6 +26,9 @@ COLOR_GREEN = (80, 200, 80, 255)
 COLOR_RED = (220, 70, 70, 255)
 COLOR_BLUE = (70, 140, 230, 255)
 COLOR_DIM = (90, 90, 90, 255)
+
+# Keep live instances alive while their embed windows exist.
+_LIVE: dict[str, "TicketDispatcher"] = {}
 
 
 @dataclass
@@ -41,12 +45,10 @@ def parse_github_repo(git_url: str) -> Optional[tuple[str, str]]:
     if not url:
         return None
 
-    # git@github.com:owner/repo.git
     ssh = re.match(r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?/?$", url)
     if ssh:
         return ssh.group(1), ssh.group(2)
 
-    # https://github.com/owner/repo[.git]
     if not url.startswith(("http://", "https://")):
         url = "https://" + url
 
@@ -65,12 +67,10 @@ def parse_github_repo(git_url: str) -> Optional[tuple[str, str]]:
 
 
 def normalize_repo_url(git_url: str, owner: str, repo: str) -> str:
-    """Canonical https URL for the repo (used in Redis payload)."""
     return f"https://github.com/{owner}/{repo}"
 
 
 def run_gh(*args: str) -> tuple[bool, str, str]:
-    """Run a `gh` subcommand. Returns (ok, stdout, error_message)."""
     try:
         result = subprocess.run(
             ["gh", *args],
@@ -100,8 +100,13 @@ class TicketDispatcher:
         self._tickets: dict[int, IssueTicket] = {}
         self._dispatched: set[int] = set()
         self._redis: Optional[redis.Redis] = None
-
+        self._root_tag = "primary"
+        self._owns_context = False
+        self._frame_registered = False
         self._connect_redis()
+
+    def _tag(self, suffix: str) -> str:
+        return f"{self._root_tag}::{suffix}"
 
     def _connect_redis(self) -> None:
         try:
@@ -112,88 +117,151 @@ class TicketDispatcher:
         except redis.RedisError:
             self._redis = None
 
-    def start(self) -> None:
-        dpg.create_context()
-        self._build_ui()
-        dpg.create_viewport(title="Ticket Dispatcher", width=720, height=560)
-        dpg.setup_dearpygui()
-        dpg.show_viewport()
-        dpg.set_primary_window("primary", True)
+    def build_ui(
+        self,
+        tag: str = "primary",
+        *,
+        pos: Optional[tuple[float, float]] = None,
+        on_close: Optional[Callable[[], None]] = None,
+        width: int = 700,
+        height: int = 520,
+    ) -> str:
+        """Build the Ticket Dispatcher window. Returns the window tag."""
+        self._root_tag = tag
+        if dpg.does_item_exist(tag):
+            dpg.delete_item(tag)
 
-        self._poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
-        self._poll_thread.start()
+        theme_tag = self._tag("ticket_theme")
+        if not dpg.does_item_exist(theme_tag):
+            with dpg.theme(tag=theme_tag):
+                with dpg.theme_component(dpg.mvButton):
+                    dpg.add_theme_color(dpg.mvThemeCol_Button, (45, 45, 50, 255))
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (60, 60, 70, 255))
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (55, 55, 65, 255))
+                    dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
+                    dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 10, 8)
 
-        while dpg.is_dearpygui_running():
-            self._sync_url_from_input()
-            self._drain_ui_queue()
-            dpg.render_dearpygui_frame()
+        kwargs: dict = {}
+        if pos is not None:
+            kwargs["pos"] = list(pos)
 
-        self._stop.set()
-        if self._poll_thread:
-            self._poll_thread.join(timeout=2.0)
-        dpg.destroy_context()
+        def _close() -> None:
+            self.shutdown()
+            if on_close:
+                on_close()
 
-    def _build_ui(self) -> None:
-        with dpg.theme(tag="ticket_theme"):
-            with dpg.theme_component(dpg.mvButton):
-                dpg.add_theme_color(dpg.mvThemeCol_Button, (45, 45, 50, 255))
-                dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (60, 60, 70, 255))
-                dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (55, 55, 65, 255))
-                dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
-                dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 10, 8)
-
-        with dpg.window(tag="primary", label="Ticket Dispatcher"):
+        with dpg.window(
+            tag=tag,
+            label="Ticket Dispatcher",
+            width=width,
+            height=height,
+            no_collapse=True,
+            on_close=_close if on_close is not None else None,
+            no_close=on_close is None,
+            **kwargs,
+        ):
             dpg.add_text("Ticket Dispatcher")
             dpg.add_spacer(height=6)
 
             with dpg.group(horizontal=True):
                 dpg.add_text("Git URL")
                 dpg.add_input_text(
-                    tag="git_url",
+                    tag=self._tag("git_url"),
                     width=480,
                     hint="https://github.com/owner/repo",
                     callback=self._on_url_changed,
                     on_enter=True,
                 )
-                with dpg.drawlist(width=22, height=22, tag="conn_light_dl"):
+                with dpg.drawlist(width=22, height=22, tag=self._tag("conn_light_dl")):
                     dpg.draw_circle(
                         (11, 11),
                         8,
                         fill=COLOR_DIM,
                         color=COLOR_DIM,
-                        tag="conn_light",
+                        tag=self._tag("conn_light"),
                     )
 
             dpg.add_spacer(height=4)
             with dpg.group(horizontal=True):
                 dpg.add_text("Model")
                 dpg.add_input_text(
-                    tag="model",
+                    tag=self._tag("model"),
                     width=480,
                     default_value=DEFAULT_MODEL,
                     hint="model id",
                 )
 
             dpg.add_spacer(height=4)
-            dpg.add_text("Idle", tag="status_text", color=(160, 160, 160))
+            dpg.add_text(
+                "Idle", tag=self._tag("status_text"), color=(160, 160, 160)
+            )
             dpg.add_separator()
             dpg.add_text("Agent-ready tickets")
             dpg.add_child_window(
-                tag="ticket_scroll",
+                tag=self._tag("ticket_scroll"),
                 width=-1,
                 height=-1,
                 border=True,
             )
 
+        self._start_services()
+        _LIVE[tag] = self
+        return tag
+
+    def _start_services(self) -> None:
+        if self._poll_thread and self._poll_thread.is_alive():
+            return
+        self._stop.clear()
+        self._poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
+        self._poll_thread.start()
+        if not self._frame_registered:
+            frame_pump.register(self._on_frame)
+            self._frame_registered = True
+
+    def _on_frame(self) -> None:
+        if not dpg.does_item_exist(self._root_tag):
+            return
+        self._sync_url_from_input()
+        self._drain_ui_queue()
+
+    def shutdown(self) -> None:
+        self._stop.set()
+        if self._frame_registered:
+            frame_pump.unregister(self._on_frame)
+            self._frame_registered = False
+        if self._poll_thread:
+            self._poll_thread.join(timeout=2.0)
+            self._poll_thread = None
+        _LIVE.pop(self._root_tag, None)
+
+    def start(self) -> None:
+        self._owns_context = True
+        dpg.create_context()
+        self.build_ui("primary")
+        dpg.create_viewport(title="Ticket Dispatcher", width=720, height=560)
+        dpg.setup_dearpygui()
+        dpg.show_viewport()
+        dpg.set_primary_window("primary", True)
+
+        while dpg.is_dearpygui_running():
+            self._sync_url_from_input()
+            self._drain_ui_queue()
+            dpg.render_dearpygui_frame()
+
+        self.shutdown()
+        dpg.destroy_context()
+
     def _set_conn_light(self, color: tuple[int, int, int, int]) -> None:
-        if dpg.does_item_exist("conn_light"):
-            dpg.configure_item("conn_light", fill=color, color=color)
+        tag = self._tag("conn_light")
+        if dpg.does_item_exist(tag):
+            dpg.configure_item(tag, fill=color, color=color)
 
     def _sync_url_from_input(self) -> None:
-        if not dpg.does_item_exist("git_url"):
+        tag = self._tag("git_url")
+        if not dpg.does_item_exist(tag):
             return
         with self._url_lock:
-            self._current_repo_url = dpg.get_value("git_url").strip()
+            self._current_repo_url = dpg.get_value(tag).strip()
 
     def _on_url_changed(self, sender, app_data, user_data=None) -> None:
         self._sync_url_from_input()
@@ -206,7 +274,9 @@ class TicketDispatcher:
 
             if not url:
                 self._ui_queue.put(("conn", False))
-                self._ui_queue.put(("status", "Enter a GitHub repository URL", (160, 160, 160)))
+                self._ui_queue.put(
+                    ("status", "Enter a GitHub repository URL", (160, 160, 160))
+                )
                 self._stop.wait(POLL_INTERVAL_SEC)
                 continue
 
@@ -214,7 +284,11 @@ class TicketDispatcher:
             if not parsed:
                 self._ui_queue.put(("conn", False))
                 self._ui_queue.put(
-                    ("status", "Unsupported URL (GitHub https or SSH required)", COLOR_RED)
+                    (
+                        "status",
+                        "Unsupported URL (GitHub https or SSH required)",
+                        COLOR_RED,
+                    )
                 )
                 self._stop.wait(POLL_INTERVAL_SEC)
                 continue
@@ -244,7 +318,6 @@ class TicketDispatcher:
     def _fetch_agent_ready(
         self, owner: str, repo: str
     ) -> tuple[bool, list[IssueTicket], Optional[str]]:
-        """Check repo reachability and list open issues labeled agent-ready via gh."""
         repo_slug = f"{owner}/{repo}"
 
         ok, _, err = run_gh("repo", "view", repo_slug, "--json", "nameWithOwner")
@@ -300,23 +373,24 @@ class TicketDispatcher:
                 self._set_conn_light(COLOR_GREEN if msg[1] else COLOR_RED)
             elif kind == "status":
                 _, text, color = msg
-                if dpg.does_item_exist("status_text"):
-                    dpg.set_value("status_text", text)
-                    dpg.configure_item("status_text", color=color)
+                status = self._tag("status_text")
+                if dpg.does_item_exist(status):
+                    dpg.set_value(status, text)
+                    dpg.configure_item(status, color=color)
             elif kind == "ticket":
                 self._ensure_ticket_row(msg[1])
 
     def _ensure_ticket_row(self, ticket: IssueTicket) -> None:
         if ticket.id in self._tickets:
-            # Refresh stored content in case the issue body changed.
             self._tickets[ticket.id] = ticket
             return
 
         self._tickets[ticket.id] = ticket
-        light_tag = f"ticket_light_{ticket.id}"
-        row_tag = f"ticket_row_{ticket.id}"
+        light_tag = self._tag(f"ticket_light_{ticket.id}")
+        row_tag = self._tag(f"ticket_row_{ticket.id}")
+        scroll = self._tag("ticket_scroll")
 
-        with dpg.group(parent="ticket_scroll", horizontal=True, tag=row_tag):
+        with dpg.group(parent=scroll, horizontal=True, tag=row_tag):
             with dpg.drawlist(width=22, height=22):
                 dpg.draw_circle(
                     (11, 11),
@@ -332,9 +406,9 @@ class TicketDispatcher:
                 user_data=ticket.id,
                 callback=self._on_ticket_pressed,
             )
-            dpg.bind_item_theme(btn, "ticket_theme")
+            dpg.bind_item_theme(btn, self._tag("ticket_theme"))
 
-        dpg.add_spacer(parent="ticket_scroll", height=4)
+        dpg.add_spacer(parent=scroll, height=4)
 
     def _on_ticket_pressed(self, sender, app_data, user_data: int) -> None:
         issue_id = user_data
@@ -342,7 +416,7 @@ class TicketDispatcher:
         if ticket is None:
             return
 
-        light_tag = f"ticket_light_{issue_id}"
+        light_tag = self._tag(f"ticket_light_{issue_id}")
         if dpg.does_item_exist(light_tag):
             dpg.configure_item(light_tag, fill=COLOR_BLUE, color=COLOR_BLUE)
 
@@ -360,8 +434,9 @@ class TicketDispatcher:
                 repo_name = repo_name[:-4]
 
         model = DEFAULT_MODEL
-        if dpg.does_item_exist("model"):
-            model = (dpg.get_value("model") or "").strip() or DEFAULT_MODEL
+        model_tag = self._tag("model")
+        if dpg.does_item_exist(model_tag):
+            model = (dpg.get_value(model_tag) or "").strip() or DEFAULT_MODEL
 
         fields = {
             "repo": repo_name,
@@ -376,23 +451,38 @@ class TicketDispatcher:
         if self._redis is None:
             self._connect_redis()
 
+        status = self._tag("status_text")
         if self._redis is None:
-            dpg.set_value("status_text", "Redis unavailable — could not dispatch")
-            dpg.configure_item("status_text", color=COLOR_RED)
+            if dpg.does_item_exist(status):
+                dpg.set_value(status, "Redis unavailable — could not dispatch")
+                dpg.configure_item(status, color=COLOR_RED)
             return
 
         try:
             entry_id = self._redis.xadd(REDIS_STREAM_KEY, fields)
             self._dispatched.add(issue_id)
-            dpg.set_value(
-                "status_text",
-                f"Dispatched #{issue_id} → Redis stream {REDIS_STREAM_KEY} ({entry_id})",
-            )
-            dpg.configure_item("status_text", color=COLOR_BLUE)
+            if dpg.does_item_exist(status):
+                dpg.set_value(
+                    status,
+                    f"Dispatched #{issue_id} → Redis stream {REDIS_STREAM_KEY} ({entry_id})",
+                )
+                dpg.configure_item(status, color=COLOR_BLUE)
         except redis.RedisError as exc:
-            dpg.set_value("status_text", f"Redis xadd failed: {exc}")
-            dpg.configure_item("status_text", color=COLOR_RED)
+            if dpg.does_item_exist(status):
+                dpg.set_value(status, f"Redis xadd failed: {exc}")
+                dpg.configure_item(status, color=COLOR_RED)
             self._redis = None
+
+
+def build_ui(
+    tag: str,
+    *,
+    pos: Optional[tuple[float, float]] = None,
+    on_close: Optional[Callable[[], None]] = None,
+) -> str:
+    """Module-level builder for FeSpec / Executive hosting."""
+    app = TicketDispatcher()
+    return app.build_ui(tag, pos=pos, on_close=on_close)
 
 
 def main() -> None:

@@ -3,7 +3,7 @@
 MegaDesk processes communicate over a shared local Redis. Two families of packages coexist on the same server:
 
 1. **Plant pipeline** (streams + short-lived hashes) — TicketDispatcher, Plant, MergeManager
-2. **Supervisor / GBD** (Pub/Sub + parameter hashes) — commander and launched nodes
+2. **Supervisor** (Pub/Sub lifecycle control) — commander and launched BE nodes
 
 ## Connection
 
@@ -22,9 +22,6 @@ Plant, TicketDispatcher, and MergeManager **do not** start Redis. Supervisor may
 | DB | Use |
 |----|-----|
 | **0** | Realtime traffic: Plant streams/hashes, Supervisor Pub/Sub, commander alive key |
-| **1** | Persistent node parameter hashes (`PARAMETERS_<nickname>`) for Supervisor-launched nodes |
-
-Plant-pipeline packages live entirely on **DB 0**.
 
 ## Encoding
 
@@ -40,8 +37,7 @@ Plant-pipeline packages live entirely on **DB 0**.
 | `WORKORDER` | stream | `WORKORDER` | [plant-pipeline.md](plant-pipeline.md#workorder) |
 | `LIVEHARNESS` | hash | `LIVEHARNESS:<GUID>` | [plant-pipeline.md](plant-pipeline.md#liveharnessguid) |
 | `FINISHED` | stream | `FINISHED:<REPO>` | [plant-pipeline.md](plant-pipeline.md#finishedrepo) |
-| Manifest Pub/Sub | channels | `register_manifest:*`, `execute_manifest:*`, `validate_manifest:*`, `acknowledgements:<id>`, `KILLALL` | [supervisor.md](supervisor.md) |
-| Node parameters | hash | `PARAMETERS_<nickname>` on DB 1 | [supervisor.md](supervisor.md#parameters_nickname) |
+| Node lifecycle Pub/Sub | channels | `launch_node:*`, `stop_node:*`, `acknowledgements:<id>`, `KILLALL` | [supervisor.md](supervisor.md) |
 | Commander alive | string (TTL) | `GBD:COMMANDER:ALIVE` on DB 0 | [supervisor.md](supervisor.md#gbdcommanderalive) |
 
 ## Code references
@@ -56,7 +52,10 @@ Supervisor keys/channels:
 - `Supervisor/commander/redis_provision.py`
 - `Supervisor/commander/pubsub_server.py`
 - `Supervisor/commander/engine.py`
+- `megadesk/megadesk/supervisor_client.py`
 
 ## Obsolete names (do not use)
 
 Older prompts mentioned `WORKREQUEST` and `MERGEREQUEST:*`. The live contract is **`WORKORDER`** and **`FINISHED:<REPO>`** only.
+
+Older Supervisor docs mentioned YAML manifests (`register_manifest` / `execute_manifest` / `PARAMETERS_*`). The live contract is **`launch_node` / `stop_node`** via `MegaDesk.nodes` BE specs.

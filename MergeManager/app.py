@@ -11,10 +11,11 @@ import threading
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 import dearpygui.dearpygui as dpg
 import redis
+from megadesk import frame_pump
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
 from redis.exceptions import ResponseError
@@ -58,6 +59,9 @@ log = logging.getLogger("merge_manager")
 POLL_INTERVAL_SEC = 2.0
 DEFAULT_REDIS_URL = "redis://localhost:6379/0"
 FINISHED_GROUP = "merge_manager"
+
+# Keep live instances alive while their embed windows exist.
+_LIVE: dict[str, "MergeManager"] = {}
 
 COLOR_OK = (80, 200, 80, 255)
 COLOR_ERR = (220, 70, 70, 255)
@@ -146,27 +150,35 @@ class MergeManager:
         self._items: dict[str, FinishedItem] = {}
         self._dismiss_ready: Optional[str] = None  # item key ready to dismiss
         self._lock = threading.Lock()
+        self._root_tag = "primary"
+        self._frame_registered = False
+
+    def _tag(self, suffix: str) -> str:
+        return f"{self._root_tag}::{suffix}"
 
     @staticmethod
     def item_key(repo: str, entry_id: str) -> str:
         return f"{repo}|{entry_id}"
 
     def _set_status(self, text: str, color: tuple[int, int, int, int] = COLOR_DIM) -> None:
-        if dpg.does_item_exist("status_text"):
-            dpg.set_value("status_text", text)
-            dpg.configure_item("status_text", color=color)
+        tag = self._tag("status_text")
+        if dpg.does_item_exist(tag):
+            dpg.set_value(tag, text)
+            dpg.configure_item(tag, color=color)
 
     def _update_dismissal_tag(self) -> None:
-        if not dpg.does_item_exist("dismissal_tag"):
+        dismissal_tag = self._tag("dismissal_tag")
+        dismissal_button = self._tag("dismissal_button")
+        if not dpg.does_item_exist(dismissal_tag):
             return
         if self._dismiss_ready and self._dismiss_ready in self._items:
             item = self._items[self._dismiss_ready]
             label = f"Dismiss: {item.ticket_name}"
-            dpg.set_value("dismissal_tag", label)
-            dpg.configure_item("dismissal_button", show=True, enabled=True)
+            dpg.set_value(dismissal_tag, label)
+            dpg.configure_item(dismissal_button, show=True, enabled=True)
         else:
-            dpg.set_value("dismissal_tag", "dismissal tag")
-            dpg.configure_item("dismissal_button", show=True, enabled=False)
+            dpg.set_value(dismissal_tag, "dismissal tag")
+            dpg.configure_item(dismissal_button, show=True, enabled=False)
 
     def _ensure_group(self, stream_key: str) -> None:
         assert self._redis is not None
@@ -292,14 +304,15 @@ class MergeManager:
 
     def _add_row(self, key: str) -> None:
         item = self._items.get(key)
-        if item is None or not dpg.does_item_exist("ticket_table"):
+        table = self._tag("ticket_table")
+        if item is None or not dpg.does_item_exist(table):
             return
         if item.row_tag and dpg.does_item_exist(item.row_tag):
             return
 
-        row_tag = f"row::{key}"
+        row_tag = self._tag(f"row::{key}")
         item.row_tag = row_tag
-        with dpg.table_row(parent="ticket_table", tag=row_tag):
+        with dpg.table_row(parent=table, tag=row_tag):
             dpg.add_button(
                 label="testme",
                 width=70,
@@ -318,19 +331,19 @@ class MergeManager:
                 callback=self._on_cursor,
                 user_data=key,
             )
-            dpg.add_text(item.ticket_name, tag=f"name::{key}")
-            with dpg.group(horizontal=True, tag=f"actions::{key}"):
+            dpg.add_text(item.ticket_name, tag=self._tag(f"name::{key}"))
+            with dpg.group(horizontal=True, tag=self._tag(f"actions::{key}")):
                 dpg.add_button(
                     label="merge",
                     width=80,
-                    tag=f"merge::{key}",
+                    tag=self._tag(f"merge::{key}"),
                     callback=self._on_merge,
                     user_data=key,
                 )
                 dpg.add_button(
                     label="hard-reset agents",
                     width=140,
-                    tag=f"reset::{key}",
+                    tag=self._tag(f"reset::{key}"),
                     callback=self._on_hard_reset,
                     user_data=key,
                     show=False,
@@ -338,7 +351,7 @@ class MergeManager:
                 dpg.add_button(
                     label="dismiss",
                     width=80,
-                    tag=f"dismiss::{key}",
+                    tag=self._tag(f"dismiss::{key}"),
                     callback=self._on_dismiss_row,
                     user_data=key,
                     show=False,
@@ -355,10 +368,10 @@ class MergeManager:
         if item is None:
             return
 
-        merge_tag = f"merge::{key}"
-        reset_tag = f"reset::{key}"
-        dismiss_tag = f"dismiss::{key}"
-        name_tag = f"name::{key}"
+        merge_tag = self._tag(f"merge::{key}")
+        reset_tag = self._tag(f"reset::{key}")
+        dismiss_tag = self._tag(f"dismiss::{key}")
+        name_tag = self._tag(f"name::{key}")
 
         if dpg.does_item_exist(name_tag):
             label = item.ticket_name
@@ -522,18 +535,50 @@ class MergeManager:
             return
         self._on_dismiss_row("", None, self._dismiss_ready)
 
-    def _build_ui(self) -> None:
-        dpg.create_context()
-        dpg.create_viewport(title="MergeManager", width=980, height=640)
+    def build_ui(
+        self,
+        tag: str = "primary",
+        *,
+        pos: Optional[tuple[float, float]] = None,
+        on_close: Optional[Callable[[], None]] = None,
+        width: int = 960,
+        height: int = 600,
+    ) -> str:
+        """Build the MergeManager window. Returns the window tag."""
+        self._root_tag = tag
+        if dpg.does_item_exist(tag):
+            dpg.delete_item(tag)
 
-        with dpg.window(tag="primary", label="Resolution panel"):
+        kwargs: dict = {}
+        if pos is not None:
+            kwargs["pos"] = list(pos)
+
+        def _close() -> None:
+            self.shutdown()
+            if on_close:
+                on_close()
+
+        with dpg.window(
+            tag=tag,
+            label="Resolution panel",
+            width=width,
+            height=height,
+            no_collapse=True,
+            on_close=_close if on_close is not None else None,
+            no_close=on_close is None,
+            **kwargs,
+        ):
             with dpg.group(horizontal=True):
-                dpg.add_text("", tag="status_text", color=COLOR_DIM)
+                dpg.add_text("", tag=self._tag("status_text"), color=COLOR_DIM)
                 dpg.add_spacer(width=20)
-                dpg.add_text("dismissal tag", tag="dismissal_tag", color=COLOR_DIM)
+                dpg.add_text(
+                    "dismissal tag",
+                    tag=self._tag("dismissal_tag"),
+                    color=COLOR_DIM,
+                )
                 dpg.add_button(
                     label="Dismiss",
-                    tag="dismissal_button",
+                    tag=self._tag("dismissal_button"),
                     callback=lambda: self._on_dismiss_header(),
                     enabled=False,
                 )
@@ -541,7 +586,7 @@ class MergeManager:
             dpg.add_spacer(height=6)
 
             with dpg.table(
-                tag="ticket_table",
+                tag=self._tag("ticket_table"),
                 header_row=True,
                 borders_innerH=True,
                 borders_outerH=True,
@@ -558,7 +603,9 @@ class MergeManager:
                 dpg.add_table_column(label="merge", init_width_or_weight=0.2)
 
             dpg.add_spacer(height=8)
-            with dpg.child_window(tag="detail_pane", height=-1, border=True):
+            with dpg.child_window(
+                tag=self._tag("detail_pane"), height=-1, border=True
+            ):
                 dpg.add_text(
                     "Finished tickets appear above. "
                     "Merge attempts follow: success → dismiss; "
@@ -567,11 +614,45 @@ class MergeManager:
                     color=COLOR_DIM,
                 )
 
-        dpg.set_primary_window("primary", True)
-        dpg.setup_dearpygui()
-        dpg.show_viewport()
-        self._set_status(f"Connected — watching {FINISHED_PREFIX}* streams", COLOR_INFO)
+        self._start_services()
+        _LIVE[tag] = self
+        self._set_status(
+            f"Connected — watching {FINISHED_PREFIX}* streams", COLOR_INFO
+        )
         self._update_dismissal_tag()
+        return tag
+
+    def _start_services(self) -> None:
+        if self._poll_thread and self._poll_thread.is_alive():
+            return
+        if self._redis is None:
+            try:
+                self._redis = connect_redis(self.redis_url)
+            except SystemExit:
+                self._redis = None
+        self._stop.clear()
+        self._poll_thread = threading.Thread(
+            target=self._poll_loop, name="finished-poll", daemon=True
+        )
+        self._poll_thread.start()
+        if not self._frame_registered:
+            frame_pump.register(self._on_frame)
+            self._frame_registered = True
+
+    def _on_frame(self) -> None:
+        if not dpg.does_item_exist(self._root_tag):
+            return
+        self._drain_ui_queue()
+
+    def shutdown(self) -> None:
+        self._stop.set()
+        if self._frame_registered:
+            frame_pump.unregister(self._on_frame)
+            self._frame_registered = False
+        if self._poll_thread is not None:
+            self._poll_thread.join(timeout=2.0)
+            self._poll_thread = None
+        _LIVE.pop(self._root_tag, None)
 
     def start(self) -> None:
         logging.basicConfig(
@@ -580,21 +661,30 @@ class MergeManager:
             stream=sys.stdout,
         )
         self._redis = connect_redis(self.redis_url)
-        self._build_ui()
-
-        self._poll_thread = threading.Thread(
-            target=self._poll_loop, name="finished-poll", daemon=True
-        )
-        self._poll_thread.start()
+        dpg.create_context()
+        self.build_ui("primary")
+        dpg.create_viewport(title="MergeManager", width=980, height=640)
+        dpg.setup_dearpygui()
+        dpg.show_viewport()
+        dpg.set_primary_window("primary", True)
 
         while dpg.is_dearpygui_running():
             self._drain_ui_queue()
             dpg.render_dearpygui_frame()
 
-        self._stop.set()
-        if self._poll_thread is not None:
-            self._poll_thread.join(timeout=2.0)
+        self.shutdown()
         dpg.destroy_context()
+
+
+def build_ui(
+    tag: str,
+    *,
+    pos: Optional[tuple[float, float]] = None,
+    on_close: Optional[Callable[[], None]] = None,
+) -> str:
+    """Module-level builder for FeSpec / Executive hosting."""
+    app = MergeManager()
+    return app.build_ui(tag, pos=pos, on_close=on_close)
 
 
 def main() -> None:

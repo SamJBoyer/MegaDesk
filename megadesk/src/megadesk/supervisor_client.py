@@ -1,4 +1,4 @@
-"""Pub/Sub request helpers for Executive and smoke tests."""
+"""Thin Redis Pub/Sub client for Supervisor launch_node / stop_node."""
 
 from __future__ import annotations
 
@@ -6,12 +6,18 @@ import time
 import uuid
 from typing import Optional
 
-import redis
+try:
+    import redis
+except ImportError:  # pragma: no cover
+    redis = None  # type: ignore
 
-from commander.redis_provision import REDIS_HOST, REDIS_PORT, is_commander_alive, ping_redis
+
+REDIS_HOST = "localhost"
+REDIS_PORT = 6379
+COMMANDER_ALIVE_KEY = "GBD:COMMANDER:ALIVE"
 
 
-class PubSubClient:
+class SupervisorClient:
     def __init__(
         self,
         caller_identity: Optional[str] = None,
@@ -19,19 +25,26 @@ class PubSubClient:
         port: int = REDIS_PORT,
         timeout: float = 5.0,
     ) -> None:
-        self.identity = caller_identity or f"frontend-{uuid.uuid4().hex[:8]}"
+        if redis is None:
+            raise RuntimeError("redis package is required for SupervisorClient")
+        self.identity = caller_identity or f"executive-{uuid.uuid4().hex[:8]}"
         self.timeout = timeout
         self.client = redis.Redis(host=host, port=port, db=0, decode_responses=True)
         self.ack_channel = f"acknowledgements:{self.identity}"
 
     def redis_ok(self) -> bool:
-        return ping_redis()
+        try:
+            return bool(self.client.ping())
+        except Exception:
+            return False
 
     def backend_ok(self) -> bool:
-        return is_commander_alive(self.client)
+        try:
+            return self.client.exists(COMMANDER_ALIVE_KEY) == 1
+        except Exception:
+            return False
 
     def request(self, channel_prefix: str, body: str) -> Optional[str]:
-        """Publish to <prefix>:<identity> and wait for one ack message."""
         pubsub = self.client.pubsub(ignore_subscribe_messages=True)
         pubsub.subscribe(self.ack_channel)
         time.sleep(0.05)
@@ -57,6 +70,3 @@ class PubSubClient:
 
     def stop_node(self, name: str) -> Optional[str]:
         return self.request("stop_node", name)
-
-    def killall(self) -> None:
-        self.client.publish("KILLALL", "1")
