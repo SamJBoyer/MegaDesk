@@ -13,7 +13,71 @@
       "definition": "A visibility/lock group for canvas members in the hierarchy."
     }
   ],
-  "members": {},
+  "members": {
+    "9c577b3a-7ecc-4bd0-9132-66a3eda42617": {
+      "canvas_id": "9c577b3a-7ecc-4bd0-9132-66a3eda42617",
+      "type": "megadesk",
+      "nickname": "supervisor",
+      "node_name": "supervisor",
+      "position": [
+        534.0,
+        324.0
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 480.0,
+        "height": 420.0,
+        "node_name": "supervisor"
+      }
+    },
+    "67b26b0f-23cf-45fa-9a75-ac930acd794a": {
+      "canvas_id": "67b26b0f-23cf-45fa-9a75-ac930acd794a",
+      "type": "megadesk",
+      "nickname": "ticket_dispatcher",
+      "node_name": "ticket_dispatcher",
+      "position": [
+        547.016294,
+        46.01180199999995
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 700.0,
+        "height": 520.0,
+        "node_name": "ticket_dispatcher"
+      }
+    },
+    "c46f0406-5f59-42c1-bfc7-68fe692a5bbb": {
+      "canvas_id": "c46f0406-5f59-42c1-bfc7-68fe692a5bbb",
+      "type": "megadesk",
+      "nickname": "ticket_dispatcher",
+      "node_name": "ticket_dispatcher",
+      "position": [
+        -92.51722700000009,
+        -125.82961500000008
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 700.0,
+        "height": 520.0,
+        "node_name": "ticket_dispatcher"
+      }
+    }
+  },
   "hierarchy": {
     "layers": [
       {
@@ -21,7 +85,11 @@
         "name": "Layer 1",
         "visible": true,
         "locked": false,
-        "children": []
+        "children": [
+          "9c577b3a-7ecc-4bd0-9132-66a3eda42617",
+          "67b26b0f-23cf-45fa-9a75-ac930acd794a",
+          "c46f0406-5f59-42c1-bfc7-68fe692a5bbb"
+        ]
       },
       {
         "id": "a83fcdba-7667-4aee-a558-bfc6c9d3c14b",

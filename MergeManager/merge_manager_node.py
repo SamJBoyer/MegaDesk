@@ -18,8 +18,8 @@ def get_exec_spec(mode: Mode) -> FeSpec | BeSpec | None:
             name="merge_manager",
             description="Resolve FINISHED worktrees into the agents branch.",
             icon=icon,
-            default_width=220,
-            default_height=140,
+            default_width=960,
+            default_height=600,
             build=build_ui,
         )
     return None

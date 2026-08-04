@@ -543,6 +543,8 @@ class MergeManager:
         on_close: Optional[Callable[[], None]] = None,
         width: int = 960,
         height: int = 600,
+        no_move: bool = False,
+        no_resize: bool = False,
     ) -> str:
         """Build the MergeManager window. Returns the window tag."""
         self._root_tag = tag
@@ -564,6 +566,8 @@ class MergeManager:
             width=width,
             height=height,
             no_collapse=True,
+            no_move=no_move,
+            no_resize=no_resize,
             on_close=_close if on_close is not None else None,
             no_close=on_close is None,
             **kwargs,
@@ -681,10 +685,22 @@ def build_ui(
     *,
     pos: Optional[tuple[float, float]] = None,
     on_close: Optional[Callable[[], None]] = None,
+    width: int = 960,
+    height: int = 600,
+    no_move: bool = False,
+    no_resize: bool = False,
 ) -> str:
     """Module-level builder for FeSpec / Executive hosting."""
     app = MergeManager()
-    return app.build_ui(tag, pos=pos, on_close=on_close)
+    return app.build_ui(
+        tag,
+        pos=pos,
+        on_close=on_close,
+        width=width,
+        height=height,
+        no_move=no_move,
+        no_resize=no_resize,
+    )
 
 
 def main() -> None:

@@ -17,16 +17,18 @@ from megadesk import BeSpec, FeSpec, Mode
 
 _SUPERVISOR_ROOT = Path(__file__).resolve().parent
 NODE_NAME = "supervisor"
+_ICON = str(_SUPERVISOR_ROOT / "supervisor_icon.png")
 
 
 def get_exec_spec(mode: Mode) -> FeSpec | BeSpec | None:
     if mode == "FE":
         from frontend.app import build_ui
 
+        icon = _ICON if Path(_ICON).is_file() else None
         return FeSpec(
             name=NODE_NAME,
             description="Supervisor operator panel (launch / stop BE nodes).",
-            icon=None,
+            icon=icon,
             default_width=480,
             default_height=420,
             build=build_ui,

@@ -18,8 +18,8 @@ def get_exec_spec(mode: Mode) -> FeSpec | BeSpec | None:
             name="ticket_dispatcher",
             description="Dispatch agent-ready GitHub issues onto the WORKORDER stream.",
             icon=icon,
-            default_width=220,
-            default_height=140,
+            default_width=700,
+            default_height=520,
             build=build_ui,
         )
     return None
