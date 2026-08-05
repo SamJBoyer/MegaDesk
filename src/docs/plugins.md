@@ -35,7 +35,7 @@ def get_exec_spec(mode: Mode):
             icon=None,
             default_width=480,
             default_height=420,
-            build=build_ui,  # (tag, *, pos=None, on_close=None, width=…, height=…, no_move=…, no_resize=…) -> window_tag
+            build=build_ui,  # hosted content panel — see contract below
         )
     return None  # FE-only
 ```
@@ -45,12 +45,41 @@ def get_exec_spec(mode: Mode):
 my_tool = "my_tool.node:get_exec_spec"
 ```
 
+### Canvas-hosted FE shell
+
 MegaDesk discovers FE specs at startup and shows them in Drop-in. Dropping a
 tool onto the canvas places a MegaDesk member (`type: "megadesk"` + `node_name`
-in `canvas.json`) and immediately opens the full Dear PyGui window world-anchored
-at the drop point. Pan/zoom keeps windows glued to the board; title-bar drag /
-corner resize write back into the member's world position and pixel size. Closing
-the window leaves a placard; double-click reopens it.
+in `canvas.json`) and opens its Dear PyGui UI as a **hosted content panel**:
+
+| Owner | Responsibility |
+| --- | --- |
+| **Canvas** | Header chrome, selection ring, resize handles, world position, drag |
+| **FE `build()`** | Widgets inside a fixed panel (`no_title_bar`, `no_move`, `no_resize`) |
+
+`build` signature for hosting:
+
+```python
+def build_ui(
+    tag,
+    *,
+    pos=None,
+    on_close=None,
+    width=…,
+    height=…,
+    no_move=True,
+    no_resize=True,
+    no_title_bar=True,
+) -> str:  # window tag
+    ...
+```
+
+Push sync every frame glues the panel under the canvas header (pixel-sized;
+does not scale with zoom). Closing via the chrome **x** leaves a placard
+(`data.gui_open = false`); double-click reopens. Open/closed is restored from
+`canvas.json` on load.
+
+Store a cleanup callable on the window with `dpg.set_item_user_data(tag, close_fn)`
+so the host can shut the FE down when collapsing to a placard.
 
 If the same entry point also returns a `BeSpec` for `"BE"`, MegaDesk publishes
 Redis `launch_node:<identity>` with the node name so Supervisor can start the

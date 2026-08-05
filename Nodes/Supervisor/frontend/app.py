@@ -111,6 +111,7 @@ class SupervisorPanel:
         height: int = 420,
         no_move: bool = False,
         no_resize: bool = False,
+        no_title_bar: bool = False,
     ) -> str:
         self._root_tag = tag
         if dpg.does_item_exist(tag):
@@ -125,6 +126,8 @@ class SupervisorPanel:
             if on_close:
                 on_close()
 
+        # Hosted shells (no_title_bar) close via canvas chrome + user_data, not DPG X.
+        use_dpg_close = on_close is not None and not no_title_bar
         with dpg.window(
             tag=tag,
             label="Supervisor",
@@ -133,8 +136,9 @@ class SupervisorPanel:
             no_collapse=True,
             no_move=no_move,
             no_resize=no_resize,
-            on_close=_close if on_close is not None else None,
-            no_close=on_close is None,
+            no_title_bar=no_title_bar,
+            on_close=_close if use_dpg_close else None,
+            no_close=not use_dpg_close,
             **kwargs,
         ):
             with dpg.group(horizontal=True):
@@ -183,6 +187,7 @@ class SupervisorPanel:
                 height=-1,
             )
 
+        dpg.set_item_user_data(tag, _close)
         self._ensure_backend()
         self._poll_status(force=True)
         if not self._frame_registered:
@@ -273,6 +278,7 @@ def build_ui(
     height: int = 420,
     no_move: bool = False,
     no_resize: bool = False,
+    no_title_bar: bool = False,
 ) -> str:
     """Module-level builder for FeSpec / MegaDesk canvas hosting."""
     return SupervisorPanel().build_ui(
@@ -283,6 +289,7 @@ def build_ui(
         height=height,
         no_move=no_move,
         no_resize=no_resize,
+        no_title_bar=no_title_bar,
     )
 
 

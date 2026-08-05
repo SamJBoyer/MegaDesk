@@ -14,14 +14,14 @@
     }
   ],
   "members": {
-    "0dabbc19-5c17-44b1-861a-075bc57e489c": {
-      "canvas_id": "0dabbc19-5c17-44b1-861a-075bc57e489c",
+    "cebf0c36-ae19-4973-a935-513c3f0d72d0": {
+      "canvas_id": "cebf0c36-ae19-4973-a935-513c3f0d72d0",
       "type": "megadesk",
       "nickname": "merge_manager",
       "node_name": "merge_manager",
       "position": [
-        517.0,
-        248.0
+        87.99052904860083,
+        2364.1505052580833
       ],
       "scale": [
         1.0,
@@ -30,19 +30,19 @@
       "parents": [],
       "children": [],
       "data": {
-        "width": 960.0,
-        "height": 600.0,
-        "node_name": "merge_manager"
+        "width": 329.5899737550842,
+        "height": 409.75186687391175,
+        "node_name": "merge_manager",
+        "gui_open": true
       }
     },
-    "a78ed0c8-196b-4ab2-ab88-b9d92486fc7c": {
-      "canvas_id": "a78ed0c8-196b-4ab2-ab88-b9d92486fc7c",
-      "type": "megadesk",
-      "nickname": "ticket_dispatcher",
-      "node_name": "ticket_dispatcher",
+    "3a7547e2-9757-4c44-b9ba-b0838a016d0a": {
+      "canvas_id": "3a7547e2-9757-4c44-b9ba-b0838a016d0a",
+      "type": "sticky",
+      "nickname": "Sticky",
       "position": [
-        396.52086619101965,
-        2825.0530412571056
+        3461.1492580087074,
+        1893.8474749550544
       ],
       "scale": [
         1.0,
@@ -51,9 +51,21 @@
       "parents": [],
       "children": [],
       "data": {
-        "width": 700.0,
-        "height": 520.0,
-        "node_name": "ticket_dispatcher"
+        "text": "Sticky",
+        "fill": [
+          255,
+          245,
+          160,
+          240
+        ],
+        "edge": [
+          70,
+          70,
+          75,
+          255
+        ],
+        "width": 160.0,
+        "height": 160.0
       }
     }
   },
@@ -65,15 +77,15 @@
         "visible": true,
         "locked": false,
         "children": [
-          "0dabbc19-5c17-44b1-861a-075bc57e489c",
-          "a78ed0c8-196b-4ab2-ab88-b9d92486fc7c"
+          "cebf0c36-ae19-4973-a935-513c3f0d72d0",
+          "3a7547e2-9757-4c44-b9ba-b0838a016d0a"
         ]
       },
       {
         "id": "a83fcdba-7667-4aee-a558-bfc6c9d3c14b",
         "name": "Balls",
         "visible": true,
-        "locked": true,
+        "locked": false,
         "children": []
       }
     ]

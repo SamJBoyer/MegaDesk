@@ -545,6 +545,7 @@ class MergeManager:
         height: int = 600,
         no_move: bool = False,
         no_resize: bool = False,
+        no_title_bar: bool = False,
     ) -> str:
         """Build the MergeManager window. Returns the window tag."""
         self._root_tag = tag
@@ -560,6 +561,8 @@ class MergeManager:
             if on_close:
                 on_close()
 
+        # Hosted shells (no_title_bar) close via canvas chrome + user_data, not DPG X.
+        use_dpg_close = on_close is not None and not no_title_bar
         with dpg.window(
             tag=tag,
             label="Resolution panel",
@@ -568,8 +571,9 @@ class MergeManager:
             no_collapse=True,
             no_move=no_move,
             no_resize=no_resize,
-            on_close=_close if on_close is not None else None,
-            no_close=on_close is None,
+            no_title_bar=no_title_bar,
+            on_close=_close if use_dpg_close else None,
+            no_close=not use_dpg_close,
             **kwargs,
         ):
             with dpg.group(horizontal=True):
@@ -618,6 +622,7 @@ class MergeManager:
                     color=COLOR_DIM,
                 )
 
+        dpg.set_item_user_data(tag, _close)
         self._start_services()
         _LIVE[tag] = self
         self._set_status(
@@ -689,6 +694,7 @@ def build_ui(
     height: int = 600,
     no_move: bool = False,
     no_resize: bool = False,
+    no_title_bar: bool = False,
 ) -> str:
     """Module-level builder for FeSpec / MegaDesk canvas hosting."""
     app = MergeManager()
@@ -700,6 +706,7 @@ def build_ui(
         height=height,
         no_move=no_move,
         no_resize=no_resize,
+        no_title_bar=no_title_bar,
     )
 
 

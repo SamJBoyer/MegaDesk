@@ -10,7 +10,7 @@ from engine.autocomplete import apply_completion, match_terms
 from engine.base_node import BaseNode
 from engine.canvas_model import CanvasMember, CanvasModel
 from engine.icons import ICON_PX, get_icon_texture, get_icon_texture_for_path
-from engine.megadesk_member import MegaDeskMember
+from engine.megadesk_member import HEADER_H, MegaDeskMember
 from engine.megadesk_registry import (
     all_fe_specs,
     fe_has_backend,
@@ -82,8 +82,6 @@ class DisplayEngine:
         self._ac_matches: list[str] = []
         # Unity-style hierarchy: canvas_id / layer_id -> expanded
         self._hier_expanded: dict[str, bool] = {}
-        # MegaDesk FE window currently being title-bar dragged / resized
-        self._gui_dragging_tag: Optional[str] = None
 
         self._status_cb: Optional[Callable[[str], None]] = None
 
@@ -128,6 +126,8 @@ class DisplayEngine:
         for node in self.model.members.values():
             if not self.model.is_visible(node.canvas_id):
                 continue
+            if isinstance(node, MegaDeskMember):
+                node.set_view_zoom(self.zoom)
             if node.contains_point(world_x, world_y):
                 hits.append(node)
         if not hits:
@@ -172,6 +172,8 @@ class DisplayEngine:
                 others.append(node)
 
         for node in containers + others:
+            if isinstance(node, MegaDeskMember):
+                node.set_view_zoom(self.zoom)
             node.draw(
                 DRAWLIST_TAG,
                 self.world_to_screen,
@@ -183,15 +185,24 @@ class DisplayEngine:
             node = self.model.members.get(cid)
             if not node or not self.model.is_visible(cid):
                 continue
+            if isinstance(node, MegaDeskMember):
+                node.set_view_zoom(self.zoom)
             if len(self.selected_ids) == 1:
                 node.draw_resize_handles(DRAWLIST_TAG, self.world_to_screen)
             else:
-                x, y, bw, bh = node.bounds()
-                pmin = self.world_to_screen(x, y)
-                pmax = self.world_to_screen(x + bw, y + bh)
+                if isinstance(node, MegaDeskMember) and node.is_gui_open():
+                    sx, sy = self.world_to_screen(node.position[0], node.position[1])
+                    pmin = (sx - 3, sy - 3)
+                    pmax = (sx + node.width + 3, sy + HEADER_H + node.height + 3)
+                else:
+                    x, y, bw, bh = node.bounds()
+                    pmin = self.world_to_screen(x, y)
+                    pmax = self.world_to_screen(x + bw, y + bh)
+                    pmin = (pmin[0] - 3, pmin[1] - 3)
+                    pmax = (pmax[0] + 3, pmax[1] + 3)
                 dpg.draw_rectangle(
-                    (pmin[0] - 3, pmin[1] - 3),
-                    (pmax[0] + 3, pmax[1] + 3),
+                    pmin,
+                    pmax,
                     color=(60, 130, 220, 220),
                     fill=(0, 0, 0, 0),
                     thickness=2,
@@ -312,6 +323,8 @@ class DisplayEngine:
                 continue
             if self.model.is_locked(node.canvas_id):
                 continue
+            if isinstance(node, MegaDeskMember):
+                node.set_view_zoom(self.zoom)
             bx, by, bw, bh = node.bounds()
             if bx + bw < min_x or bx > max_x or by + bh < min_y or by > max_y:
                 continue
@@ -378,6 +391,8 @@ class DisplayEngine:
             # Prefer resize handles when exactly one object is selected
             if len(self.selected_ids) == 1 and self.selected_id in self.model.members:
                 sel = self.model.members[self.selected_id]
+                if isinstance(sel, MegaDeskMember):
+                    sel.set_view_zoom(self.zoom)
                 if not self.model.is_locked(self.selected_id):
                     handle = sel.hit_resize_handle(wx, wy, zoom=self.zoom)
                     if handle:
@@ -388,6 +403,19 @@ class DisplayEngine:
                         self._last_mouse = (mx, my)
                         sel.on_start_resize(handle)
                         return
+
+            # Canvas-drawn close on open MegaDesk shells
+            for node in self.model.members.values():
+                if not isinstance(node, MegaDeskMember) or not node.is_gui_open():
+                    continue
+                if self.model.is_locked(node.canvas_id):
+                    continue
+                node.set_view_zoom(self.zoom)
+                if node.hit_close_button(wx, wy):
+                    node.close_window()
+                    self.model.save()
+                    self.redraw()
+                    return
 
             hit = self.hit_test(wx, wy)
             if hit and not self.model.is_locked(hit.canvas_id):
@@ -480,9 +508,12 @@ class DisplayEngine:
                 return
             node = self.model.members.get(self.selected_id)
             if node and self._resize_handle:
+                if isinstance(node, MegaDeskMember):
+                    node.set_view_zoom(self.zoom)
                 wx, wy = self.screen_to_world(mx, my)
                 node.on_resize(self._resize_handle, wx, wy)
                 self._last_mouse = (mx, my)
+                self.sync_megadesk_windows()
                 self.redraw()
             return
 
@@ -575,12 +606,38 @@ class DisplayEngine:
     def _mouse_over_canvas(self) -> bool:
         if not dpg.does_item_exist(DRAWLIST_TAG):
             return False
+        # Content panels own widget input; canvas owns header chrome + rim handles
+        # even when a hosted window is stacked above the drawlist.
+        if self._megadesk_chrome_hit():
+            return True
         if self._megadesk_window_hovered():
             return False
         try:
             return dpg.is_item_hovered(DRAWLIST_TAG) or dpg.is_item_hovered(CANVAS_WINDOW)
         except Exception:
             return True
+
+    def _megadesk_chrome_hit(self) -> bool:
+        """True when the cursor is on canvas-owned chrome of an open FE shell."""
+        mx, my = self._draw_mouse_pos()
+        wx, wy = self.screen_to_world(mx, my)
+        if len(self.selected_ids) == 1 and self.selected_id in self.model.members:
+            sel = self.model.members[self.selected_id]
+            if isinstance(sel, MegaDeskMember) and sel.is_gui_open():
+                sel.set_view_zoom(self.zoom)
+                if sel.hit_resize_handle(wx, wy, zoom=self.zoom):
+                    return True
+                if sel.hit_close_button(wx, wy):
+                    return True
+        for node in self.model.members.values():
+            if not isinstance(node, MegaDeskMember) or not node.is_gui_open():
+                continue
+            node.set_view_zoom(self.zoom)
+            if node.contains_point(wx, wy) or node.hit_close_button(wx, wy):
+                return True
+            if node.hit_resize_handle(wx, wy, zoom=self.zoom):
+                return True
+        return False
 
     def _item_contains_global(self, tag: str, mx: float, my: float) -> bool:
         if not dpg.does_item_exist(tag):
@@ -733,73 +790,66 @@ class DisplayEngine:
         self.sync_megadesk_windows()
         self.redraw()
 
-    # --- MegaDesk world-anchored FE windows ---
+    # --- MegaDesk canvas-hosted FE panels ---
 
     def open_megadesk_gui(self, node: MegaDeskMember) -> None:
-        """Open (or focus) a MegaDesk FE window anchored to the member's world pos."""
+        """Open (or focus) a hosted content panel under the canvas header chrome."""
+        node.set_view_zoom(self.zoom)
         ox, oy = self._drawlist_origin()
         sx, sy = self.world_to_screen(node.position[0], node.position[1])
-        node.open_window(global_pos=(ox + sx, oy + sy))
+        off_x, off_y = node.content_screen_offset()
+        node.open_window(global_pos=(ox + sx + off_x, oy + sy + off_y))
+        self.sync_megadesk_windows()
 
     def open_all_megadesk_guis(self) -> None:
-        """Re-open FE windows for every MegaDesk member (e.g. after canvas load)."""
+        """Re-open FE panels for MegaDesk members that were saved as open."""
         for node in self.model.members.values():
-            if isinstance(node, MegaDeskMember):
+            if not isinstance(node, MegaDeskMember):
+                continue
+            if node.data.get("gui_open", True) or node._want_gui_open:
                 self.open_megadesk_gui(node)
 
-    def _pull_megadesk_geom(self, node: MegaDeskMember, ox: float, oy: float) -> None:
-        tag = node.window_tag
-        if not tag or not dpg.does_item_exist(tag):
-            return
-        pos = dpg.get_item_pos(tag)
-        node.position[0], node.position[1] = self.screen_to_world(pos[0] - ox, pos[1] - oy)
-        w = dpg.get_item_width(tag)
-        h = dpg.get_item_height(tag)
-        if w:
-            node.width = float(w)
-        if h:
-            node.height = float(h)
-        node.scale_x = 1.0
-        node.scale_y = 1.0
-
     def sync_megadesk_windows(self) -> None:
-        """Push world→screen, or pull screen→world while a FE window is dragged/resized."""
+        """Push canvas-owned world pos + pixel size onto hosted content panels."""
         ox, oy = self._drawlist_origin()
-        left_down = dpg.is_mouse_button_down(dpg.mvMouseButton_Left)
-        size_changed = False
+        needs_redraw = False
+        hover_select: Optional[MegaDeskMember] = None
 
         for node in list(self.model.members.values()):
             if not isinstance(node, MegaDeskMember):
                 continue
+            node.set_view_zoom(self.zoom)
             tag = node.window_tag
             if not tag:
                 continue
             if not dpg.does_item_exist(tag):
                 node._window_tag = None
+                node._want_gui_open = False
+                node.data["gui_open"] = False
+                needs_redraw = True
                 continue
 
-            hovered = dpg.is_item_hovered(tag)
-            if hovered and node.canvas_id not in self.selected_ids:
-                self.selected_id = node.canvas_id
-                self.selected_ids = {node.canvas_id}
+            if (
+                hover_select is None
+                and dpg.is_item_hovered(tag)
+                and node.canvas_id not in self.selected_ids
+                and not self.model.is_locked(node.canvas_id)
+            ):
+                hover_select = node
 
-            if hovered and left_down:
-                self._gui_dragging_tag = tag
-                prev = (node.width, node.height)
-                self._pull_megadesk_geom(node, ox, oy)
-                if (node.width, node.height) != prev:
-                    size_changed = True
-            elif self._gui_dragging_tag == tag and not left_down:
-                self._gui_dragging_tag = None
-                prev = (node.width, node.height)
-                self._pull_megadesk_geom(node, ox, oy)
-                if (node.width, node.height) != prev:
-                    size_changed = True
-            elif self._gui_dragging_tag != tag:
-                sx, sy = self.world_to_screen(node.position[0], node.position[1])
-                dpg.set_item_pos(tag, [ox + sx, oy + sy])
+            sx, sy = self.world_to_screen(node.position[0], node.position[1])
+            off_x, off_y = node.content_screen_offset()
+            dpg.set_item_pos(tag, [ox + sx + off_x, oy + sy + off_y])
+            w = max(1, int(node.width))
+            h = max(1, int(node.height))
+            try:
+                dpg.configure_item(tag, width=w, height=h)
+            except Exception:
+                pass
 
-        if size_changed:
+        if hover_select is not None:
+            self.select(hover_select, sync_hierarchy=False)
+        elif needs_redraw:
             self.redraw()
 
     def _megadesk_window_hovered(self) -> bool:
