@@ -6,9 +6,11 @@ from pathlib import Path
 
 from megadesk import BeSpec, FeSpec, Mode
 
-from app import build_ui
+from ticket_dispatcher_app import build_ui
 
-_ICON = str((Path(__file__).resolve().parent / "icon.png"))
+_ICON = str(
+    Path(__file__).resolve().parent / "Etc" / "Artwork" / "ticket.png"
+)
 
 
 def get_exec_spec(mode: Mode) -> FeSpec | BeSpec | None:

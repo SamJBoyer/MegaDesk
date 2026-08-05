@@ -6,9 +6,11 @@ from pathlib import Path
 
 from megadesk import BeSpec, FeSpec, Mode
 
-from app import build_ui
+from merge_manager_app import build_ui
 
-_ICON = str((Path(__file__).resolve().parent / "icon.png"))
+_ICON = str(
+    Path(__file__).resolve().parent / "Etc" / "Artwork" / "icon.png"
+)
 
 
 def get_exec_spec(mode: Mode) -> FeSpec | BeSpec | None:

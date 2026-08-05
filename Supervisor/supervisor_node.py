@@ -17,7 +17,7 @@ from megadesk import BeSpec, FeSpec, Mode
 
 _SUPERVISOR_ROOT = Path(__file__).resolve().parent
 NODE_NAME = "supervisor"
-_ICON = str(_SUPERVISOR_ROOT / "supervisor_icon.png")
+_ICON = str(_SUPERVISOR_ROOT / "Etc" / "Artwork" / "supervisor_icon.png")
 
 
 def get_exec_spec(mode: Mode) -> FeSpec | BeSpec | None:

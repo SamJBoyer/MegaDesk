@@ -17,4 +17,4 @@ dependencies = [
 ticket_dispatcher = "ticket_dispatcher_node:get_exec_spec"
 
 [tool.setuptools]
-py-modules = ["app", "ticket_dispatcher_node"]
+py-modules = ["ticket_dispatcher_app", "ticket_dispatcher_node"]

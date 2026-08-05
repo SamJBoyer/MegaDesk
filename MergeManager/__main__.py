@@ -4,7 +4,7 @@ from __future__ import annotations
 
 if __name__ == "__main__":
     try:
-        from .app import main
+        from .merge_manager_app import main
     except ImportError:
-        from app import main
+        from merge_manager_app import main
     main()
