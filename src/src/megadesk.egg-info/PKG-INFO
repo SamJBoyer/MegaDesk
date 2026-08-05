@@ -26,8 +26,8 @@ Install everything into the same MegaDesk conda env.
 ```bash
 conda activate <MegaDesk-env>
 pip install -e .
-pip install -e ../TicketDispatcher
-pip install -e ../MergeManager
+pip install -e ../Nodes/TicketDispatcher
+pip install -e ../Nodes/MergeManager
 python main.py
 ```
 
@@ -70,7 +70,7 @@ backend process.
 **Supervisor** is the exception: dropping its FE bootstraps the commander from
 its own `BeSpec` (`megadesk.ensure_supervisor_running`) because `launch_node`
 requires the commander to already be running. Install with
-`pip install -e ../Supervisor[canvas]`.
+`pip install -e ../Nodes/Supervisor[canvas]`.
 
 ## Built-in BaseNode (sticky / container)
 

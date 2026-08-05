@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+# Supervisor package root (Nodes/Supervisor); ~NODES/ expands to Nodes/.
 REPO_ROOT = Path(__file__).resolve().parent.parent
-NODES_ROOT = REPO_ROOT
+NODES_ROOT = REPO_ROOT.parent
 NODES_PREFIX = "~NODES/"
 
 
 def resolve_directory(directory: str) -> Path:
-    """Resolve a manifest directory, expanding ~NODES/ to the repo nodes root."""
+    """Resolve a manifest directory, expanding ~NODES/ to the Nodes/ folder."""
     raw = directory.strip()
     if raw.startswith(NODES_PREFIX):
         rel = raw[len(NODES_PREFIX) :].lstrip("/\\")
@@ -22,7 +23,7 @@ def resolve_directory(directory: str) -> Path:
 
 
 def resolve_manifest_path(path_str: str) -> Path:
-    """Resolve a manifest path relative to the repo root when not absolute."""
+    """Resolve a manifest path relative to the Supervisor package when not absolute."""
     path = Path(path_str.strip().strip('"').strip("'"))
     if not path.is_absolute():
         path = REPO_ROOT / path

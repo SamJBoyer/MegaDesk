@@ -86,4 +86,4 @@ Presence of the key means the commander process is reachable. Cleared on command
 | Prefer | Attach to existing Redis |
 | Else | Docker container `gbd-redis` (`redis:7`) + optional `gbd-redis-insight` on port `5540` |
 
-See `Supervisor/commander/redis_provision.py`.
+See `Nodes/Supervisor/commander/redis_provision.py`.

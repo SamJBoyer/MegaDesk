@@ -14,35 +14,14 @@
     }
   ],
   "members": {
-    "092e3e80-5a4b-4716-8071-2c11902a2222": {
-      "canvas_id": "092e3e80-5a4b-4716-8071-2c11902a2222",
-      "type": "megadesk",
-      "nickname": "ticket_dispatcher",
-      "node_name": "ticket_dispatcher",
-      "position": [
-        -438.6330530366532,
-        766.9343625749377
-      ],
-      "scale": [
-        1.0,
-        1.0
-      ],
-      "parents": [],
-      "children": [],
-      "data": {
-        "width": 700.0,
-        "height": 520.0,
-        "node_name": "ticket_dispatcher"
-      }
-    },
-    "53d96e74-d2cf-4750-930b-f5b143858541": {
-      "canvas_id": "53d96e74-d2cf-4750-930b-f5b143858541",
+    "0dabbc19-5c17-44b1-861a-075bc57e489c": {
+      "canvas_id": "0dabbc19-5c17-44b1-861a-075bc57e489c",
       "type": "megadesk",
       "nickname": "merge_manager",
       "node_name": "merge_manager",
       "position": [
-        748.0336136300135,
-        -119.73230409172895
+        517.0,
+        248.0
       ],
       "scale": [
         1.0,
@@ -55,6 +34,27 @@
         "height": 600.0,
         "node_name": "merge_manager"
       }
+    },
+    "a78ed0c8-196b-4ab2-ab88-b9d92486fc7c": {
+      "canvas_id": "a78ed0c8-196b-4ab2-ab88-b9d92486fc7c",
+      "type": "megadesk",
+      "nickname": "ticket_dispatcher",
+      "node_name": "ticket_dispatcher",
+      "position": [
+        396.52086619101965,
+        2825.0530412571056
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 700.0,
+        "height": 520.0,
+        "node_name": "ticket_dispatcher"
+      }
     }
   },
   "hierarchy": {
@@ -65,8 +65,8 @@
         "visible": true,
         "locked": false,
         "children": [
-          "092e3e80-5a4b-4716-8071-2c11902a2222",
-          "53d96e74-d2cf-4750-930b-f5b143858541"
+          "0dabbc19-5c17-44b1-861a-075bc57e489c",
+          "a78ed0c8-196b-4ab2-ab88-b9d92486fc7c"
         ]
       },
       {

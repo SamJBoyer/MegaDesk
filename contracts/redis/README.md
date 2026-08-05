@@ -44,14 +44,14 @@ Plant, TicketDispatcher, and MergeManager **do not** start Redis. Supervisor may
 
 Canonical field builders/parsers (duplicated intentionally today):
 
-- `Plant/redis_packets.py`
-- `MergeManager/redis_packets.py`
+- `Nodes/Plant/redis_packets.py`
+- `Nodes/MergeManager/redis_packets.py`
 
 Supervisor keys/channels:
 
-- `Supervisor/commander/redis_provision.py`
-- `Supervisor/commander/pubsub_server.py`
-- `Supervisor/commander/engine.py`
+- `Nodes/Supervisor/commander/redis_provision.py`
+- `Nodes/Supervisor/commander/pubsub_server.py`
+- `Nodes/Supervisor/commander/engine.py`
 - `src/src/megadesk/supervisor_client.py`
 
 ## Obsolete names (do not use)
