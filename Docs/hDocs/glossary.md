@@ -9,6 +9,9 @@ iticket: an instance of a git issue that has an itag
 
 iPool: a document that contains a variably-structured list of thoughts, ideas, questions, and wants. Typically will live inside a lucidchart. Look at hDocs/remotes#lucidchart section to check for a remote iPool document.
 
+MegaDesk canvas: the name for the part of MegaDesk responsible for creating an endless canvas
+
+Subnodes/subguis: a node's front end that can be dropped into the MegeDesk canvas. 
 
 </helmsman-terminology>
 <helmsman-version-control>
