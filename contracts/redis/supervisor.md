@@ -54,11 +54,11 @@ Caller identity scopes every request/ack pair.
 2. Publish to `<action>:<caller_identity>` with body
 3. Wait for ack on the acknowledgements channel
 
-Typical Executive path: after dropping an FE node that also exposes a BE,
+Typical MegaDesk canvas path: after dropping an FE node that also exposes a BE,
 publish `launch_node:<identity>` with the node name.
 
 **Supervisor bootstrap:** dropping the `supervisor` FE does **not** use
-`launch_node` (the commander is not up yet). Executive / the FE call
+`launch_node` (the commander is not up yet). MegaDesk / the FE call
 `megadesk.ensure_supervisor_running()`, which spawns the Supervisor `BeSpec`
 (`python -m commander`) directly and waits for `GBD:COMMANDER:ALIVE`.
 

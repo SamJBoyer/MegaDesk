@@ -52,7 +52,7 @@ Supervisor keys/channels:
 - `Supervisor/commander/redis_provision.py`
 - `Supervisor/commander/pubsub_server.py`
 - `Supervisor/commander/engine.py`
-- `megadesk/megadesk/supervisor_client.py`
+- `src/src/megadesk/supervisor_client.py`
 
 ## Obsolete names (do not use)
 

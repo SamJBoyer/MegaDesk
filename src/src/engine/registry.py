@@ -1,6 +1,6 @@
 """Discover and register node types from built-ins and MegaDesk FE plugins.
 
-* ``nodes/`` — default BaseNode types shipped with Executive (sticky, container, …)
+* ``nodes/`` — default BaseNode types shipped with MegaDesk (sticky, container, …)
 * entry points ``MegaDesk.nodes`` — thin FeSpec tools (see ``megadesk_registry``)
 * legacy ``executive.nodes`` — still accepted for BaseNode plugins
 """

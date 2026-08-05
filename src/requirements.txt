@@ -1,3 +1,2 @@
 dearpygui>=2.0
-megadesk
 redis>=5.0.0

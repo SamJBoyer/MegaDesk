@@ -1,4 +1,4 @@
-"""Pub/Sub request helpers for Executive and smoke tests."""
+"""Pub/Sub request helpers for MegaDesk canvas and smoke tests."""
 
 from __future__ import annotations
 

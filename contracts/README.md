@@ -23,4 +23,4 @@ Node discovery / FE·BE launch specs live in the installable `megadesk` package 
 | **Plant / LiveHarness** | Reads harness hash + `WORKORDER`; publishes `FINISHED:<REPO>` |
 | **MergeManager** | Consumes `FINISHED:<REPO>`; may republish conflict `WORKORDER`s (`new_wt=false`) |
 | **Supervisor** | Pub/Sub `launch_node` / `stop_node` / `KILLALL` for BE processes |
-| **Executive** | On canvas drop of a MegaDesk FE that also exposes a BE, publishes `launch_node` |
+| **MegaDesk canvas (`src/`)** | On canvas drop of a MegaDesk FE that also exposes a BE, publishes `launch_node` |

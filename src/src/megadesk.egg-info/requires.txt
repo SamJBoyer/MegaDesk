@@ -1,0 +1,5 @@
+dearpygui>=2.0
+redis>=5.0.0
+
+[canvas]
+dearpygui>=2.0

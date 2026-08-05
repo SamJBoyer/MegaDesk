@@ -10,7 +10,7 @@ point. `get_exec_spec("FE")` / `get_exec_spec("BE")` keep them separate:
 | `FE` | Operator panel (`frontend.app.build_ui`) — needs `[canvas]` |
 | `BE` | Commander subprocess (`python -m commander`) |
 
-Dropping **supervisor** on the Executive canvas bootstraps the commander BE
+Dropping **supervisor** on the MegaDesk canvas bootstraps the commander BE
 automatically (see `megadesk.ensure_supervisor_running`). The commander never
 manages its own BeSpec via `launch_node`.
 
@@ -18,10 +18,8 @@ manages its own BeSpec via `launch_node`.
 
 ```bat
 conda activate <MegaDesk-env>
-pip install -e ../megadesk
+pip install -e ../src
 pip install -e .
-rem FE (Executive canvas plugin):
-pip install -e ../Executive
 pip install -e .[canvas]
 ```
 
@@ -33,10 +31,10 @@ rem or: python -m commander
 rem or: supervisor
 ```
 
-## Run with Executive
+## Run with MegaDesk canvas
 
-1. `pip install -e .[canvas]` (and Executive / megadesk as above)
-2. Start Executive (`python main.py` from the Executive repo)
+1. `pip install -e .[canvas]` (and `../src` as above)
+2. Start MegaDesk (`python main.py` from `src/`)
 3. Drop-in sidebar → **supervisor** → place on canvas (BE starts on drop)
 4. Double-click the placard for launch / stop / KILLALL controls
 

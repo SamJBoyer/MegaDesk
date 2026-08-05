@@ -488,7 +488,7 @@ def build_ui(
     no_move: bool = False,
     no_resize: bool = False,
 ) -> str:
-    """Module-level builder for FeSpec / Executive hosting."""
+    """Module-level builder for FeSpec / MegaDesk canvas hosting."""
     app = TicketDispatcher()
     return app.build_ui(
         tag,

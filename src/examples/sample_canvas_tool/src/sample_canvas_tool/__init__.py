@@ -1,4 +1,4 @@
-"""Sample external canvas tool for Executive."""
+"""Sample external canvas tool for MegaDesk."""
 
 from sample_canvas_tool.node import SampleToolNode
 

@@ -3,7 +3,7 @@
 FE: Dear PyGui operator panel (requires ``pip install -e .[canvas]``).
 BE: commander process lifecycle manager (``python -m commander``).
 
-Dropping the FE on the Executive canvas bootstraps the BE (see
+Dropping the FE on the MegaDesk canvas bootstraps the BE (see
 ``megadesk.ensure_supervisor_running``). The commander never manages its
 own BeSpec via ``launch_node``.
 """

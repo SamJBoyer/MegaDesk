@@ -274,7 +274,7 @@ def build_ui(
     no_move: bool = False,
     no_resize: bool = False,
 ) -> str:
-    """Module-level builder for FeSpec / Executive hosting."""
+    """Module-level builder for FeSpec / MegaDesk canvas hosting."""
     return SupervisorPanel().build_ui(
         tag,
         pos=pos,

@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Install Executive + dearpygui into the MegaDesk env, then:
+# Install megadesk (`pip install -e ../src`) + dearpygui into the MegaDesk env, then:
 #   pip install -e .[canvas]
 canvas = [
     "dearpygui>=2.0",

@@ -1,4 +1,4 @@
-"""Supervisor operator frontend — Executive FeSpec build() target.
+"""Supervisor operator frontend — MegaDesk FeSpec build() target.
 
 Keep this package init free of Dear PyGui imports so BE-only installs work.
 """

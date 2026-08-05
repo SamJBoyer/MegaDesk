@@ -14,7 +14,8 @@ from engine.registry import create_node, get_node_class
 
 CanvasMember = Union[BaseNode, MegaDeskMember]
 
-DEFAULT_CANVAS_PATH = Path(__file__).resolve().parent.parent / "canvas.json"
+# engine/ → package src/ → project root (src/) where canvas.json lives
+DEFAULT_CANVAS_PATH = Path(__file__).resolve().parent.parent.parent / "canvas.json"
 
 
 def _new_layer(name: str = "Layer 1") -> dict[str, Any]:

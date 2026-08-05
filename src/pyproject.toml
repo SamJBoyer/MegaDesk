@@ -3,14 +3,13 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "executive"
+name = "megadesk"
 version = "0.1.0"
-description = "Infinite Dear PyGui whiteboard host for deployable BaseNode GUIs"
+description = "MegaDesk canvas host, node exec-spec contract, and discovery"
 readme = "docs/plugins.md"
 requires-python = ">=3.10"
 dependencies = [
     "dearpygui>=2.0",
-    "megadesk",
     "redis>=5.0.0",
 ]
 
@@ -20,4 +19,5 @@ canvas = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["engine*", "nodes*", "executive*"]
+where = ["src"]
+include = ["megadesk*", "engine*", "nodes*", "executive*", "new_nodes*"]

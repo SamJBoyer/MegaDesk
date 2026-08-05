@@ -1,6 +1,17 @@
-# Executive canvas plugins
+Metadata-Version: 2.4
+Name: megadesk
+Version: 0.1.0
+Summary: MegaDesk canvas host, node exec-spec contract, and discovery
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+Requires-Dist: dearpygui>=2.0
+Requires-Dist: redis>=5.0.0
+Provides-Extra: canvas
+Requires-Dist: dearpygui>=2.0; extra == "canvas"
 
-Executive is a Dear PyGui whiteboard host.
+# MegaDesk canvas plugins
+
+MegaDesk is a Dear PyGui whiteboard host (package root: `src/`).
 
 - **Built-in ideation tools** (`nodes/sticky`, `nodes/container`) use the thick
   `BaseNode` contract.
@@ -14,7 +25,6 @@ Install everything into the same MegaDesk conda env.
 
 ```bash
 conda activate <MegaDesk-env>
-pip install -e ../megadesk
 pip install -e .
 pip install -e ../TicketDispatcher
 pip install -e ../MergeManager
@@ -46,14 +56,14 @@ def get_exec_spec(mode: Mode):
 my_tool = "my_tool.node:get_exec_spec"
 ```
 
-Executive discovers FE specs at startup and shows them in Drop-in. Dropping a
+MegaDesk discovers FE specs at startup and shows them in Drop-in. Dropping a
 tool onto the canvas places a MegaDesk member (`type: "megadesk"` + `node_name`
 in `canvas.json`) and immediately opens the full Dear PyGui window world-anchored
 at the drop point. Pan/zoom keeps windows glued to the board; title-bar drag /
 corner resize write back into the member's world position and pixel size. Closing
 the window leaves a placard; double-click reopens it.
 
-If the same entry point also returns a `BeSpec` for `"BE"`, Executive publishes
+If the same entry point also returns a `BeSpec` for `"BE"`, MegaDesk publishes
 Redis `launch_node:<identity>` with the node name so Supervisor can start the
 backend process.
 

@@ -5,12 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sample-canvas-tool"
 version = "0.1.0"
-description = "Example Executive canvas plugin (full BaseNode)"
+description = "Example MegaDesk canvas plugin (full BaseNode)"
 requires-python = ">=3.10"
 dependencies = []
 
 [project.optional-dependencies]
-# Install Executive into loot first (`pip install -e /path/to/Executive`), then:
+# Install megadesk first (`pip install -e /path/to/MegaDesk/src`), then:
 #   pip install -e examples/sample_canvas_tool[canvas]
 canvas = [
     "dearpygui>=2.0",

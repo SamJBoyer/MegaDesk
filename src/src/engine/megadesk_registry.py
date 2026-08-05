@@ -1,4 +1,4 @@
-"""MegaDesk.nodes FE discovery for the thin Executive host."""
+"""MegaDesk.nodes FE discovery for the canvas host."""
 
 from __future__ import annotations
 

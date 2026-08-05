@@ -10,7 +10,7 @@ Mode = Literal["FE", "BE"]
 
 @dataclass(frozen=True)
 class FeSpec:
-    """Front-end description for Executive canvas hosting."""
+    """Front-end description for MegaDesk canvas hosting."""
 
     name: str
     description: str

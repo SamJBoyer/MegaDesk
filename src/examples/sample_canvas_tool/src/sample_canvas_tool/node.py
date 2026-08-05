@@ -1,4 +1,4 @@
-"""Example pip-discovered BaseNode for the Executive canvas."""
+"""Example pip-discovered BaseNode for the MegaDesk canvas."""
 
 from __future__ import annotations
 

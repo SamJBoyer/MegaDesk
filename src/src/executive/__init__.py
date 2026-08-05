@@ -1,7 +1,7 @@
-"""Public API for Executive canvas plugins.
+"""Public API for MegaDesk canvas plugins.
 
-External tools should import from this package after installing Executive
-into the ``loot`` conda environment::
+External tools should import from this package after installing megadesk
+into the MegaDesk conda environment::
 
     from executive import BaseNode, register
 """
