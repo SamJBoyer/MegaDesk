@@ -199,6 +199,37 @@ class DisplayEngine:
                 parent=DRAWLIST_TAG,
             )
 
+        self._draw_zoom_indicator(w, h)
+
+    def _draw_zoom_indicator(self, width: float, height: float) -> None:
+        """Draw current zoom level in the lower-right corner of the canvas."""
+        label = f"{self.zoom * 100:.0f}%"
+        text_size = 15.0
+        # Approximate glyph width for positioning without a font metrics API.
+        text_w = len(label) * text_size * 0.55
+        text_h = text_size
+        margin = 14.0
+        pad_x, pad_y = 10.0, 6.0
+        x1 = width - margin
+        y1 = height - margin
+        x0 = x1 - text_w - pad_x * 2
+        y0 = y1 - text_h - pad_y * 2
+        dpg.draw_rectangle(
+            (x0, y0),
+            (x1, y1),
+            color=(200, 205, 215, 220),
+            fill=(245, 247, 250, 230),
+            thickness=1,
+            parent=DRAWLIST_TAG,
+        )
+        dpg.draw_text(
+            (x0 + pad_x, y0 + pad_y),
+            label,
+            color=(50, 55, 65, 255),
+            size=text_size,
+            parent=DRAWLIST_TAG,
+        )
+
     def _draw_grid(self, width: float, height: float) -> None:
         spacing = 40.0 * self.zoom
         if spacing < 12:
