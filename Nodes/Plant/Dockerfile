@@ -22,7 +22,7 @@ RUN curl https://cursor.com/install -fsS | bash \
 
 WORKDIR /app
 
-COPY requirements.txt /app/requirements.txt
+COPY requirements-sandbox.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
 COPY redis_packets.py /app/redis_packets.py

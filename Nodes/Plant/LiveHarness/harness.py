@@ -75,6 +75,16 @@ def _with_commit_guidance(instruction: str, *, repo: str, ticket: str) -> str:
     return "\n".join(lines)
 
 
+_RESULT_LOG_MAX = 2000
+
+
+def _truncate(text: str, limit: int = _RESULT_LOG_MAX) -> str:
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
+
+
 def run_agent(instruction: str, cwd: str, api_key: str, model: str) -> dict[str, Any]:
     """Create a local Cursor agent bound to cwd and wait for completion."""
     log.info("Starting agent model=%s cwd=%s", model, cwd)
@@ -97,15 +107,26 @@ def run_agent(instruction: str, cwd: str, api_key: str, model: str) -> dict[str,
                     text = run.text()
                 except Exception:  # noqa: BLE001
                     text = None
-            return {
+            outcome = {
                 "status": str(status),
                 "agent_id": agent_id,
                 "run_id": run_id,
                 "result": text if text is None else str(text),
             }
+            result_preview = _truncate(str(text)) if text else ""
+            log.info(
+                "Agent finished model=%s status=%s agent_id=%s run_id=%s result=%s",
+                model,
+                outcome["status"],
+                agent_id,
+                run_id,
+                result_preview or "(empty)",
+            )
+            return outcome
     except CursorAgentError as err:
         log.error(
-            "Agent startup failed: %s (retryable=%s)",
+            "Agent startup failed model=%s: %s (retryable=%s)",
+            model,
             err.message,
             getattr(err, "is_retryable", None),
         )
@@ -303,20 +324,41 @@ class LiveHarness:
             return 0
 
         log.warning(
-            "Task finished with status=%s guid=%s ticket_id=%s",
+            "Task finished with status=%s error=%s guid=%s ticket_id=%s",
             status,
+            _truncate(error) if error else "(none)",
             self.guid,
             ticket_id,
         )
         return 1
 
 
+def _configure_logging() -> None:
+    """Log to container stdout (docker logs) and a durable worktree file."""
+    level = os.environ.get("LOG_LEVEL", "INFO")
+    fmt = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+    logging.basicConfig(level=level, format=fmt, stream=sys.stdout)
+
+    workspace = os.environ.get("WORKSPACE", "/workspace")
+    log_dir = Path(workspace) / ".plant"
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(
+            log_dir / "harness.log",
+            encoding="utf-8",
+        )
+        file_handler.setFormatter(logging.Formatter(fmt))
+        logging.getLogger().addHandler(file_handler)
+    except OSError as exc:
+        logging.getLogger("live_harness").warning(
+            "Could not open worktree harness log at %s: %s",
+            log_dir / "harness.log",
+            exc,
+        )
+
+
 def main() -> None:
-    logging.basicConfig(
-        level=os.environ.get("LOG_LEVEL", "INFO"),
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-        stream=sys.stdout,
-    )
+    _configure_logging()
     try:
         code = LiveHarness().run_once()
     except RuntimeError as exc:

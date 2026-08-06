@@ -20,6 +20,7 @@ REDIS_HOST = "localhost"
 REDIS_PORT = 6379
 REDIS_STREAM_KEY = "WORKORDER"
 DEFAULT_MODEL = "auto"
+MODEL_OPTIONS = ("auto", "cursor-grok-4.5-high")
 GH_TIMEOUT_SEC = 15
 
 COLOR_GREEN = (80, 200, 80, 255)
@@ -132,9 +133,10 @@ class TicketDispatcher:
         if not dpg.does_item_exist(theme_tag):
             with dpg.theme(tag=theme_tag):
                 with dpg.theme_component(dpg.mvButton):
-                    dpg.add_theme_color(dpg.mvThemeCol_Button, (45, 45, 50, 255))
-                    dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (60, 60, 70, 255))
-                    dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (55, 55, 65, 255))
+                    dpg.add_theme_color(dpg.mvThemeCol_Button, (210, 215, 225, 255))
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (190, 198, 210, 255))
+                    dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (175, 185, 200, 255))
+                    dpg.add_theme_color(dpg.mvThemeCol_Text, (30, 32, 38, 255))
                     dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
                     dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 10, 8)
 
@@ -159,16 +161,6 @@ class TicketDispatcher:
                         color=COLOR_DIM,
                         tag=self._tag("conn_light"),
                     )
-
-            dpg.add_spacer(height=4)
-            with dpg.group(horizontal=True):
-                dpg.add_text("Model")
-                dpg.add_input_text(
-                    tag=self._tag("model"),
-                    width=480,
-                    default_value=DEFAULT_MODEL,
-                    hint="model id",
-                )
 
             dpg.add_spacer(height=4)
             dpg.add_text(
@@ -352,6 +344,7 @@ class TicketDispatcher:
         row_tag = self._tag(f"ticket_row_{ticket.id}")
         scroll = self._tag("ticket_scroll")
 
+        model_tag = self._tag(f"ticket_model_{ticket.id}")
         with dpg.group(parent=scroll, horizontal=True, tag=row_tag):
             with dpg.drawlist(width=22, height=22):
                 dpg.draw_circle(
@@ -363,12 +356,19 @@ class TicketDispatcher:
                 )
             btn = dpg.add_button(
                 label=ticket.name,
-                width=-1,
+                width=-220,
                 height=28,
                 user_data=ticket.id,
                 callback=self._on_ticket_pressed,
             )
             dpg.bind_item_theme(btn, self._tag("ticket_theme"))
+            dpg.add_combo(
+                items=list(MODEL_OPTIONS),
+                default_value=DEFAULT_MODEL,
+                width=200,
+                height_mode=dpg.mvComboHeight_Small,
+                tag=model_tag,
+            )
 
         dpg.add_spacer(parent=scroll, height=4)
 
@@ -396,7 +396,7 @@ class TicketDispatcher:
                 repo_name = repo_name[:-4]
 
         model = DEFAULT_MODEL
-        model_tag = self._tag("model")
+        model_tag = self._tag(f"ticket_model_{issue_id}")
         if dpg.does_item_exist(model_tag):
             model = (dpg.get_value(model_tag) or "").strip() or DEFAULT_MODEL
 

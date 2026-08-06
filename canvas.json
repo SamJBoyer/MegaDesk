@@ -50,8 +50,8 @@
       "nickname": "supervisor",
       "node_name": "supervisor",
       "position": [
-        1484.0,
-        198.0
+        1218.8669999999993,
+        219.96699999999996
       ],
       "scale": [
         1.0,
@@ -60,20 +60,20 @@
       "parents": [],
       "children": [],
       "data": {
-        "width": 520.0,
-        "height": 520.0,
+        "width": 849.0,
+        "height": 514.0,
         "node_name": "supervisor",
         "gui_open": true
       }
     },
-    "8a135b3d-7cb8-4889-ae95-05263dd24f17": {
-      "canvas_id": "8a135b3d-7cb8-4889-ae95-05263dd24f17",
+    "4d206a5f-2a02-4282-97f7-b3f1de80dede": {
+      "canvas_id": "4d206a5f-2a02-4282-97f7-b3f1de80dede",
       "type": "megadesk",
-      "nickname": "plant",
-      "node_name": "plant",
+      "nickname": "merge_manager",
+      "node_name": "merge_manager",
       "position": [
-        1338.0,
-        740.0
+        288.1999305618191,
+        833.453521459091
       ],
       "scale": [
         1.0,
@@ -82,20 +82,42 @@
       "parents": [],
       "children": [],
       "data": {
-        "width": 720.0,
+        "width": 960.0,
+        "height": 600.0,
+        "node_name": "merge_manager",
+        "gui_open": true
+      }
+    },
+    "e89ffe43-63a2-4de8-84c7-500613c0ea07": {
+      "canvas_id": "e89ffe43-63a2-4de8-84c7-500613c0ea07",
+      "type": "megadesk",
+      "nickname": "plant",
+      "node_name": "plant",
+      "position": [
+        1283.6298400000003,
+        811.870203
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 1287.0,
         "height": 640.0,
         "node_name": "plant",
         "gui_open": true
       }
     },
-    "7da6a49c-4e7d-4bb1-9ac2-ba31dfca16af": {
-      "canvas_id": "7da6a49c-4e7d-4bb1-9ac2-ba31dfca16af",
+    "e06b8068-5e31-441e-8b65-262ba530f29a": {
+      "canvas_id": "e06b8068-5e31-441e-8b65-262ba530f29a",
       "type": "megadesk",
       "nickname": "ticket_dispatcher",
       "node_name": "ticket_dispatcher",
       "position": [
-        555.0,
-        316.0
+        350.9,
+        199.90000000000006
       ],
       "scale": [
         1.0,
@@ -122,8 +144,9 @@
           "f0779846-68e3-41ee-bfab-924bf8b1c961",
           "6156b9cc-18fd-4658-afc3-81fef71d8a59",
           "0ef0d778-3799-4fb2-8573-075282e0582d",
-          "8a135b3d-7cb8-4889-ae95-05263dd24f17",
-          "7da6a49c-4e7d-4bb1-9ac2-ba31dfca16af"
+          "4d206a5f-2a02-4282-97f7-b3f1de80dede",
+          "e89ffe43-63a2-4de8-84c7-500613c0ea07",
+          "e06b8068-5e31-441e-8b65-262ba530f29a"
         ]
       }
     ]

@@ -7,6 +7,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from PlantManager.env import load_plant_env
@@ -22,12 +23,75 @@ LOCAL_REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
 
 def _docker(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["docker", *args],
-        check=check,
-        text=True,
-        capture_output=True,
+    """Run a docker CLI command; log stderr/stdout when check=True and it fails."""
+    try:
+        return subprocess.run(
+            ["docker", *args],
+            check=check,
+            text=True,
+            capture_output=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        err = (exc.stderr or "").strip()
+        out = (exc.stdout or "").strip()
+        if err:
+            log.error("docker %s failed (code=%s): %s", args[0], exc.returncode, err)
+        if out:
+            log.error("docker %s stdout: %s", args[0], out)
+        raise
+
+
+def _follow_container_logs(container_name: str) -> None:
+    """Stream docker logs into the Plant logger until the container exits."""
+
+    def _reader() -> None:
+        prefix = f"sandbox[{container_name}]:"
+        try:
+            proc = subprocess.Popen(
+                ["docker", "logs", "-f", "--timestamps", container_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+        except OSError as exc:
+            log.error("%s failed to start docker logs follow: %s", prefix, exc)
+            return
+
+        assert proc.stdout is not None
+        try:
+            while True:
+                line = proc.stdout.readline()
+                if not line:
+                    break
+                text = line.rstrip("\n\r")
+                if not text:
+                    continue
+                # LiveHarness errors use ERROR/CRITICAL; surface those at error.
+                upper = text.upper()
+                if " ERROR " in f" {upper} " or " CRITICAL " in f" {upper} ":
+                    log.error("%s %s", prefix, text)
+                else:
+                    log.info("%s %s", prefix, text)
+        except OSError as exc:
+            log.warning("%s log follow interrupted: %s", prefix, exc)
+        finally:
+            try:
+                proc.stdout.close()
+            except OSError:
+                pass
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            log.info("%s log follow ended", prefix)
+
+    thread = threading.Thread(
+        target=_reader,
+        name=f"docker-logs-{container_name}",
+        daemon=True,
     )
+    thread.start()
 
 
 def require_local_redis() -> None:
@@ -158,4 +222,5 @@ def start_ticket_sandbox(
         ticket_id,
     )
     _docker(args)
+    _follow_container_logs(name)
     return name
