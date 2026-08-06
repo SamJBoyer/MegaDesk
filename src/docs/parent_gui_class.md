@@ -23,6 +23,7 @@ host content parent via `FeSpec.build`.
 | canvas_id | Instance GUID |
 | position | World (x, y) |
 | scale | Placard scale when GUI is closed |
+| data.width / data.height | World-space content size; open shells render at `size * view_zoom` |
 | parents / children | Serialized empty lists (legacy shape; unused) |
 | data | FE payload (`width`, `height`, `gui_open`, `node_name`, …) |
 

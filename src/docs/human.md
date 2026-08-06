@@ -25,7 +25,7 @@ Layout:
 Features:
 
 | NAV-1 | Canvas pans by holding right-click and moving the mouse. | Must |
-| NAV-2 | Mouse scroll zooms the canvas in and out. | Must |
+| NAV-2 | Mouse scroll zooms the canvas in and out; open subGUIs shrink and scale with zoom. | Must |
 | NAV-3 | Hovering an object and clicking MB1 selects it. | Must |
 | NAV-4 | Holding MB1 on an object and moving the mouse drags it. | Must |
 | NAV-5 | A single right-click opens a context menu. | Must |

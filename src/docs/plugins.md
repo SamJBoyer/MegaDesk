@@ -62,10 +62,10 @@ def build_ui(parent: str, *, tag_prefix: str, width: int, height: int) -> None:
     ...
 ```
 
-The shell is one DPG subtree (header + content). Pan/zoom only updates shell
-`pos` (pixel-sized; does not scale with zoom). Closing via the header **x**
-leaves a placard (`data.gui_open = false`); double-click reopens. Open/closed
-is restored from `canvas.json` on load.
+The shell is one DPG subtree (header + content). Pan/zoom updates shell `pos`
+and size (`world * zoom`) so open subGUIs shrink and scale with the canvas.
+Closing via the header **x** leaves a placard (`data.gui_open = false`);
+double-click reopens. Open/closed is restored from `canvas.json` on load.
 
 Store a cleanup callable on the content parent with
 `dpg.set_item_user_data(parent, close_fn)` so the host can shut the FE down
