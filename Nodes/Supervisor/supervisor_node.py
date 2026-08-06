@@ -22,7 +22,7 @@ _ICON = str(_SUPERVISOR_ROOT / "Etc" / "Artwork" / "supervisor_icon.png")
 
 def get_exec_spec(mode: Mode) -> FeSpec | BeSpec | None:
     if mode == "FE":
-        from frontend.app import build_ui
+        from supervisor_frontend.app import build_ui
 
         icon = _ICON if Path(_ICON).is_file() else None
         return FeSpec(

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 def main() -> None:
     print(
-        "Supervisor frontend runs as a MegaDesk canvas plugin.\n"
+        "Supervisor FE (supervisor_frontend) runs as a MegaDesk canvas plugin.\n"
         "  conda activate <MegaDesk-env>\n"
         "  pip install -e ../src\n"
         "  pip install -e .[canvas]\n"

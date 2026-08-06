@@ -1,57 +1,13 @@
 {
   "members": {
-    "3f1fa5ab-afc6-4612-b139-80d45836fd61": {
-      "canvas_id": "3f1fa5ab-afc6-4612-b139-80d45836fd61",
-      "type": "megadesk",
-      "nickname": "supervisor",
-      "node_name": "supervisor",
-      "position": [
-        -644.048014368352,
-        -2669.477439650948
-      ],
-      "scale": [
-        1.0,
-        1.0
-      ],
-      "parents": [],
-      "children": [],
-      "data": {
-        "width": 729.0,
-        "height": 407.0,
-        "node_name": "supervisor",
-        "gui_open": true
-      }
-    },
-    "bf81d508-238b-4892-a7c1-3c4289d01387": {
-      "canvas_id": "bf81d508-238b-4892-a7c1-3c4289d01387",
-      "type": "megadesk",
-      "nickname": "ticket_dispatcher",
-      "node_name": "ticket_dispatcher",
-      "position": [
-        -7115.211641865941,
-        1566.800492703143
-      ],
-      "scale": [
-        1.0,
-        1.0
-      ],
-      "parents": [],
-      "children": [],
-      "data": {
-        "width": 669.0,
-        "height": 426.0,
-        "node_name": "ticket_dispatcher",
-        "gui_open": true
-      }
-    },
     "f0779846-68e3-41ee-bfab-924bf8b1c961": {
       "canvas_id": "f0779846-68e3-41ee-bfab-924bf8b1c961",
       "type": "megadesk",
       "nickname": "merge_manager",
       "node_name": "merge_manager",
       "position": [
-        -7138.3616999220785,
-        -2691.948226646629
+        -8365.028366588744,
+        -2665.281559979963
       ],
       "scale": [
         1.0,
@@ -66,14 +22,58 @@
         "gui_open": true
       }
     },
-    "212e6dbb-78da-4fee-b90f-a17ec3706b15": {
-      "canvas_id": "212e6dbb-78da-4fee-b90f-a17ec3706b15",
+    "6156b9cc-18fd-4658-afc3-81fef71d8a59": {
+      "canvas_id": "6156b9cc-18fd-4658-afc3-81fef71d8a59",
+      "type": "megadesk",
+      "nickname": "ticket_dispatcher",
+      "node_name": "ticket_dispatcher",
+      "position": [
+        -7798.45457068845,
+        1714.738347957404
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 700.0,
+        "height": 520.0,
+        "node_name": "ticket_dispatcher",
+        "gui_open": true
+      }
+    },
+    "0ef0d778-3799-4fb2-8573-075282e0582d": {
+      "canvas_id": "0ef0d778-3799-4fb2-8573-075282e0582d",
+      "type": "megadesk",
+      "nickname": "supervisor",
+      "node_name": "supervisor",
+      "position": [
+        1484.0,
+        198.0
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 520.0,
+        "height": 520.0,
+        "node_name": "supervisor",
+        "gui_open": true
+      }
+    },
+    "8a135b3d-7cb8-4889-ae95-05263dd24f17": {
+      "canvas_id": "8a135b3d-7cb8-4889-ae95-05263dd24f17",
       "type": "megadesk",
       "nickname": "plant",
       "node_name": "plant",
       "position": [
-        -634.1359144629165,
-        275.52636087445893
+        1338.0,
+        740.0
       ],
       "scale": [
         1.0,
@@ -87,6 +87,28 @@
         "node_name": "plant",
         "gui_open": true
       }
+    },
+    "7da6a49c-4e7d-4bb1-9ac2-ba31dfca16af": {
+      "canvas_id": "7da6a49c-4e7d-4bb1-9ac2-ba31dfca16af",
+      "type": "megadesk",
+      "nickname": "ticket_dispatcher",
+      "node_name": "ticket_dispatcher",
+      "position": [
+        555.0,
+        316.0
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 700.0,
+        "height": 520.0,
+        "node_name": "ticket_dispatcher",
+        "gui_open": true
+      }
     }
   },
   "hierarchy": {
@@ -97,10 +119,11 @@
         "visible": true,
         "locked": false,
         "children": [
-          "3f1fa5ab-afc6-4612-b139-80d45836fd61",
-          "bf81d508-238b-4892-a7c1-3c4289d01387",
           "f0779846-68e3-41ee-bfab-924bf8b1c961",
-          "212e6dbb-78da-4fee-b90f-a17ec3706b15"
+          "6156b9cc-18fd-4658-afc3-81fef71d8a59",
+          "0ef0d778-3799-4fb2-8573-075282e0582d",
+          "8a135b3d-7cb8-4889-ae95-05263dd24f17",
+          "7da6a49c-4e7d-4bb1-9ac2-ba31dfca16af"
         ]
       }
     ]

@@ -7,7 +7,7 @@ point. `get_exec_spec("FE")` / `get_exec_spec("BE")` keep them separate:
 
 | Mode | What it returns |
 |------|-----------------|
-| `FE` | Operator panel (`frontend.app.build_ui`) — needs `[canvas]` |
+| `FE` | Operator panel (`supervisor_frontend.app.build_ui`) — needs `[canvas]` |
 | `BE` | Supervisor subprocess (`python -m backend`) |
 
 Dropping **supervisor** on the MegaDesk canvas bootstraps the Supervisor BE
@@ -41,7 +41,7 @@ rem or: supervisor
 Or print FE instructions:
 
 ```bat
-python -m frontend
+python -m supervisor_frontend
 ```
 
 ## Smoke test
@@ -55,7 +55,7 @@ python -m backend.smoke_test
 ## Layout
 
 - `backend/` — BE package (stream consumer, process registry, Redis provision)
-- `frontend/` — FE operator panel (`build_ui` for FeSpec)
+- `supervisor_frontend/` — FE operator panel (`build_ui` for FeSpec)
 - `supervisor_node.py` — `MegaDesk.nodes` → `get_exec_spec(mode)`
 - `pyproject.toml` — packaging; optional `[canvas]` for Dear PyGui
 

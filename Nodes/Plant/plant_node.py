@@ -18,7 +18,7 @@ _ICON = str(_PLANT_ROOT / "Etc" / "Artwork" / "icon.png")
 
 def get_exec_spec(mode: Mode) -> FeSpec | BeSpec | None:
     if mode == "FE":
-        from frontend.app import build_ui
+        from plant_frontend.app import build_ui
 
         icon = _ICON if Path(_ICON).is_file() else None
         return FeSpec(

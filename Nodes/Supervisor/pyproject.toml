@@ -29,4 +29,4 @@ supervisor = "backend.__main__:main"
 py-modules = ["supervisor_node"]
 
 [tool.setuptools.packages.find]
-include = ["backend*", "frontend*"]
+include = ["backend*", "supervisor_frontend*"]
