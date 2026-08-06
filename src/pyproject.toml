@@ -19,5 +19,5 @@ canvas = [
 ]
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
 include = ["megadesk*", "engine*"]

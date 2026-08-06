@@ -21,6 +21,37 @@ MIN_CONTENT_W = 160.0
 MIN_CONTENT_H = 120.0
 
 
+def hosted_window_tag(canvas_id: str) -> str:
+    """Deterministic DPG tag for a member's hosted content panel.
+
+    Stable across open/close so destroy / sync can always find orphans even
+    when ``_window_tag`` has been cleared.
+    """
+    return f"megadesk::{canvas_id}"
+
+
+def destroy_hosted_window(tag: str) -> None:
+    """Run FE cleanup (user_data) then delete the window if it still exists."""
+    if not tag or not dpg.does_item_exist(tag):
+        return
+    cleanup = dpg.get_item_user_data(tag)
+    # Drop user_data first so cleanup cannot re-enter through the same slot.
+    try:
+        dpg.set_item_user_data(tag, None)
+    except Exception:
+        pass
+    if callable(cleanup):
+        try:
+            cleanup()
+        except Exception:
+            pass
+    if dpg.does_item_exist(tag):
+        try:
+            dpg.delete_item(tag)
+        except Exception:
+            pass
+
+
 class MegaDeskMember:
     """Canvas member backed by an FeSpec build() callable.
 
@@ -387,44 +418,73 @@ class MegaDeskMember:
     def on_destroy(self) -> None:
         self.close_window()
 
+    def hosted_tag(self) -> str:
+        return hosted_window_tag(self.canvas_id)
+
     def close_window(self) -> None:
-        """Collapse the hosted FE to a placard (runs FE cleanup via user_data)."""
-        tag = self._window_tag
-        if tag and dpg.does_item_exist(tag):
-            cleanup = dpg.get_item_user_data(tag)
-            if callable(cleanup):
-                try:
-                    cleanup()
-                except Exception:
-                    pass
-            if dpg.does_item_exist(tag):
-                dpg.delete_item(tag)
+        """Collapse the hosted FE to a placard (runs FE cleanup via user_data).
+
+        Always deletes by the deterministic hosted tag so a cleared
+        ``_window_tag`` cannot leave an orphaned, unresponsive panel.
+        """
+        tag = self._window_tag or self.hosted_tag()
+        destroy_hosted_window(tag)
+        # Belt-and-suspenders: clear any stale alias the FE may have left.
+        if self._window_tag and self._window_tag != tag:
+            destroy_hosted_window(self._window_tag)
         self._window_tag = None
         self._want_gui_open = False
         self.data["gui_open"] = False
+
+    def bind_existing_window(self) -> bool:
+        """Reclaim a live hosted panel if one exists for this member."""
+        tag = self.hosted_tag()
+        if not dpg.does_item_exist(tag):
+            return False
+        self._window_tag = tag
+        self._want_gui_open = True
+        self.data["gui_open"] = True
+        return True
 
     def open_window(self, global_pos: tuple[float, float]) -> None:
         """Build or focus the hosted content panel at a global pixel position.
 
         ``global_pos`` is the content window top-left (under the canvas header).
         """
-        tag = f"megadesk::{self.canvas_id}"
+        tag = self.hosted_tag()
         self._window_tag = tag
         self._want_gui_open = True
         self.data["gui_open"] = True
 
         if dpg.does_item_exist(tag):
-            dpg.set_item_pos(tag, list(global_pos))
+            try:
+                dpg.configure_item(tag, pos=list(global_pos))
+            except Exception:
+                dpg.set_item_pos(tag, list(global_pos))
             try:
                 dpg.focus_item(tag)
             except Exception:
                 pass
             return
 
+        closing = False
+
         def _on_close() -> None:
-            self._window_tag = None
+            # Never clear the host binding without destroying the panel —
+            # that is the desync that leaves unresponsive orphan GUIs.
+            nonlocal closing
+            if closing:
+                return
+            closing = True
+            if self._window_tag == tag:
+                self._window_tag = None
             self._want_gui_open = False
             self.data["gui_open"] = False
+            if dpg.does_item_exist(tag):
+                try:
+                    dpg.delete_item(tag)
+                except Exception:
+                    pass
 
         width = max(1, int(self.width))
         height = max(1, int(self.height))
@@ -449,13 +509,47 @@ class MegaDeskMember:
             no_title_bar=True,
         )
 
-        if dpg.does_item_exist(tag):
-            w = dpg.get_item_width(tag)
-            h = dpg.get_item_height(tag)
-            if w:
-                self.width = float(w)
-            if h:
-                self.height = float(h)
+        if not dpg.does_item_exist(tag):
+            # Build failed — don't leave a dangling binding that makes chrome
+            # think the GUI is open while nothing is there to sync.
+            self._window_tag = None
+            self._want_gui_open = False
+            self.data["gui_open"] = False
+            return
+
+        # Wrap FE user_data so host state stays consistent if cleanup runs
+        # outside close_window (e.g. FE-internal shutdown paths).
+        fe_cleanup = dpg.get_item_user_data(tag)
+
+        def _hosted_cleanup() -> None:
+            nonlocal closing
+            if closing:
+                return
+            closing = True
+            if callable(fe_cleanup):
+                try:
+                    fe_cleanup()
+                except Exception:
+                    pass
+            if self._window_tag == tag:
+                self._window_tag = None
+            self._want_gui_open = False
+            self.data["gui_open"] = False
+            # Cleanup must be safe to call alone — never leave a live orphan.
+            if dpg.does_item_exist(tag):
+                try:
+                    dpg.delete_item(tag)
+                except Exception:
+                    pass
+
+        dpg.set_item_user_data(tag, _hosted_cleanup)
+
+        w = dpg.get_item_width(tag)
+        h = dpg.get_item_height(tag)
+        if w:
+            self.width = float(w)
+        if h:
+            self.height = float(h)
 
     def on_double_click(self) -> None:
         if self.is_gui_open():
@@ -464,4 +558,5 @@ class MegaDeskMember:
             except Exception:
                 pass
             return
+        # Fallback only — DisplayEngine.open_megadesk_gui supplies real coords.
         self.open_window(global_pos=(80.0, 80.0 + HEADER_H))

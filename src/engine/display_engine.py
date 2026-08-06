@@ -8,7 +8,12 @@ import dearpygui.dearpygui as dpg
 
 from engine.canvas_model import CanvasMember, CanvasModel
 from engine.icons import ICON_PX, get_icon_texture_for_path
-from engine.megadesk_member import HEADER_H, MegaDeskMember
+from engine.megadesk_member import (
+    HEADER_H,
+    MegaDeskMember,
+    destroy_hosted_window,
+    hosted_window_tag,
+)
 from engine.megadesk_registry import (
     all_fe_specs,
     fe_has_backend,
@@ -251,6 +256,9 @@ class DisplayEngine:
         self.selected_id = None
         for cid in to_delete:
             self.model.delete_node(cid)
+            # Guarantee no orphaned FE panel survives a cleared host binding.
+            destroy_hosted_window(hosted_window_tag(cid))
+        self.sync_megadesk_windows()
         self.redraw()
         self.refresh_layer_bar()
 
@@ -694,49 +702,126 @@ class DisplayEngine:
                 self.open_megadesk_gui(node)
 
     def sync_megadesk_windows(self) -> None:
-        """Push canvas-owned world pos + pixel size onto hosted content panels."""
+        """Push canvas-owned world pos + pixel size onto hosted content panels.
+
+        Also reclaims or destroys orphaned panels when the in-memory
+        ``_window_tag`` binding has drifted from the live DPG item.
+        """
         ox, oy = self._drawlist_origin()
         needs_redraw = False
-        hover_select: Optional[MegaDeskMember] = None
+        hover_cid: Optional[str] = None
 
         for node in list(self.model.members.values()):
             node.set_view_zoom(self.zoom)
-            tag = node.window_tag
-            if not tag:
-                continue
+            tag = node.window_tag or node.hosted_tag()
+            visible = self.model.is_visible(node.canvas_id)
+
+            if not node.window_tag:
+                if node._want_gui_open and dpg.does_item_exist(node.hosted_tag()):
+                    # Binding was dropped but the panel is still alive — reclaim.
+                    node.bind_existing_window()
+                    tag = node.window_tag
+                    needs_redraw = True
+                elif dpg.does_item_exist(node.hosted_tag()):
+                    # Stale panel with no host intent — destroy the orphan.
+                    destroy_hosted_window(node.hosted_tag())
+                    needs_redraw = True
+                    continue
+                else:
+                    continue
+
             if not dpg.does_item_exist(tag):
-                node._window_tag = None
-                node._want_gui_open = False
-                node.data["gui_open"] = False
-                needs_redraw = True
+                # Prefer reclaim via deterministic tag before giving up.
+                if tag != node.hosted_tag() and dpg.does_item_exist(node.hosted_tag()):
+                    node.bind_existing_window()
+                    tag = node.window_tag
+                    needs_redraw = True
+                else:
+                    node._window_tag = None
+                    if node._want_gui_open:
+                        # Panel vanished unexpectedly while it should be open.
+                        node._want_gui_open = False
+                        node.data["gui_open"] = False
+                        needs_redraw = True
+                    continue
+
+            if not visible:
+                try:
+                    if dpg.is_item_shown(tag):
+                        dpg.hide_item(tag)
+                except Exception:
+                    pass
                 continue
 
+            try:
+                if not dpg.is_item_shown(tag):
+                    dpg.show_item(tag)
+            except Exception:
+                pass
+
             if (
-                hover_select is None
+                hover_cid is None
                 and dpg.is_item_hovered(tag)
                 and node.canvas_id not in self.selected_ids
                 and not self.model.is_locked(node.canvas_id)
             ):
-                hover_select = node
+                hover_cid = node.canvas_id
 
             sx, sy = self.world_to_screen(node.position[0], node.position[1])
             off_x, off_y = node.content_screen_offset()
-            dpg.set_item_pos(tag, [ox + sx + off_x, oy + sy + off_y])
-            w = max(1, int(node.width))
-            h = max(1, int(node.height))
+            target = [float(ox + sx + off_x), float(oy + sy + off_y)]
+            self._push_hosted_window_geom(tag, target, node.width, node.height)
+
+        # Select at most once when hover target changes — never every frame.
+        # Per-frame select() redraws the whole drawlist and desyncs chrome
+        # from the content panel under load.
+        if hover_cid is not None and hover_cid not in self.selected_ids:
+            node = self.model.members.get(hover_cid)
+            if node is not None:
+                self.select(node)
+        elif needs_redraw:
+            self.redraw()
+
+    @staticmethod
+    def _push_hosted_window_geom(
+        tag: str, pos: list[float], width: float, height: float
+    ) -> None:
+        """Force a hosted panel to the canvas-owned screen rect.
+
+        Dear PyGui can ignore a lone ``set_item_pos`` on ``no_move`` windows
+        in some versions; configure_item(pos=...) plus a verify/retry keeps
+        the panel glued under the header chrome.
+        """
+        w = max(1, int(width))
+        h = max(1, int(height))
+        try:
+            dpg.configure_item(tag, pos=pos, width=w, height=h)
+        except Exception:
+            try:
+                dpg.set_item_pos(tag, pos)
+            except Exception:
+                pass
             try:
                 dpg.configure_item(tag, width=w, height=h)
             except Exception:
                 pass
+            return
 
-        if hover_select is not None:
-            self.select(hover_select)
-        elif needs_redraw:
-            self.redraw()
+        # If ImGui clamped or rejected the move, push again via set_item_pos.
+        try:
+            cur = dpg.get_item_pos(tag)
+            if (
+                cur is not None
+                and len(cur) >= 2
+                and (abs(float(cur[0]) - pos[0]) > 1.0 or abs(float(cur[1]) - pos[1]) > 1.0)
+            ):
+                dpg.set_item_pos(tag, pos)
+        except Exception:
+            pass
 
     def _megadesk_window_hovered(self) -> bool:
         for node in self.model.members.values():
-            tag = node.window_tag
+            tag = node.window_tag or node.hosted_tag()
             if tag and dpg.does_item_exist(tag) and dpg.is_item_hovered(tag):
                 return True
         return False
