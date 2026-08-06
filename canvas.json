@@ -1,13 +1,13 @@
 {
   "members": {
-    "5279ce8a-2c6b-4fac-a5d7-25cdb933b128": {
-      "canvas_id": "5279ce8a-2c6b-4fac-a5d7-25cdb933b128",
+    "3f1fa5ab-afc6-4612-b139-80d45836fd61": {
+      "canvas_id": "3f1fa5ab-afc6-4612-b139-80d45836fd61",
       "type": "megadesk",
       "nickname": "supervisor",
       "node_name": "supervisor",
       "position": [
-        245.42349999999982,
-        -15.763800000000089
+        -724.0480143683517,
+        -2702.8107729842804
       ],
       "scale": [
         1.0,
@@ -16,20 +16,42 @@
       "parents": [],
       "children": [],
       "data": {
-        "width": 520.0,
-        "height": 520.0,
+        "width": 729.6890134628582,
+        "height": 407.93391394157794,
         "node_name": "supervisor",
-        "gui_open": false
+        "gui_open": true
       }
     },
-    "87b574af-105d-486f-9111-b88855766d0a": {
-      "canvas_id": "87b574af-105d-486f-9111-b88855766d0a",
+    "bf81d508-238b-4892-a7c1-3c4289d01387": {
+      "canvas_id": "bf81d508-238b-4892-a7c1-3c4289d01387",
+      "type": "megadesk",
+      "nickname": "ticket_dispatcher",
+      "node_name": "ticket_dispatcher",
+      "position": [
+        -7115.211641865941,
+        1566.800492703143
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 669.0,
+        "height": 426.0,
+        "node_name": "ticket_dispatcher",
+        "gui_open": true
+      }
+    },
+    "f0779846-68e3-41ee-bfab-924bf8b1c961": {
+      "canvas_id": "f0779846-68e3-41ee-bfab-924bf8b1c961",
       "type": "megadesk",
       "nickname": "merge_manager",
       "node_name": "merge_manager",
       "position": [
-        1618.1932957000001,
-        413.08299529999994
+        -7138.3616999220785,
+        -2691.948226646629
       ],
       "scale": [
         1.0,
@@ -43,28 +65,6 @@
         "node_name": "merge_manager",
         "gui_open": true
       }
-    },
-    "173c4b1b-7a27-49aa-99c8-8bcef2b34071": {
-      "canvas_id": "173c4b1b-7a27-49aa-99c8-8bcef2b34071",
-      "type": "megadesk",
-      "nickname": "ticket_dispatcher",
-      "node_name": "ticket_dispatcher",
-      "position": [
-        265.7836283,
-        1494.6209858
-      ],
-      "scale": [
-        1.0,
-        1.0
-      ],
-      "parents": [],
-      "children": [],
-      "data": {
-        "width": 700.0,
-        "height": 520.0,
-        "node_name": "ticket_dispatcher",
-        "gui_open": false
-      }
     }
   },
   "hierarchy": {
@@ -75,9 +75,9 @@
         "visible": true,
         "locked": false,
         "children": [
-          "5279ce8a-2c6b-4fac-a5d7-25cdb933b128",
-          "87b574af-105d-486f-9111-b88855766d0a",
-          "173c4b1b-7a27-49aa-99c8-8bcef2b34071"
+          "3f1fa5ab-afc6-4612-b139-80d45836fd61",
+          "bf81d508-238b-4892-a7c1-3c4289d01387",
+          "f0779846-68e3-41ee-bfab-924bf8b1c961"
         ]
       }
     ]

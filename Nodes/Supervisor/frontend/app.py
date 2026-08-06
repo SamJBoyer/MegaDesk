@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import Callable, Optional
+from typing import Optional
 
 import dearpygui.dearpygui as dpg
 from megadesk import discover_backends, ensure_supervisor_running, frame_pump
@@ -33,7 +33,6 @@ class SupervisorPanel:
         self._running_labels: list[str] = []
         self._selected_running_uid: Optional[str] = None
         self._frame_registered = False
-        self._owns_context = False
 
     @property
     def client(self) -> SupervisorStreamClient:
@@ -123,44 +122,17 @@ class SupervisorPanel:
 
     def build_ui(
         self,
-        tag: str = "primary",
+        parent: str,
         *,
-        pos: Optional[tuple[float, float]] = None,
-        on_close: Optional[Callable[[], None]] = None,
+        tag_prefix: str,
         width: int = 520,
         height: int = 520,
-        no_move: bool = False,
-        no_resize: bool = False,
-        no_title_bar: bool = False,
-    ) -> str:
-        self._root_tag = tag
-        if dpg.does_item_exist(tag):
-            dpg.delete_item(tag)
+    ) -> None:
+        """Fill the host content parent with Supervisor widgets."""
+        self._root_tag = tag_prefix
+        _ = width, height
 
-        kwargs: dict = {}
-        if pos is not None:
-            kwargs["pos"] = list(pos)
-
-        def _close() -> None:
-            self.shutdown()
-            if on_close:
-                on_close()
-
-        # Hosted shells (no_title_bar) close via canvas chrome + user_data, not DPG X.
-        use_dpg_close = on_close is not None and not no_title_bar
-        with dpg.window(
-            tag=tag,
-            label="Supervisor",
-            width=width,
-            height=height,
-            no_collapse=True,
-            no_move=no_move,
-            no_resize=no_resize,
-            no_title_bar=no_title_bar,
-            on_close=_close if use_dpg_close else None,
-            no_close=not use_dpg_close,
-            **kwargs,
-        ):
+        with dpg.group(parent=parent):
             with dpg.group(horizontal=True):
                 dpg.add_text("Redis:")
                 dpg.add_text("*", tag=self._tag("redis_dot"), color=COLOR_RED)
@@ -217,14 +189,13 @@ class SupervisorPanel:
                 height=-1,
             )
 
-        dpg.set_item_user_data(tag, _close)
+        dpg.set_item_user_data(parent, self.shutdown)
         self._ensure_backend()
         self._poll_status(force=True)
         if not self._frame_registered:
             frame_pump.register(self._on_frame)
             self._frame_registered = True
-        _LIVE[tag] = self
-        return tag
+        _LIVE[tag_prefix] = self
 
     def _on_frame(self) -> None:
         if not dpg.does_item_exist(self._root_tag):
@@ -236,20 +207,6 @@ class SupervisorPanel:
             frame_pump.unregister(self._on_frame)
             self._frame_registered = False
         _LIVE.pop(self._root_tag, None)
-
-    def start(self) -> None:
-        self._owns_context = True
-        dpg.create_context()
-        self.build_ui("primary")
-        dpg.create_viewport(title="Supervisor", width=560, height=560)
-        dpg.setup_dearpygui()
-        dpg.show_viewport()
-        dpg.set_primary_window("primary", True)
-        while dpg.is_dearpygui_running():
-            self._poll_status()
-            dpg.render_dearpygui_frame()
-        self.shutdown()
-        dpg.destroy_context()
 
     def _on_catalog_select(self, sender, app_data, user_data=None) -> None:
         name = str(app_data if app_data is not None else "").strip()
@@ -330,31 +287,25 @@ class SupervisorPanel:
 
 
 def build_ui(
-    tag: str,
+    parent: str,
     *,
-    pos: Optional[tuple[float, float]] = None,
-    on_close: Optional[Callable[[], None]] = None,
+    tag_prefix: str,
     width: int = 520,
     height: int = 520,
-    no_move: bool = False,
-    no_resize: bool = False,
-    no_title_bar: bool = False,
-) -> str:
+) -> None:
     """Module-level builder for FeSpec / MegaDesk canvas hosting."""
-    return SupervisorPanel().build_ui(
-        tag,
-        pos=pos,
-        on_close=on_close,
+    SupervisorPanel().build_ui(
+        parent,
+        tag_prefix=tag_prefix,
         width=width,
         height=height,
-        no_move=no_move,
-        no_resize=no_resize,
-        no_title_bar=no_title_bar,
     )
 
 
 def main() -> None:
-    SupervisorPanel().start()
+    raise SystemExit(
+        "Supervisor FE is canvas-only. Drop it from the MegaDesk Catalog."
+    )
 
 
 if __name__ == "__main__":

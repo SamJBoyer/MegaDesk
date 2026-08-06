@@ -8,7 +8,7 @@ import re
 import subprocess
 import threading
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Optional
 from urllib.parse import urlparse
 
 import dearpygui.dearpygui as dpg
@@ -101,7 +101,6 @@ class TicketDispatcher:
         self._dispatched: set[int] = set()
         self._redis: Optional[redis.Redis] = None
         self._root_tag = "primary"
-        self._owns_context = False
         self._frame_registered = False
         self._connect_redis()
 
@@ -119,20 +118,15 @@ class TicketDispatcher:
 
     def build_ui(
         self,
-        tag: str = "primary",
+        parent: str,
         *,
-        pos: Optional[tuple[float, float]] = None,
-        on_close: Optional[Callable[[], None]] = None,
+        tag_prefix: str,
         width: int = 700,
         height: int = 520,
-        no_move: bool = False,
-        no_resize: bool = False,
-        no_title_bar: bool = False,
-    ) -> str:
-        """Build the Ticket Dispatcher window. Returns the window tag."""
-        self._root_tag = tag
-        if dpg.does_item_exist(tag):
-            dpg.delete_item(tag)
+    ) -> None:
+        """Fill the host content parent with Ticket Dispatcher widgets."""
+        self._root_tag = tag_prefix
+        _ = width, height
 
         theme_tag = self._tag("ticket_theme")
         if not dpg.does_item_exist(theme_tag):
@@ -144,30 +138,7 @@ class TicketDispatcher:
                     dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
                     dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 10, 8)
 
-        kwargs: dict = {}
-        if pos is not None:
-            kwargs["pos"] = list(pos)
-
-        def _close() -> None:
-            self.shutdown()
-            if on_close:
-                on_close()
-
-        # Hosted shells (no_title_bar) close via canvas chrome + user_data, not DPG X.
-        use_dpg_close = on_close is not None and not no_title_bar
-        with dpg.window(
-            tag=tag,
-            label="Ticket Dispatcher",
-            width=width,
-            height=height,
-            no_collapse=True,
-            no_move=no_move,
-            no_resize=no_resize,
-            no_title_bar=no_title_bar,
-            on_close=_close if use_dpg_close else None,
-            no_close=not use_dpg_close,
-            **kwargs,
-        ):
+        with dpg.group(parent=parent):
             dpg.add_text("Ticket Dispatcher")
             dpg.add_spacer(height=6)
 
@@ -212,10 +183,9 @@ class TicketDispatcher:
                 border=True,
             )
 
-        dpg.set_item_user_data(tag, _close)
+        dpg.set_item_user_data(parent, self.shutdown)
         self._start_services()
-        _LIVE[tag] = self
-        return tag
+        _LIVE[tag_prefix] = self
 
     def _start_services(self) -> None:
         if self._poll_thread and self._poll_thread.is_alive():
@@ -242,23 +212,6 @@ class TicketDispatcher:
             self._poll_thread.join(timeout=2.0)
             self._poll_thread = None
         _LIVE.pop(self._root_tag, None)
-
-    def start(self) -> None:
-        self._owns_context = True
-        dpg.create_context()
-        self.build_ui("primary")
-        dpg.create_viewport(title="Ticket Dispatcher", width=720, height=560)
-        dpg.setup_dearpygui()
-        dpg.show_viewport()
-        dpg.set_primary_window("primary", True)
-
-        while dpg.is_dearpygui_running():
-            self._sync_url_from_input()
-            self._drain_ui_queue()
-            dpg.render_dearpygui_frame()
-
-        self.shutdown()
-        dpg.destroy_context()
 
     def _set_conn_light(self, color: tuple[int, int, int, int]) -> None:
         tag = self._tag("conn_light")
@@ -484,32 +437,25 @@ class TicketDispatcher:
 
 
 def build_ui(
-    tag: str,
+    parent: str,
     *,
-    pos: Optional[tuple[float, float]] = None,
-    on_close: Optional[Callable[[], None]] = None,
+    tag_prefix: str,
     width: int = 700,
     height: int = 520,
-    no_move: bool = False,
-    no_resize: bool = False,
-    no_title_bar: bool = False,
-) -> str:
+) -> None:
     """Module-level builder for FeSpec / MegaDesk canvas hosting."""
-    app = TicketDispatcher()
-    return app.build_ui(
-        tag,
-        pos=pos,
-        on_close=on_close,
+    TicketDispatcher().build_ui(
+        parent,
+        tag_prefix=tag_prefix,
         width=width,
         height=height,
-        no_move=no_move,
-        no_resize=no_resize,
-        no_title_bar=no_title_bar,
     )
 
 
 def main() -> None:
-    TicketDispatcher().start()
+    raise SystemExit(
+        "Ticket Dispatcher FE is canvas-only. Drop it from the MegaDesk Catalog."
+    )
 
 
 if __name__ == "__main__":

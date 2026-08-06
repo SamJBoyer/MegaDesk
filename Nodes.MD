@@ -4,7 +4,7 @@ A **node** is a modular tool inside MegaDesk. Nodes can expose a front-end (FE),
 
 | Half | What it is | Who uses it |
 |------|------------|-------------|
-| **FE** | Always Dear PyGui. Can be dropped onto the MegaDesk canvas as a subgui / subnode. | MegaDesk canvas (`src/`) via `get_exec_spec("FE")` → `FeSpec` |
+| **FE** | Always Dear PyGui. Integrated into the MegaDesk canvas shell (not standalone). | MegaDesk canvas (`src/`) via `get_exec_spec("FE")` → `FeSpec` |
 | **BE** | Long-lived process (argv + optional cwd). Managed as a subprocess. | Supervisor BE via `get_exec_spec("BE")` → `BeSpec` |
 
 Shared contract lives in the installable `megadesk` package (shipped under `src/`): `FeSpec`, `BeSpec`, entry-point discovery, and the Supervisor Redis client.
@@ -88,8 +88,10 @@ Front-end description for MegaDesk canvas hosting:
 `build` signature (convention):
 
 ```text
-(tag, *, pos=None, on_close=None, width=…, height=…, no_move=…, no_resize=…) -> window_tag
+(parent, *, tag_prefix, width=…, height=…) -> None
 ```
+
+Fills the host content parent only — no `dpg.window`, no standalone viewport.
 
 FE-only example pattern:
 
@@ -163,8 +165,8 @@ Keys prefer `spec.name`, falling back to the entry-point name.
 ## How the FE uses nodes (MegaDesk canvas)
 
 1. On startup, the canvas calls `discover_frontends()` (via `engine.megadesk_registry`) and fills the Catalog palette (`megadesk:<name>`).
-2. Dropping a node places a canvas member (`type: "megadesk"`, `node_name` in `canvas.json`) and opens the Dear PyGui window via `FeSpec.build` at the drop point.
-3. Pan/zoom keeps the window world-anchored; close leaves a placard; double-click reopens the GUI.
+2. Dropping a node places a canvas member (`type: "megadesk"`, `node_name` in `canvas.json`) and builds the FE into a host-owned shell under `canvas_window` via `FeSpec.build`.
+3. Pan/zoom keeps the shell world-anchored; close leaves a placard; double-click reopens the GUI.
 4. If `has_backend(node_name)` is true after drop:
    - **Supervisor exception:** `ensure_supervisor_running()` spawns the Supervisor `BeSpec` directly (`python -m backend`) and waits for `GBD:SUPERVISOR:ALIVE`. The BE cannot process `LAUNCHREQUEST` itself because it is not up yet.
    - **Every other BE node:** `XADD LAUNCHREQUEST` with `node_endpoint` = node name (and `parameters=""`) so the Supervisor BE starts that node’s `BeSpec`.

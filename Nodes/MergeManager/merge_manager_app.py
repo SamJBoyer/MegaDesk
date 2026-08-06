@@ -11,7 +11,7 @@ import threading
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Optional
 
 import dearpygui.dearpygui as dpg
 import redis
@@ -537,45 +537,17 @@ class MergeManager:
 
     def build_ui(
         self,
-        tag: str = "primary",
+        parent: str,
         *,
-        pos: Optional[tuple[float, float]] = None,
-        on_close: Optional[Callable[[], None]] = None,
+        tag_prefix: str,
         width: int = 960,
         height: int = 600,
-        no_move: bool = False,
-        no_resize: bool = False,
-        no_title_bar: bool = False,
-    ) -> str:
-        """Build the MergeManager window. Returns the window tag."""
-        self._root_tag = tag
-        if dpg.does_item_exist(tag):
-            dpg.delete_item(tag)
+    ) -> None:
+        """Fill the host content parent with MergeManager widgets."""
+        self._root_tag = tag_prefix
+        _ = width, height
 
-        kwargs: dict = {}
-        if pos is not None:
-            kwargs["pos"] = list(pos)
-
-        def _close() -> None:
-            self.shutdown()
-            if on_close:
-                on_close()
-
-        # Hosted shells (no_title_bar) close via canvas chrome + user_data, not DPG X.
-        use_dpg_close = on_close is not None and not no_title_bar
-        with dpg.window(
-            tag=tag,
-            label="Resolution panel",
-            width=width,
-            height=height,
-            no_collapse=True,
-            no_move=no_move,
-            no_resize=no_resize,
-            no_title_bar=no_title_bar,
-            on_close=_close if use_dpg_close else None,
-            no_close=not use_dpg_close,
-            **kwargs,
-        ):
+        with dpg.group(parent=parent):
             with dpg.group(horizontal=True):
                 dpg.add_text("", tag=self._tag("status_text"), color=COLOR_DIM)
                 dpg.add_spacer(width=20)
@@ -622,14 +594,13 @@ class MergeManager:
                     color=COLOR_DIM,
                 )
 
-        dpg.set_item_user_data(tag, _close)
+        dpg.set_item_user_data(parent, self.shutdown)
         self._start_services()
-        _LIVE[tag] = self
+        _LIVE[tag_prefix] = self
         self._set_status(
             f"Connected — watching {FINISHED_PREFIX}* streams", COLOR_INFO
         )
         self._update_dismissal_tag()
-        return tag
 
     def _start_services(self) -> None:
         if self._poll_thread and self._poll_thread.is_alive():
@@ -663,55 +634,27 @@ class MergeManager:
             self._poll_thread = None
         _LIVE.pop(self._root_tag, None)
 
-    def start(self) -> None:
-        logging.basicConfig(
-            level=os.environ.get("LOG_LEVEL", "INFO"),
-            format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-            stream=sys.stdout,
-        )
-        self._redis = connect_redis(self.redis_url)
-        dpg.create_context()
-        self.build_ui("primary")
-        dpg.create_viewport(title="MergeManager", width=980, height=640)
-        dpg.setup_dearpygui()
-        dpg.show_viewport()
-        dpg.set_primary_window("primary", True)
-
-        while dpg.is_dearpygui_running():
-            self._drain_ui_queue()
-            dpg.render_dearpygui_frame()
-
-        self.shutdown()
-        dpg.destroy_context()
-
 
 def build_ui(
-    tag: str,
+    parent: str,
     *,
-    pos: Optional[tuple[float, float]] = None,
-    on_close: Optional[Callable[[], None]] = None,
+    tag_prefix: str,
     width: int = 960,
     height: int = 600,
-    no_move: bool = False,
-    no_resize: bool = False,
-    no_title_bar: bool = False,
-) -> str:
+) -> None:
     """Module-level builder for FeSpec / MegaDesk canvas hosting."""
-    app = MergeManager()
-    return app.build_ui(
-        tag,
-        pos=pos,
-        on_close=on_close,
+    MergeManager().build_ui(
+        parent,
+        tag_prefix=tag_prefix,
         width=width,
         height=height,
-        no_move=no_move,
-        no_resize=no_resize,
-        no_title_bar=no_title_bar,
     )
 
 
 def main() -> None:
-    MergeManager().start()
+    raise SystemExit(
+        "MergeManager FE is canvas-only. Drop it from the MegaDesk Catalog."
+    )
 
 
 if __name__ == "__main__":
