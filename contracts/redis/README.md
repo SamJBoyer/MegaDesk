@@ -39,6 +39,7 @@ Plant, TicketDispatcher, and MergeManager **do not** start Redis. Supervisor may
 | `FINISHED` | stream | `FINISHED:<REPO>` | [plant-pipeline.md](plant-pipeline.md#finishedrepo) |
 | `LAUNCHREQUEST` | stream | `LAUNCHREQUEST` | [supervisor.md](supervisor.md#launchrequest) |
 | `KILLREQUEST` | stream | `KILLREQUEST` | [supervisor.md](supervisor.md#killrequest) |
+| `NODEEXIT` | stream | `NODEEXIT` | [supervisor.md](supervisor.md#nodeexit) |
 | `RUNNINGNODES` | hash | `RUNNINGNODES:<unique_id>` | [supervisor.md](supervisor.md#runningnodesunique_id) |
 | Supervisor alive | string (TTL) | `GBD:SUPERVISOR:ALIVE` on DB 0 | [supervisor.md](supervisor.md#gbdsupervisoralive) |
 
@@ -60,4 +61,4 @@ Supervisor keys/streams:
 
 Older prompts mentioned `WORKREQUEST` and `MERGEREQUEST:*`. The live contract is **`WORKORDER`** and **`FINISHED:<REPO>`** only.
 
-Older Supervisor docs mentioned YAML manifests (`register_manifest` / `execute_manifest` / `PARAMETERS_*`) and Pub/Sub `launch_node` / `stop_node` / `acknowledgements` / `KILLALL` / `GBD:COMMANDER:ALIVE`. The live contract is **`LAUNCHREQUEST`** / **`KILLREQUEST`** / **`RUNNINGNODES:<unique_id>`** / **`GBD:SUPERVISOR:ALIVE`**.
+Older Supervisor docs mentioned YAML manifests (`register_manifest` / `execute_manifest` / `PARAMETERS_*`) and Pub/Sub `launch_node` / `stop_node` / `acknowledgements` / `KILLALL` / `GBD:COMMANDER:ALIVE`. The live contract is **`LAUNCHREQUEST`** / **`KILLREQUEST`** / **`NODEEXIT`** / **`RUNNINGNODES:<unique_id>`** / **`GBD:SUPERVISOR:ALIVE`**.

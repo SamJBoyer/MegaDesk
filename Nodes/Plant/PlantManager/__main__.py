@@ -48,10 +48,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> None:
-    logging.basicConfig(
-        level=os.environ.get("LOG_LEVEL", "INFO"),
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-    )
+    try:
+        from megadesk import configure_node_logging
+
+        configure_node_logging("plant")
+    except Exception:
+        logging.basicConfig(
+            level=os.environ.get("LOG_LEVEL", "INFO"),
+            format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+        )
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command is None:

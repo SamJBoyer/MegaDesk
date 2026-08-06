@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from typing import Optional
 
 import dearpygui.dearpygui as dpg
@@ -15,6 +16,7 @@ COLOR_RED = (231, 76, 60, 255)
 COLOR_DIM = (120, 120, 130, 255)
 
 _STATUS_POLL_S = 1.0
+_PROCESS_LOG_TAIL = 80
 _LIVE: dict[str, "SupervisorPanel"] = {}
 
 
@@ -50,6 +52,11 @@ class SupervisorPanel:
         if dpg.does_item_exist(tag):
             dpg.set_value(tag, "\n".join(self._log_lines))
 
+    def _set_process_log(self, text: str) -> None:
+        tag = self._tag("process_log")
+        if dpg.does_item_exist(tag):
+            dpg.set_value(tag, text)
+
     def _dot_color(self, ok: bool) -> tuple[int, int, int, int]:
         return COLOR_GREEN if ok else COLOR_RED
 
@@ -70,8 +77,35 @@ class SupervisorPanel:
         endpoint = entry.get("node_endpoint") or "?"
         uid = entry.get("unique_id") or "?"
         pid = entry.get("PID") or "?"
+        status = (entry.get("status") or "running").strip() or "running"
         short = uid if len(uid) <= 8 else uid[:8]
+        if status == "exited":
+            code = entry.get("exit_code") or "?"
+            return f"{endpoint}  {short}…  exited={code}"
         return f"{endpoint}  {short}…  pid={pid}"
+
+    @staticmethod
+    def _tail_file(path: str, max_lines: int = _PROCESS_LOG_TAIL) -> str:
+        if not path:
+            return "(no log_path)"
+        try:
+            p = Path(path)
+            if not p.is_file():
+                return f"(log file missing: {path})"
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            return f"(failed to read log: {exc})"
+        lines = text.splitlines()
+        if len(lines) > max_lines:
+            lines = lines[-max_lines:]
+        return "\n".join(lines) if lines else "(empty log)"
+
+    def _refresh_process_log(self) -> None:
+        entry = self._selected_running_entry()
+        if not entry:
+            self._set_process_log("Select a running/exited instance to view its log.")
+            return
+        self._set_process_log(self._tail_file(entry.get("log_path") or ""))
 
     def _refresh_lists(self) -> None:
         catalog = self._tag("catalog")
@@ -86,6 +120,7 @@ class SupervisorPanel:
                 running,
                 items=self._running_labels or ["(none running)"],
             )
+        self._refresh_process_log()
 
     def _poll_status(self, force: bool = False) -> None:
         now = time.monotonic()
@@ -99,7 +134,9 @@ class SupervisorPanel:
                 name for name in discover_backends() if name != "supervisor"
             )
             self._running = self.client.list_running() if self._redis_ok else []
-            self._status = f"running={len(self._running)}"
+            live = sum(1 for e in self._running if (e.get("status") or "running") != "exited")
+            exited = len(self._running) - live
+            self._status = f"live={live} exited={exited}"
         except Exception as exc:  # noqa: BLE001 — UI must stay up if Redis is down
             self._redis_ok = False
             self._backend_ok = False
@@ -117,7 +154,7 @@ class SupervisorPanel:
         if ok:
             self._append_log("Backend running")
         else:
-            self._append_log("Backend failed to start")
+            self._append_log("Backend failed to start — see logs/supervisor/supervisor.log")
         return ok
 
     def build_ui(
@@ -163,13 +200,13 @@ class SupervisorPanel:
             dpg.add_listbox(
                 items=["(loading…)"],
                 tag=self._tag("catalog"),
-                num_items=6,
+                num_items=5,
                 width=-1,
                 callback=self._on_catalog_select,
             )
 
             dpg.add_separator()
-            dpg.add_text("Running", color=COLOR_DIM)
+            dpg.add_text("Running / exited", color=COLOR_DIM)
             dpg.add_listbox(
                 items=["(none running)"],
                 tag=self._tag("running"),
@@ -179,7 +216,18 @@ class SupervisorPanel:
             )
 
             dpg.add_separator()
-            dpg.add_text("Log", color=COLOR_DIM)
+            dpg.add_text("Process log", color=COLOR_DIM)
+            dpg.add_input_text(
+                tag=self._tag("process_log"),
+                default_value="Select a running/exited instance to view its log.",
+                multiline=True,
+                readonly=True,
+                width=-1,
+                height=140,
+            )
+
+            dpg.add_separator()
+            dpg.add_text("Actions", color=COLOR_DIM)
             dpg.add_input_text(
                 tag=self._tag("log"),
                 default_value="",
@@ -221,6 +269,7 @@ class SupervisorPanel:
         for entry, entry_label in zip(self._running, self._running_labels):
             if entry_label == label:
                 self._selected_running_uid = entry.get("unique_id")
+                self._refresh_process_log()
                 return
 
     def _selected_catalog_name(self) -> Optional[str]:
@@ -274,6 +323,7 @@ class SupervisorPanel:
             return
         entry_id = self.client.kill_node(endpoint, uid)
         self._append_log(f"KILLREQUEST {endpoint} {uid[:8]}… -> {entry_id}")
+        self._selected_running_uid = None
         self._poll_status(force=True)
 
     def _on_stop_all(self) -> None:
@@ -283,6 +333,7 @@ class SupervisorPanel:
             return
         n = self.client.kill_all_running()
         self._append_log(f"KILLREQUEST queued for {n} running node(s)")
+        self._selected_running_uid = None
         self._poll_status(force=True)
 
 

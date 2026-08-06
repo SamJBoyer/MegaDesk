@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 import redis
@@ -12,7 +13,7 @@ import redis
 from megadesk import SUPERVISOR_NODE_NAME, BeSpec, discover_backends, get_backend
 
 from backend.process_registry import ProcessRegistry, launch_spec
-from backend.redis_provision import running_nodes_key
+from backend.redis_provision import NODEEXIT_STREAM, running_nodes_key
 
 log = logging.getLogger("gbd.supervisor")
 
@@ -23,6 +24,10 @@ class NodeLaunchError(Exception):
 
 class NodeKillError(Exception):
     """Unknown unique_id or endpoint mismatch."""
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 class ExecutionEngine:
@@ -82,7 +87,12 @@ class ExecutionEngine:
 
         spec = self._resolve_spec(node_endpoint)
         unique_id = str(uuid.uuid4())
-        entry = launch_spec(spec, unique_id=unique_id, parameters=parameters)
+        launched_at = _utc_now_iso()
+        try:
+            entry = launch_spec(spec, unique_id=unique_id, parameters=parameters)
+        except Exception as exc:
+            raise NodeLaunchError(f"Failed to launch {node_endpoint}: {exc}") from exc
+
         self.registry.store(entry)
         self.realtime.hset(
             running_nodes_key(unique_id),
@@ -91,13 +101,19 @@ class ExecutionEngine:
                 "unique_id": unique_id,
                 "parameters": parameters,
                 "PID": str(entry.pid),
+                "status": "running",
+                "log_path": entry.log_path,
+                "launched_at": launched_at,
+                "exit_code": "",
+                "exited_at": "",
             },
         )
         log.info(
-            "Launched %s unique_id=%s pid=%s argv=%s",
+            "Launched %s unique_id=%s pid=%s log=%s argv=%s",
             entry.node_endpoint,
             unique_id,
             entry.pid,
+            entry.log_path,
             spec.argv,
         )
         return unique_id
@@ -110,7 +126,7 @@ class ExecutionEngine:
 
         entry = self.registry.get(unique_id)
         if entry is None:
-            # Stale hash without in-memory process — still clear Redis.
+            # Stale / exited hash without in-memory process — still clear Redis.
             key = running_nodes_key(unique_id)
             stored = self.realtime.hgetall(key)
             if not stored:
@@ -142,3 +158,59 @@ class ExecutionEngine:
                 self.realtime.delete(running_nodes_key(unique_id))
             except Exception:
                 pass
+        # Also clear any exited Redis-only hashes left behind by the reaper.
+        try:
+            for key in self.realtime.scan_iter(match="RUNNINGNODES:*", count=100):
+                self.realtime.delete(key)
+        except Exception:
+            pass
+
+    def reap_exits(self) -> int:
+        """Mark dead managed processes as exited on Redis; return count reaped."""
+        reaped = 0
+        for entry in list(self.registry.items()):
+            code = entry.process.poll()
+            if code is None:
+                continue
+            unique_id = entry.unique_id
+            exited_at = _utc_now_iso()
+            exit_code = str(code)
+            entry.close_log()
+            self.registry.pop(unique_id)
+            key = running_nodes_key(unique_id)
+            try:
+                if self.realtime.exists(key):
+                    self.realtime.hset(
+                        key,
+                        mapping={
+                            "status": "exited",
+                            "exit_code": exit_code,
+                            "exited_at": exited_at,
+                            "log_path": entry.log_path,
+                        },
+                    )
+                    self.realtime.xadd(
+                        NODEEXIT_STREAM,
+                        {
+                            "unique_id": unique_id,
+                            "node_endpoint": entry.node_endpoint,
+                            "exit_code": exit_code,
+                            "log_path": entry.log_path,
+                            "exited_at": exited_at,
+                        },
+                    )
+                reaped += 1
+                log.info(
+                    "Reaped %s unique_id=%s exit_code=%s log=%s",
+                    entry.node_endpoint,
+                    unique_id,
+                    exit_code,
+                    entry.log_path,
+                )
+            except Exception:
+                log.exception(
+                    "Failed to record exit for %s unique_id=%s",
+                    entry.node_endpoint,
+                    unique_id,
+                )
+        return reaped

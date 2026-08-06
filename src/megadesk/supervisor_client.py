@@ -5,6 +5,7 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import Optional
 
 try:
@@ -122,14 +123,29 @@ def ensure_supervisor_running(
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
 
-    subprocess.Popen(
-        list(spec.argv),
-        cwd=spec.cwd or None,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        creationflags=creationflags,
-    )
+    # Prefer BeSpec.cwd (Supervisor package root); fall back beside argv[0].
+    root = Path(spec.cwd) if spec.cwd else Path(spec.argv[0]).resolve().parent
+    log_path = (root / "logs" / "supervisor" / "supervisor.log").resolve()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_fh = open(log_path, "a", encoding="utf-8", errors="replace", buffering=1)
+
+    try:
+        subprocess.Popen(
+            list(spec.argv),
+            cwd=spec.cwd or None,
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            text=True,
+            creationflags=creationflags,
+        )
+    except Exception:
+        return False
+    finally:
+        # Child inherits the fd; close our copy so we do not leak handles.
+        try:
+            log_fh.close()
+        except Exception:
+            pass
 
     deadline = time.time() + timeout
     while time.time() < deadline:

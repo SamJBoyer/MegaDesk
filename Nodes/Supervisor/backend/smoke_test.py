@@ -131,6 +131,16 @@ def main() -> int:
         return _fail(f"RUNNINGNODES incomplete: {running}")
     _ok(f"RUNNINGNODES unique_id={unique_id} PID={pid}")
 
+    if running.get("status") != "running":
+        return _fail(f"expected status=running, got {running.get('status')!r}")
+    log_path = running.get("log_path") or ""
+    if not log_path:
+        return _fail(f"RUNNINGNODES missing log_path: {running}")
+    log_file = Path(log_path)
+    if not log_file.is_file():
+        return _fail(f"log file not created: {log_path}")
+    _ok(f"log_path={log_path} ({log_file.stat().st_size} bytes)")
+
     time.sleep(0.5)
     live = _plant_pids()
     if not live:

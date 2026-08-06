@@ -21,6 +21,8 @@ from backend.redis_provision import (
 
 log = logging.getLogger("gbd.supervisor")
 
+_REAP_INTERVAL_S = 1.0
+
 
 class SupervisorServer:
     def __init__(
@@ -36,6 +38,7 @@ class SupervisorServer:
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._heartbeat: Optional[threading.Thread] = None
+        self._reaper: Optional[threading.Thread] = None
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -46,10 +49,14 @@ class SupervisorServer:
         self._heartbeat = threading.Thread(
             target=self._heartbeat_loop, name="gbd-supervisor-heartbeat", daemon=True
         )
+        self._reaper = threading.Thread(
+            target=self._reaper_loop, name="gbd-supervisor-reaper", daemon=True
+        )
         self._thread = threading.Thread(
             target=self._listen_loop, name="gbd-supervisor-streams", daemon=True
         )
         self._heartbeat.start()
+        self._reaper.start()
         self._thread.start()
         log.info("Supervisor stream consumer listening")
 
@@ -60,6 +67,8 @@ class SupervisorServer:
             self._thread.join(timeout=3)
         if self._heartbeat:
             self._heartbeat.join(timeout=3)
+        if self._reaper:
+            self._reaper.join(timeout=3)
 
     def _heartbeat_loop(self) -> None:
         while not self._stop.is_set():
@@ -68,6 +77,14 @@ class SupervisorServer:
             except Exception as exc:
                 log.warning("Heartbeat failed: %s", exc)
             self._stop.wait(ALIVE_TTL_SECONDS / 2)
+
+    def _reaper_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self.engine.reap_exits()
+            except Exception as exc:
+                log.warning("Reaper failed: %s", exc)
+            self._stop.wait(_REAP_INTERVAL_S)
 
     def _listen_loop(self) -> None:
         streams = {

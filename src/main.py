@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import dearpygui.dearpygui as dpg
 
 from engine.canvas_model import CanvasModel
@@ -44,6 +46,10 @@ def _apply_daytime_theme() -> None:
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
     discover_megadesk_frontends()
 
     model = CanvasModel()

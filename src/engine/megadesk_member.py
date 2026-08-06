@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
+import traceback
 from typing import Any, Optional
 from uuid import uuid4
 
 import dearpygui.dearpygui as dpg
 
 from megadesk import FeSpec
+
+log = logging.getLogger("megadesk.canvas")
 
 TYPE_DISCRIMINATOR = "megadesk"
 
@@ -479,12 +483,39 @@ class MegaDeskMember:
                 width=width,
                 height=height,
             )
-        except Exception:
-            destroy_hosted_window(tag)
-            self._window_tag = None
-            self._want_gui_open = False
-            self.data["gui_open"] = False
-            return
+        except Exception as exc:
+            log.exception(
+                "FeSpec.build failed for node=%s canvas_id=%s: %s",
+                self.node_name,
+                self.canvas_id,
+                exc,
+            )
+            if dpg.does_item_exist(content):
+                try:
+                    dpg.add_text(
+                        f"FE build failed: {exc}",
+                        parent=content,
+                        wrap=max(120, width - 20),
+                        color=(200, 60, 60, 255),
+                    )
+                    dpg.add_text(
+                        traceback.format_exc()[-1500:],
+                        parent=content,
+                        wrap=max(120, width - 20),
+                        color=(120, 120, 130, 255),
+                    )
+                except Exception:
+                    destroy_hosted_window(tag)
+                    self._window_tag = None
+                    self._want_gui_open = False
+                    self.data["gui_open"] = False
+                    return
+            else:
+                destroy_hosted_window(tag)
+                self._window_tag = None
+                self._want_gui_open = False
+                self.data["gui_open"] = False
+                return
 
         if not dpg.does_item_exist(tag):
             self._window_tag = None

@@ -65,5 +65,23 @@ See `contracts/redis/supervisor.md`:
 
 - `LAUNCHREQUEST` stream — launch a discovered BE (`node_endpoint`, `parameters`)
 - `KILLREQUEST` stream — stop one instance (`node_endpoint`, `unique_id`)
-- `RUNNINGNODES:<unique_id>` hash — registry of live instances + PID
+- `NODEEXIT` stream — natural exit metadata (not log bodies)
+- `RUNNINGNODES:<unique_id>` hash — registry (`status`, PID, `log_path`, exit fields)
 - `GBD:SUPERVISOR:ALIVE` — BE heartbeat
+
+## Debug logs
+
+Managed BE stdout/stderr is captured under:
+
+```text
+Nodes/Supervisor/logs/<node_endpoint>/<unique_id>.log
+```
+
+Supervisor bootstrap (canvas / Start BE) writes to:
+
+```text
+Nodes/Supervisor/logs/supervisor/supervisor.log
+```
+
+In the operator panel, select a Running/exited row to tail that instance’s log.
+Stop clears the Redis hash; log files remain on disk.

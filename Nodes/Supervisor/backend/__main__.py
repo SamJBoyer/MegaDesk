@@ -6,10 +6,11 @@ Usage:
 
 from __future__ import annotations
 
-import logging
 import signal
 import sys
 import time
+
+from megadesk import configure_node_logging
 
 from backend.engine import ExecutionEngine
 from backend.redis_provision import clear_supervisor_alive, provision_redis
@@ -17,11 +18,7 @@ from backend.stream_server import SupervisorServer
 
 
 def main() -> int:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
-    log = logging.getLogger("gbd.supervisor")
+    log = configure_node_logging("gbd.supervisor")
 
     try:
         realtime = provision_redis()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Callable, Optional
 
 import dearpygui.dearpygui as dpg
@@ -20,6 +21,8 @@ from engine.megadesk_registry import (
     palette_key,
     parse_palette_key,
 )
+
+log = logging.getLogger("megadesk.canvas")
 
 
 DRAWLIST_TAG = "canvas_drawlist"
@@ -658,15 +661,33 @@ class DisplayEngine:
             from megadesk import SUPERVISOR_NODE_NAME, SupervisorClient, ensure_supervisor_running
 
             if node_name == SUPERVISOR_NODE_NAME:
-                ensure_supervisor_running()
+                ok = ensure_supervisor_running()
+                if not ok:
+                    log.error(
+                        "Failed to start Supervisor BE for drop of %s "
+                        "(see Nodes/Supervisor/logs/supervisor/supervisor.log)",
+                        node_name,
+                    )
                 return
 
             client = SupervisorClient()
-            if not client.redis_ok() or not client.backend_ok():
+            if not client.redis_ok():
+                log.warning(
+                    "Skip BE launch for %s: Redis not reachable on localhost:6379",
+                    node_name,
+                )
                 return
-            client.launch_node(node_name, parameters="")
+            if not client.backend_ok():
+                log.warning(
+                    "Skip BE launch for %s: Supervisor BE not alive "
+                    "(drop supervisor first or Start BE)",
+                    node_name,
+                )
+                return
+            entry_id = client.launch_node(node_name, parameters="")
+            log.info("LAUNCHREQUEST %s -> %s", node_name, entry_id)
         except Exception:
-            pass
+            log.exception("BE launch failed for MegaDesk node %s", node_name)
 
     def _cancel_palette(self) -> None:
         self._palette_drag_type = None

@@ -1,10 +1,11 @@
 # MegaDesk Nodes
 
-A **node** is a modular tool inside MegaDesk. Nodes can expose a front-end (FE), a back-end (BE), or both. Discovery and launch are driven by packaging entry points — not by YAML manifests or hard-coded paths.
+A **node** is a modular tool inside MegaDesk. Nodes can expose a front-end (FE), a back-end (BE), or both. Discovery and launch are driven by packaging entry points.
+
 
 | Half | What it is | Who uses it |
 |------|------------|-------------|
-| **FE** | Always Dear PyGui. Integrated into the MegaDesk canvas shell (not standalone). | MegaDesk canvas (`src/`) via `get_exec_spec("FE")` → `FeSpec` |
+| **FE** | Always Dear PyGui. Integrated into the MegaDesk canvas shell. | MegaDesk canvas (`src/`) via `get_exec_spec("FE")` → `FeSpec` |
 | **BE** | Long-lived process (argv + optional cwd). Managed as a subprocess. | Supervisor BE via `get_exec_spec("BE")` → `BeSpec` |
 
 Shared contract lives in the installable `megadesk` package (shipped under `src/`): `FeSpec`, `BeSpec`, entry-point discovery, and the Supervisor Redis client.
@@ -30,12 +31,6 @@ Nodes/<Name>/
 3. Depend on `megadesk` so the node can import `FeSpec` / `BeSpec` / `Mode`.
 4. FE-only, BE-only, and FE+BE are all valid. Return `None` for the mode you do not support.
 5. `get_exec_spec` must return a ready-to-use launch description — the caller should not need extra setup beyond what the installed package already provides.
-
-**When to split FE / BE** (from the product README):
-
-1. Stateful things should.
-2. Processes that launch or manage other processes should.
-3. Stateless tools usually should not.
 
 ---
 
@@ -121,11 +116,22 @@ Back-end launch instruction for Supervisor:
 | `argv` | `list[str]` | Full process argv |
 | `cwd` | `str \| None` | Working directory (often the node package root) |
 
-Launch contract:
+Launch contract (Supervisor owns capture):
 
 ```text
-subprocess.Popen(BeSpec.argv, cwd=BeSpec.cwd)
+subprocess.Popen(
+  BeSpec.argv,
+  cwd=BeSpec.cwd,
+  stdout=log_file,          # Nodes/Supervisor/logs/<name>/<unique_id>.log
+  stderr=STDOUT,
+  env={…, MEGADESK_UNIQUE_ID, MEGADESK_NODE, MEGADESK_LOG_PATH},
+)
 ```
+
+BE processes should write diagnostics to stdout/stderr (or call
+`megadesk.configure_node_logging()` at startup). Supervisor merges both streams
+into the per-instance log file and records `log_path` / exit metadata on
+`RUNNINGNODES:<unique_id>`.
 
 BE-only example pattern:
 
@@ -166,7 +172,7 @@ Keys prefer `spec.name`, falling back to the entry-point name.
 
 1. On startup, the canvas calls `discover_frontends()` (via `engine.megadesk_registry`) and fills the Catalog palette (`megadesk:<name>`).
 2. Dropping a node places a canvas member (`type: "megadesk"`, `node_name` in `canvas.json`) and builds the FE into a host-owned shell under `canvas_window` via `FeSpec.build`.
-3. Pan/zoom keeps the shell world-anchored and scales its on-screen size with zoom; close leaves a placard; double-click reopens the GUI.
+3. Pan/zoom keeps the shell world-anchored; close leaves a placard; double-click reopens the GUI.
 4. If `has_backend(node_name)` is true after drop:
    - **Supervisor exception:** `ensure_supervisor_running()` spawns the Supervisor `BeSpec` directly (`python -m backend`) and waits for `GBD:SUPERVISOR:ALIVE`. The BE cannot process `LAUNCHREQUEST` itself because it is not up yet.
    - **Every other BE node:** `XADD LAUNCHREQUEST` with `node_endpoint` = node name (and `parameters=""`) so the Supervisor BE starts that node’s `BeSpec`.
@@ -189,8 +195,17 @@ New productivity tools use `MegaDesk.nodes` + `FeSpec`. See `src/docs/plugins.md
 ## How the BE uses nodes (Supervisor)
 
 1. The Supervisor BE refreshes backends with `discover_backends()` (excluding its own Supervisor `BeSpec` so it never `LAUNCHREQUEST`s itself).
-2. On `LAUNCHREQUEST`, it assigns a `unique_id`, resolves `get_backend(node_endpoint)`, runs `Popen(argv, cwd=…)`, and writes `RUNNINGNODES:<unique_id>` (including PID).
-3. `KILLREQUEST` tears down one managed process by `unique_id`. See `contracts/redis/supervisor.md`.
+2. On `LAUNCHREQUEST`, it assigns a `unique_id`, resolves `get_backend(node_endpoint)`, redirects stdout/stderr to a log file, injects `MEGADESK_*` env, and writes `RUNNINGNODES:<unique_id>` (`status=running`, PID, `log_path`, …).
+3. A reaper marks natural exits as `status=exited`, publishes `NODEEXIT`, and keeps the hash until Stop. `KILLREQUEST` tears down (if needed) and `DEL`s the hash. See `contracts/redis/supervisor.md`.
+
+## Logging standard
+
+| Half | Where diagnostics go |
+|------|----------------------|
+| **BE** | stdout/stderr → Supervisor file `logs/<endpoint>/<unique_id>.log`; prefer `megadesk.configure_node_logging()` |
+| **FE** | Module logger (`logging.getLogger(…)`). Canvas host reports uncaught `FeSpec.build` / BE-launch failures instead of swallowing them silently. |
+
+Do **not** put log line bodies on Redis streams.
 
 Typical Redis path after an FE drop that also has a BE:
 
