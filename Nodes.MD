@@ -55,7 +55,7 @@ Examples in-repo:
 | Node | Entry point | Modes |
 |------|-------------|-------|
 | Supervisor | `supervisor` | FE + BE |
-| Plant | `plant` | BE only |
+| Plant | `plant` | FE + BE |
 | MergeManager | `merge_manager` | FE only |
 | TicketDispatcher | `ticket_dispatcher` | FE only |
 

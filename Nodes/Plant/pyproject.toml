@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "plant"
 version = "0.1.0"
-description = "MegaDesk BE node: PlantManager agent sandbox host"
+description = "MegaDesk node: PlantManager agent sandbox host (BE) + Floor monitor (FE)"
 requires-python = ">=3.10"
 dependencies = [
     "cursor-sdk>=0.1.0",
@@ -15,6 +15,13 @@ dependencies = [
     "megadesk",
 ]
 
+[project.optional-dependencies]
+# Install megadesk + dearpygui into the MegaDesk env, then:
+#   pip install -e .[canvas]
+canvas = [
+    "dearpygui>=1.11.1",
+]
+
 [project.entry-points."MegaDesk.nodes"]
 plant = "plant_node:get_exec_spec"
 
@@ -22,4 +29,4 @@ plant = "plant_node:get_exec_spec"
 py-modules = ["plant_node", "redis_packets"]
 
 [tool.setuptools.packages.find]
-include = ["PlantManager*", "LiveHarness*"]
+include = ["PlantManager*", "LiveHarness*", "frontend*"]

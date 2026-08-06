@@ -6,8 +6,8 @@
       "nickname": "supervisor",
       "node_name": "supervisor",
       "position": [
-        -724.0480143683517,
-        -2702.8107729842804
+        -644.048014368352,
+        -2669.477439650948
       ],
       "scale": [
         1.0,
@@ -16,8 +16,8 @@
       "parents": [],
       "children": [],
       "data": {
-        "width": 729.6890134628582,
-        "height": 407.93391394157794,
+        "width": 729.0,
+        "height": 407.0,
         "node_name": "supervisor",
         "gui_open": true
       }
@@ -65,6 +65,28 @@
         "node_name": "merge_manager",
         "gui_open": true
       }
+    },
+    "212e6dbb-78da-4fee-b90f-a17ec3706b15": {
+      "canvas_id": "212e6dbb-78da-4fee-b90f-a17ec3706b15",
+      "type": "megadesk",
+      "nickname": "plant",
+      "node_name": "plant",
+      "position": [
+        -634.1359144629165,
+        275.52636087445893
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 720.0,
+        "height": 640.0,
+        "node_name": "plant",
+        "gui_open": true
+      }
     }
   },
   "hierarchy": {
@@ -77,7 +99,8 @@
         "children": [
           "3f1fa5ab-afc6-4612-b139-80d45836fd61",
           "bf81d508-238b-4892-a7c1-3c4289d01387",
-          "f0779846-68e3-41ee-bfab-924bf8b1c961"
+          "f0779846-68e3-41ee-bfab-924bf8b1c961",
+          "212e6dbb-78da-4fee-b90f-a17ec3706b15"
         ]
       }
     ]

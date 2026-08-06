@@ -14,7 +14,7 @@ Individual modules:
 - MegaDesk canvas (`src/`): endless Dear PyGui canvas. Discovers FE nodes from `MegaDesk.nodes` via `get_exec_spec("FE")`. Dropping a node that also has a BE pings Supervisor over Redis (Supervisor itself is bootstrapped from its BeSpec). Install with `pip install -e src`.
 - Nodes (`Nodes/`): productivity nodes installed via `pip install -e Nodes/<name>` (or `.[canvas]` where noted).
   - Supervisor: FE + BE node — process lifecycle manager (`LAUNCHREQUEST` / `KILLREQUEST` / `RUNNINGNODES`) plus canvas operator panel.
-  - Plant: BE-only node — Redis WORKORDER poller that launches Docker agent sandboxes.
+  - Plant: FE + BE node — Redis WORKORDER poller that launches Docker agent sandboxes, plus Floor monitor panel.
   - MergeManager: FE-only Dear PyGui tool that merges finished worktrees into the agents branch.
   - TicketDispatcher: FE-only Dear PyGui tool that lists `agent-ready` GitHub issues and publishes WORKORDERs.
 
