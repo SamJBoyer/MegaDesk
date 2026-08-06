@@ -1,8 +1,8 @@
 # MegaDesk FE canvas member (MegaDeskMember)
 
 Canvas objects are MegaDesk FE shells backed by an `FeSpec`, not a thick
-inheritance hierarchy. Geometry and chrome are canvas-owned; the FE fills a
-hosted content panel via `FeSpec.build`.
+inheritance hierarchy. Geometry and chrome are canvas-owned; the FE fills the
+host content parent via `FeSpec.build`.
 
 ## Fields
 
@@ -33,5 +33,5 @@ hosted content panel via `FeSpec.build`.
 - `on_start_resize` / `on_resize` / `on_end_resize`
 - `on_create` / `on_destroy`
 - `on_double_click` — reopen / focus hosted FE
-- `draw` / `draw_resize_handles` — canvas drawlist chrome
-- `open_window` / `close_window` — hosted panel lifecycle
+- `draw` / `draw_resize_handles` — drawlist placard (closed) + selection/handles
+- `open_window` / `close_window` — integrated shell lifecycle under `canvas_window`

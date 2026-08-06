@@ -6,7 +6,8 @@ infinitely scrolling canvas and an engine that renders MegaDesk FE tools
 discovered via `MegaDesk.nodes` / `FeSpec`.
 
 We assume all FEs are written in Python with Dear PyGui and expose a `FeSpec`
-(see `plugins.md` and `Nodes.MD`).
+(see `plugins.md` and `Nodes.MD`). FE tools fill a host-owned shell under the
+master canvas — they do not run as stand-alone Dear PyGui apps.
 
 canvas.json: canvas state is saved as JSON. Structure is in `root.md`. Top-level
 fields are `members` (every object on the canvas) and `hierarchy` (layer data,

@@ -33,7 +33,7 @@ def get_exec_spec(mode: Mode):
             icon=None,
             default_width=480,
             default_height=420,
-            build=build_ui,  # hosted content panel — see contract below
+            build=build_ui,  # fills host content parent — see contract below
         )
     return None  # FE-only
 ```
@@ -43,41 +43,33 @@ def get_exec_spec(mode: Mode):
 my_tool = "my_tool.node:get_exec_spec"
 ```
 
-### Canvas-hosted FE shell
+### Canvas-integrated FE shell
 
 MegaDesk discovers FE specs at startup and shows them in **Catalog**. Dropping a
 tool onto the canvas places a MegaDesk member (`type: "megadesk"` + `node_name`
-in `canvas.json`) and opens its Dear PyGui UI as a **hosted content panel**:
+in `canvas.json`) and builds its UI into a **host-owned shell** under
+`canvas_window`:
 
 | Owner | Responsibility |
 | --- | --- |
-| **Canvas** | Header chrome, selection ring, resize handles, world position, drag |
-| **FE `build()`** | Widgets inside a fixed panel (`no_title_bar`, `no_move`, `no_resize`) |
+| **Canvas** | Shell `child_window` (header, close, pos/size), selection ring, resize handles, world position, drag |
+| **FE `build()`** | Widgets inside the host content parent only — no `dpg.window`, no standalone viewport |
 
-`build` signature for hosting:
+`build` signature:
 
 ```python
-def build_ui(
-    tag,
-    *,
-    pos=None,
-    on_close=None,
-    width=…,
-    height=…,
-    no_move=True,
-    no_resize=True,
-    no_title_bar=True,
-) -> str:  # window tag
+def build_ui(parent: str, *, tag_prefix: str, width: int, height: int) -> None:
     ...
 ```
 
-Push sync every frame glues the panel under the canvas header (pixel-sized;
-does not scale with zoom). Closing via the chrome **x** leaves a placard
-(`data.gui_open = false`); double-click reopens. Open/closed is restored from
-`canvas.json` on load.
+The shell is one DPG subtree (header + content). Pan/zoom only updates shell
+`pos` (pixel-sized; does not scale with zoom). Closing via the header **x**
+leaves a placard (`data.gui_open = false`); double-click reopens. Open/closed
+is restored from `canvas.json` on load.
 
-Store a cleanup callable on the window with `dpg.set_item_user_data(tag, close_fn)`
-so the host can shut the FE down when collapsing to a placard.
+Store a cleanup callable on the content parent with
+`dpg.set_item_user_data(parent, close_fn)` so the host can shut the FE down
+when collapsing to a placard or deleting the member.
 
 If the same entry point also returns a `BeSpec` for `"BE"`, MegaDesk `XADD`s
 Redis `LAUNCHREQUEST` with `node_endpoint` = the node name (and `parameters=""`)

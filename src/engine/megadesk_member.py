@@ -14,32 +14,41 @@ TYPE_DISCRIMINATOR = "megadesk"
 MIN_SCALE = 0.15
 HANDLE_HALF = 6.0  # screen-space half-size; converted via zoom when hit-testing
 
-# Screen-pixel header above the hosted content panel (drag / select / close).
+# Screen-pixel header inside the integrated shell (drag / select / close).
 HEADER_H = 28.0
-CLOSE_BTN = 18.0
+CLOSE_BTN = 22.0
 MIN_CONTENT_W = 160.0
 MIN_CONTENT_H = 120.0
 
+CANVAS_WINDOW = "canvas_window"
+
 
 def hosted_window_tag(canvas_id: str) -> str:
-    """Deterministic DPG tag for a member's hosted content panel.
-
-    Stable across open/close so destroy / sync can always find orphans even
-    when ``_window_tag`` has been cleared.
-    """
+    """Deterministic DPG tag for a member's integrated shell."""
     return f"megadesk::{canvas_id}"
 
 
+def hosted_content_tag(canvas_id: str) -> str:
+    """Content parent inside the shell where FeSpec.build places widgets."""
+    return f"{hosted_window_tag(canvas_id)}::content"
+
+
 def destroy_hosted_window(tag: str) -> None:
-    """Run FE cleanup (user_data) then delete the window if it still exists."""
-    if not tag or not dpg.does_item_exist(tag):
+    """Run FE cleanup (user_data on content or shell) then delete the shell."""
+    if not tag:
         return
-    cleanup = dpg.get_item_user_data(tag)
-    # Drop user_data first so cleanup cannot re-enter through the same slot.
-    try:
-        dpg.set_item_user_data(tag, None)
-    except Exception:
-        pass
+    content = f"{tag}::content"
+    cleanup = None
+    for slot in (content, tag):
+        if not dpg.does_item_exist(slot):
+            continue
+        cleanup = dpg.get_item_user_data(slot)
+        try:
+            dpg.set_item_user_data(slot, None)
+        except Exception:
+            pass
+        if callable(cleanup):
+            break
     if callable(cleanup):
         try:
             cleanup()
@@ -55,11 +64,10 @@ def destroy_hosted_window(tag: str) -> None:
 class MegaDeskMember:
     """Canvas member backed by an FeSpec build() callable.
 
-    Geometry is canvas-owned. When the FE is open, MegaDesk draws a header
-    chrome + selection handles in the drawlist and push-syncs a fixed
-    (no_move / no_resize / no_title_bar) content window underneath.
-    Position is world-anchored; width/height stay in screen pixels (windows
-    do not scale with zoom).
+    Geometry is canvas-owned. When the FE is open, MegaDesk creates one
+    ``child_window`` shell under ``canvas_window`` (header + content). The FE
+    only fills the content parent. Position is world-anchored; width/height
+    stay in screen pixels (shells do not scale with zoom).
     """
 
     def __init__(
@@ -99,6 +107,8 @@ class MegaDeskMember:
         self._window_tag: Optional[str] = None
         self._view_zoom: float = 1.0
         self._want_gui_open: bool = bool(self.data.get("gui_open", True))
+        self._pending_redraw: bool = False
+        self._pending_close: bool = False
 
     @property
     def window_tag(self) -> Optional[str]:
@@ -154,12 +164,15 @@ class MegaDeskMember:
         return self.position[0], self.position[1], w, h
 
     def content_screen_offset(self) -> tuple[float, float]:
-        """Screen-pixel offset from shell origin to the content window top-left."""
+        """Screen-pixel offset from shell origin to the content region."""
         return 0.0, HEADER_H
+
+    def shell_height(self) -> float:
+        return HEADER_H + self.height
 
     def contains_point(self, x: float, y: float) -> bool:
         if self.is_gui_open():
-            # Header band only — content body belongs to the DPG window.
+            # Header band only — content body belongs to FE widgets.
             z = self._view_zoom
             hw = self.width / z
             hh = HEADER_H / z
@@ -173,7 +186,6 @@ class MegaDeskMember:
             return False
         z = self._view_zoom
         bx, by = self.position[0], self.position[1]
-        # Close control in the top-right of the header (screen-pixel sized).
         pad = 5.0 / z
         btn = CLOSE_BTN / z
         right = bx + self.width / z
@@ -273,7 +285,6 @@ class MegaDeskMember:
     def draw_resize_handles(self, drawlist: str | int, world_to_screen) -> None:
         x, y, w, h = self.bounds()
         if self.is_gui_open():
-            # Screen-pixel chrome (does not zoom with world bounds).
             sx, sy = world_to_screen(self.position[0], self.position[1])
             pmin = (sx - 3, sy - 3)
             pmax = (sx + self.width + 3, sy + HEADER_H + self.height + 3)
@@ -293,7 +304,6 @@ class MegaDeskMember:
         half = HANDLE_HALF
         for hx, hy in self.handle_centers().values():
             if self.is_gui_open():
-                # Map world handle centers back through pixel shell for consistency.
                 sx0, sy0 = world_to_screen(self.position[0], self.position[1])
                 z = self._view_zoom
                 sx = sx0 + (hx - self.position[0]) * z
@@ -317,54 +327,8 @@ class MegaDeskMember:
     ) -> None:
         label = self.nickname or self.name
         if self.is_gui_open():
-            sx, sy = world_to_screen(self.position[0], self.position[1])
-            content_top = sy + HEADER_H
-            border = (40, 90, 180, 255) if selected else (70, 100, 150, 255)
-            header_fill = (210, 225, 245, 245) if selected else (230, 236, 245, 240)
-            # Header chrome (canvas-owned drag/select/close)
-            dpg.draw_rectangle(
-                (sx, sy),
-                (sx + self.width, content_top),
-                color=border,
-                fill=header_fill,
-                thickness=1.5,
-                parent=drawlist,
-            )
-            dpg.draw_text(
-                (sx + 8, sy + 6),
-                label,
-                color=(30, 40, 55, 255),
-                size=15,
-                parent=drawlist,
-            )
-            # Close affordance
-            pad = 5.0
-            bx0 = sx + self.width - pad - CLOSE_BTN
-            by0 = sy + pad
-            dpg.draw_rectangle(
-                (bx0, by0),
-                (bx0 + CLOSE_BTN, by0 + CLOSE_BTN),
-                color=(120, 90, 90, 220),
-                fill=(245, 230, 230, 255),
-                thickness=1,
-                parent=drawlist,
-            )
-            dpg.draw_text(
-                (bx0 + 4, by0 + 1),
-                "x",
-                color=(90, 40, 40, 255),
-                size=14,
-                parent=drawlist,
-            )
-            # Faint content footprint under the hosted window
-            dpg.draw_rectangle(
-                (sx, content_top),
-                (sx + self.width, content_top + self.height),
-                color=(180, 190, 210, 100),
-                fill=(230, 235, 245, 30),
-                thickness=1,
-                parent=drawlist,
-            )
+            # Open shell is a real widget tree — drawlist only shows selection
+            # via draw_resize_handles. No duplicate header/content chrome.
             return
 
         x, y, w, h = self.bounds()
@@ -421,74 +385,52 @@ class MegaDeskMember:
     def hosted_tag(self) -> str:
         return hosted_window_tag(self.canvas_id)
 
-    def close_window(self) -> None:
-        """Collapse the hosted FE to a placard (runs FE cleanup via user_data).
+    def content_tag(self) -> str:
+        return hosted_content_tag(self.canvas_id)
 
-        Always deletes by the deterministic hosted tag so a cleared
-        ``_window_tag`` cannot leave an orphaned, unresponsive panel.
-        """
+    def close_window(self) -> None:
+        """Collapse the FE to a placard (runs FE cleanup via user_data)."""
+        self._pending_close = False
         tag = self._window_tag or self.hosted_tag()
+        was_open = bool(self._window_tag) or dpg.does_item_exist(tag)
         destroy_hosted_window(tag)
-        # Belt-and-suspenders: clear any stale alias the FE may have left.
-        if self._window_tag and self._window_tag != tag:
-            destroy_hosted_window(self._window_tag)
         self._window_tag = None
         self._want_gui_open = False
         self.data["gui_open"] = False
+        if was_open:
+            self._pending_redraw = True
 
-    def bind_existing_window(self) -> bool:
-        """Reclaim a live hosted panel if one exists for this member."""
-        tag = self.hosted_tag()
-        if not dpg.does_item_exist(tag):
-            return False
-        self._window_tag = tag
-        self._want_gui_open = True
-        self.data["gui_open"] = True
-        return True
+    def request_close_window(self) -> None:
+        """Schedule close on the next sync tick (safe from widget callbacks)."""
+        self._pending_close = True
 
-    def open_window(self, global_pos: tuple[float, float]) -> None:
-        """Build or focus the hosted content panel at a global pixel position.
+    def open_window(self, shell_pos: tuple[float, float]) -> None:
+        """Build or focus the integrated shell at a canvas-local pixel position.
 
-        ``global_pos`` is the content window top-left (under the canvas header).
+        ``shell_pos`` is the shell top-left relative to ``canvas_window``.
         """
         tag = self.hosted_tag()
+        content = self.content_tag()
         self._window_tag = tag
         self._want_gui_open = True
         self.data["gui_open"] = True
 
         if dpg.does_item_exist(tag):
             try:
-                dpg.configure_item(tag, pos=list(global_pos))
+                dpg.configure_item(tag, pos=list(shell_pos))
             except Exception:
-                dpg.set_item_pos(tag, list(global_pos))
+                try:
+                    dpg.set_item_pos(tag, list(shell_pos))
+                except Exception:
+                    pass
             try:
                 dpg.focus_item(tag)
             except Exception:
                 pass
             return
 
-        closing = False
-
-        def _on_close() -> None:
-            # Never clear the host binding without destroying the panel —
-            # that is the desync that leaves unresponsive orphan GUIs.
-            nonlocal closing
-            if closing:
-                return
-            closing = True
-            if self._window_tag == tag:
-                self._window_tag = None
-            self._want_gui_open = False
-            self.data["gui_open"] = False
-            if dpg.does_item_exist(tag):
-                try:
-                    dpg.delete_item(tag)
-                except Exception:
-                    pass
-
         width = max(1, int(self.width))
         height = max(1, int(self.height))
-        # Migrate old thin-placard footprints to the real FE default size.
         if width <= 240 and self.spec.default_width > width:
             width = int(self.spec.default_width)
         if height <= 160 and self.spec.default_height > height:
@@ -498,28 +440,66 @@ class MegaDeskMember:
         self.scale_x = 1.0
         self.scale_y = 1.0
 
-        self.spec.build(
-            tag,
-            pos=global_pos,
-            on_close=_on_close,
-            width=width,
-            height=height,
-            no_move=True,
-            no_resize=True,
-            no_title_bar=True,
-        )
+        shell_h = int(HEADER_H) + height
+        label = self.nickname or self.name
+        header_btn = int(CLOSE_BTN)
+        # Leave room for the close control on the right of the header row.
+        title_w = max(40, width - header_btn - 24)
 
-        if not dpg.does_item_exist(tag):
-            # Build failed — don't leave a dangling binding that makes chrome
-            # think the GUI is open while nothing is there to sync.
+        with dpg.child_window(
+            tag=tag,
+            parent=CANVAS_WINDOW,
+            pos=list(shell_pos),
+            width=width,
+            height=shell_h,
+            border=True,
+            no_scrollbar=True,
+            no_scroll_with_mouse=True,
+        ):
+            with dpg.group(horizontal=True, tag=f"{tag}::header"):
+                dpg.add_text(label, color=(30, 40, 55, 255), wrap=title_w)
+                dpg.add_spacer(width=4)
+                dpg.add_button(
+                    label="x",
+                    width=header_btn,
+                    height=header_btn - 4,
+                    callback=lambda: self.request_close_window(),
+                    tag=f"{tag}::close",
+                )
+            dpg.add_child_window(
+                tag=content,
+                width=-1,
+                height=-1,
+                border=False,
+                no_scrollbar=False,
+            )
+
+        try:
+            self.spec.build(
+                content,
+                tag_prefix=tag,
+                width=width,
+                height=height,
+            )
+        except Exception:
+            destroy_hosted_window(tag)
             self._window_tag = None
             self._want_gui_open = False
             self.data["gui_open"] = False
             return
 
-        # Wrap FE user_data so host state stays consistent if cleanup runs
-        # outside close_window (e.g. FE-internal shutdown paths).
-        fe_cleanup = dpg.get_item_user_data(tag)
+        if not dpg.does_item_exist(tag):
+            self._window_tag = None
+            self._want_gui_open = False
+            self.data["gui_open"] = False
+            return
+
+        # Wrap FE cleanup so host state stays consistent if cleanup runs alone.
+        fe_cleanup = None
+        if dpg.does_item_exist(content):
+            fe_cleanup = dpg.get_item_user_data(content)
+
+        closing = False
 
         def _hosted_cleanup() -> None:
             nonlocal closing
@@ -535,21 +515,15 @@ class MegaDeskMember:
                 self._window_tag = None
             self._want_gui_open = False
             self.data["gui_open"] = False
-            # Cleanup must be safe to call alone — never leave a live orphan.
             if dpg.does_item_exist(tag):
                 try:
                     dpg.delete_item(tag)
                 except Exception:
                     pass
 
+        if dpg.does_item_exist(content):
+            dpg.set_item_user_data(content, _hosted_cleanup)
         dpg.set_item_user_data(tag, _hosted_cleanup)
-
-        w = dpg.get_item_width(tag)
-        h = dpg.get_item_height(tag)
-        if w:
-            self.width = float(w)
-        if h:
-            self.height = float(h)
 
     def on_double_click(self) -> None:
         if self.is_gui_open():
@@ -558,5 +532,4 @@ class MegaDeskMember:
             except Exception:
                 pass
             return
-        # Fallback only — DisplayEngine.open_megadesk_gui supplies real coords.
-        self.open_window(global_pos=(80.0, 80.0 + HEADER_H))
+        self.open_window(shell_pos=(80.0, 80.0))
