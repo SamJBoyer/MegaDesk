@@ -14,7 +14,7 @@ TYPE_DISCRIMINATOR = "megadesk"
 MIN_SCALE = 0.15
 HANDLE_HALF = 6.0  # screen-space half-size; converted via zoom when hit-testing
 
-# Screen-pixel header inside the integrated shell (drag / select / close).
+# Header height inside the integrated shell (world units at zoom 1; scales with view).
 HEADER_H = 28.0
 CLOSE_BTN = 22.0
 MIN_CONTENT_W = 160.0
@@ -66,8 +66,9 @@ class MegaDeskMember:
 
     Geometry is canvas-owned. When the FE is open, MegaDesk creates one
     ``child_window`` shell under ``canvas_window`` (header + content). The FE
-    only fills the content parent. Position is world-anchored; width/height
-    stay in screen pixels (shells do not scale with zoom).
+    only fills the content parent. Position, width, and height are world-
+    anchored; screen size is ``world * view_zoom`` so open shells shrink and
+    scale with canvas zoom (same transform as closed placards).
     """
 
     def __init__(
@@ -154,9 +155,8 @@ class MegaDeskMember:
 
     def _shell_size_world(self) -> tuple[float, float]:
         """Full shell (header + content when open, placard when closed) in world units."""
-        z = self._view_zoom
         if self.is_gui_open():
-            return self.width / z, (HEADER_H + self.height) / z
+            return self.width, HEADER_H + self.height
         return self.width * self.scale_x, self.height * self.scale_y
 
     def bounds(self) -> tuple[float, float, float, float]:
@@ -165,17 +165,22 @@ class MegaDeskMember:
 
     def content_screen_offset(self) -> tuple[float, float]:
         """Screen-pixel offset from shell origin to the content region."""
-        return 0.0, HEADER_H
+        return 0.0, HEADER_H * self._view_zoom
 
     def shell_height(self) -> float:
+        """Full shell height in world units (header + content)."""
         return HEADER_H + self.height
+
+    def shell_size_screen(self) -> tuple[float, float]:
+        """Full shell width/height in screen pixels at the current view zoom."""
+        z = self._view_zoom
+        return self.width * z, (HEADER_H + self.height) * z
 
     def contains_point(self, x: float, y: float) -> bool:
         if self.is_gui_open():
             # Header band only — content body belongs to FE widgets.
-            z = self._view_zoom
-            hw = self.width / z
-            hh = HEADER_H / z
+            hw = self.width
+            hh = HEADER_H
             bx, by = self.position[0], self.position[1]
             return bx <= x <= bx + hw and by <= y <= by + hh
         bx, by, bw, bh = self.bounds()
@@ -184,11 +189,10 @@ class MegaDeskMember:
     def hit_close_button(self, world_x: float, world_y: float) -> bool:
         if not self.is_gui_open():
             return False
-        z = self._view_zoom
         bx, by = self.position[0], self.position[1]
-        pad = 5.0 / z
-        btn = CLOSE_BTN / z
-        right = bx + self.width / z
+        pad = 5.0
+        btn = CLOSE_BTN
+        right = bx + self.width
         cx0 = right - pad - btn
         cy0 = by + pad
         return cx0 <= world_x <= cx0 + btn and cy0 <= world_y <= cy0 + btn
@@ -251,15 +255,14 @@ class MegaDeskMember:
         self.scale_y = new_h / max(self.height, 1e-6)
 
     def _resize_open(self, handle: str, world_x: float, world_y: float) -> None:
-        """Resize open shell in screen pixels (content size); keep scale at 1."""
-        z = self._view_zoom
+        """Resize open shell in world units (content size); keep scale at 1."""
         x, y = self.position[0], self.position[1]
-        shell_w = self.width / z
-        shell_h = (HEADER_H + self.height) / z
+        shell_w = self.width
+        shell_h = HEADER_H + self.height
         right = x + shell_w
         bottom = y + shell_h
-        min_w = MIN_CONTENT_W / z
-        min_h = (HEADER_H + MIN_CONTENT_H) / z
+        min_w = MIN_CONTENT_W
+        min_h = HEADER_H + MIN_CONTENT_H
 
         new_left, new_right = x, right
         new_top, new_bottom = y, bottom
@@ -277,22 +280,17 @@ class MegaDeskMember:
         new_shell_h = max(min_h, new_bottom - new_top)
         self.position[0] = new_left
         self.position[1] = new_top
-        self.width = max(MIN_CONTENT_W, new_shell_w * z)
-        self.height = max(MIN_CONTENT_H, new_shell_h * z - HEADER_H)
+        self.width = max(MIN_CONTENT_W, new_shell_w)
+        self.height = max(MIN_CONTENT_H, new_shell_h - HEADER_H)
         self.scale_x = 1.0
         self.scale_y = 1.0
 
     def draw_resize_handles(self, drawlist: str | int, world_to_screen) -> None:
         x, y, w, h = self.bounds()
-        if self.is_gui_open():
-            sx, sy = world_to_screen(self.position[0], self.position[1])
-            pmin = (sx - 3, sy - 3)
-            pmax = (sx + self.width + 3, sy + HEADER_H + self.height + 3)
-        else:
-            pmin = world_to_screen(x, y)
-            pmax = world_to_screen(x + w, y + h)
-            pmin = (pmin[0] - 3, pmin[1] - 3)
-            pmax = (pmax[0] + 3, pmax[1] + 3)
+        pmin = world_to_screen(x, y)
+        pmax = world_to_screen(x + w, y + h)
+        pmin = (pmin[0] - 3, pmin[1] - 3)
+        pmax = (pmax[0] + 3, pmax[1] + 3)
         dpg.draw_rectangle(
             pmin,
             pmax,
@@ -303,13 +301,7 @@ class MegaDeskMember:
         )
         half = HANDLE_HALF
         for hx, hy in self.handle_centers().values():
-            if self.is_gui_open():
-                sx0, sy0 = world_to_screen(self.position[0], self.position[1])
-                z = self._view_zoom
-                sx = sx0 + (hx - self.position[0]) * z
-                sy = sy0 + (hy - self.position[1]) * z
-            else:
-                sx, sy = world_to_screen(hx, hy)
+            sx, sy = world_to_screen(hx, hy)
             dpg.draw_rectangle(
                 (sx - half, sy - half),
                 (sx + half, sy + half),
@@ -440,17 +432,23 @@ class MegaDeskMember:
         self.scale_x = 1.0
         self.scale_y = 1.0
 
-        shell_h = int(HEADER_H) + height
+        # DPG widgets are screen-pixel sized; apply current zoom so the shell
+        # matches the world→screen transform (sync keeps it updated on zoom).
+        z = self._view_zoom
+        screen_w = max(1, int(round(self.width * z)))
+        screen_header = max(1, int(round(HEADER_H * z)))
+        screen_h = max(1, int(round(self.height * z)))
+        shell_h = max(1, screen_header + screen_h)
         label = self.nickname or self.name
-        header_btn = int(CLOSE_BTN)
+        header_btn = max(8, int(round(CLOSE_BTN * z)))
         # Leave room for the close control on the right of the header row.
-        title_w = max(40, width - header_btn - 24)
+        title_w = max(40, screen_w - header_btn - max(8, int(round(24 * z))))
 
         with dpg.child_window(
             tag=tag,
             parent=CANVAS_WINDOW,
             pos=list(shell_pos),
-            width=width,
+            width=screen_w,
             height=shell_h,
             border=True,
             no_scrollbar=True,
@@ -458,11 +456,11 @@ class MegaDeskMember:
         ):
             with dpg.group(horizontal=True, tag=f"{tag}::header"):
                 dpg.add_text(label, color=(30, 40, 55, 255), wrap=title_w)
-                dpg.add_spacer(width=4)
+                dpg.add_spacer(width=max(1, int(round(4 * z))))
                 dpg.add_button(
                     label="x",
                     width=header_btn,
-                    height=header_btn - 4,
+                    height=max(6, header_btn - 4),
                     callback=lambda: self.request_close_window(),
                     tag=f"{tag}::close",
                 )

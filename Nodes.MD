@@ -166,7 +166,7 @@ Keys prefer `spec.name`, falling back to the entry-point name.
 
 1. On startup, the canvas calls `discover_frontends()` (via `engine.megadesk_registry`) and fills the Catalog palette (`megadesk:<name>`).
 2. Dropping a node places a canvas member (`type: "megadesk"`, `node_name` in `canvas.json`) and builds the FE into a host-owned shell under `canvas_window` via `FeSpec.build`.
-3. Pan/zoom keeps the shell world-anchored; close leaves a placard; double-click reopens the GUI.
+3. Pan/zoom keeps the shell world-anchored and scales its on-screen size with zoom; close leaves a placard; double-click reopens the GUI.
 4. If `has_backend(node_name)` is true after drop:
    - **Supervisor exception:** `ensure_supervisor_running()` spawns the Supervisor `BeSpec` directly (`python -m backend`) and waits for `GBD:SUPERVISOR:ALIVE`. The BE cannot process `LAUNCHREQUEST` itself because it is not up yet.
    - **Every other BE node:** `XADD LAUNCHREQUEST` with `node_endpoint` = node name (and `parameters=""`) so the Supervisor BE starts that node’s `BeSpec`.

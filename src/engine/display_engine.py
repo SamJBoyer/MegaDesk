@@ -9,7 +9,7 @@ import dearpygui.dearpygui as dpg
 from engine.canvas_model import CanvasMember, CanvasModel
 from engine.icons import ICON_PX, get_icon_texture_for_path
 from engine.megadesk_member import (
-    HEADER_H,
+    CLOSE_BTN,
     MegaDeskMember,
     destroy_hosted_window,
     hosted_window_tag,
@@ -156,16 +156,11 @@ class DisplayEngine:
             if len(self.selected_ids) == 1:
                 node.draw_resize_handles(DRAWLIST_TAG, self.world_to_screen)
             else:
-                if node.is_gui_open():
-                    sx, sy = self.world_to_screen(node.position[0], node.position[1])
-                    pmin = (sx - 3, sy - 3)
-                    pmax = (sx + node.width + 3, sy + HEADER_H + node.height + 3)
-                else:
-                    x, y, bw, bh = node.bounds()
-                    pmin = self.world_to_screen(x, y)
-                    pmax = self.world_to_screen(x + bw, y + bh)
-                    pmin = (pmin[0] - 3, pmin[1] - 3)
-                    pmax = (pmax[0] + 3, pmax[1] + 3)
+                x, y, bw, bh = node.bounds()
+                pmin = self.world_to_screen(x, y)
+                pmax = self.world_to_screen(x + bw, y + bh)
+                pmin = (pmin[0] - 3, pmin[1] - 3)
+                pmax = (pmax[0] + 3, pmax[1] + 3)
                 dpg.draw_rectangle(
                     pmin,
                     pmax,
@@ -700,7 +695,7 @@ class DisplayEngine:
                 self.open_megadesk_gui(node)
 
     def sync_megadesk_windows(self) -> None:
-        """Push canvas-owned world pos + pixel size onto integrated FE shells."""
+        """Push canvas-owned world pos + zoom-scaled size onto integrated FE shells."""
         needs_redraw = False
         hover_cid: Optional[str] = None
         closed_any = False
@@ -757,9 +752,9 @@ class DisplayEngine:
 
             sx, sy = self.world_to_screen(node.position[0], node.position[1])
             target = [float(sx), float(sy)]
-            self._push_hosted_window_geom(
-                tag, target, node.width, node.shell_height()
-            )
+            screen_w, screen_h = node.shell_size_screen()
+            self._push_hosted_window_geom(tag, target, screen_w, screen_h)
+            self._sync_hosted_shell_chrome(node)
 
         if hover_cid is not None and hover_cid not in self.selected_ids:
             node = self.model.members.get(hover_cid)
@@ -801,6 +796,25 @@ class DisplayEngine:
                 dpg.set_item_pos(tag, pos)
         except Exception:
             pass
+
+    @staticmethod
+    def _sync_hosted_shell_chrome(node: MegaDeskMember) -> None:
+        """Scale header close control to match the current view zoom."""
+        tag = node.window_tag
+        if not tag:
+            return
+        z = max(float(node._view_zoom), 1e-6)
+        header_btn = max(8, int(round(CLOSE_BTN * z)))
+        close_tag = f"{tag}::close"
+        if dpg.does_item_exist(close_tag):
+            try:
+                dpg.configure_item(
+                    close_tag,
+                    width=header_btn,
+                    height=max(6, header_btn - 4),
+                )
+            except Exception:
+                pass
 
     def _megadesk_window_hovered(self) -> bool:
         """True when the cursor is over FE *content* (not the drag header)."""
