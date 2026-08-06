@@ -1,11 +1,11 @@
 """MegaDesk.nodes entry point for Supervisor (FE + BE).
 
 FE: Dear PyGui operator panel (requires ``pip install -e .[canvas]``).
-BE: commander process lifecycle manager (``python -m commander``).
+BE: Supervisor process lifecycle manager (``python -m backend``).
 
 Dropping the FE on the MegaDesk canvas bootstraps the BE (see
-``megadesk.ensure_supervisor_running``). The commander never manages its
-own BeSpec via ``launch_node``.
+``megadesk.ensure_supervisor_running``). The BE never manages its
+own BeSpec via ``LAUNCHREQUEST``.
 """
 
 from __future__ import annotations
@@ -29,14 +29,14 @@ def get_exec_spec(mode: Mode) -> FeSpec | BeSpec | None:
             name=NODE_NAME,
             description="Supervisor operator panel (launch / stop BE nodes).",
             icon=icon,
-            default_width=480,
-            default_height=420,
+            default_width=520,
+            default_height=520,
             build=build_ui,
         )
     if mode == "BE":
         return BeSpec(
             name=NODE_NAME,
-            argv=[sys.executable, "-u", "-m", "commander"],
+            argv=[sys.executable, "-u", "-m", "backend"],
             cwd=str(_SUPERVISOR_ROOT),
         )
     return None

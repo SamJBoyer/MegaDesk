@@ -8,11 +8,11 @@ point. `get_exec_spec("FE")` / `get_exec_spec("BE")` keep them separate:
 | Mode | What it returns |
 |------|-----------------|
 | `FE` | Operator panel (`frontend.app.build_ui`) — needs `[canvas]` |
-| `BE` | Commander subprocess (`python -m commander`) |
+| `BE` | Supervisor subprocess (`python -m backend`) |
 
-Dropping **supervisor** on the MegaDesk canvas bootstraps the commander BE
-automatically (see `megadesk.ensure_supervisor_running`). The commander never
-manages its own BeSpec via `launch_node`.
+Dropping **supervisor** on the MegaDesk canvas bootstraps the Supervisor BE
+automatically (see `megadesk.ensure_supervisor_running`). The BE never
+manages its own BeSpec via `LAUNCHREQUEST`.
 
 ## Setup
 
@@ -26,8 +26,8 @@ pip install -e .[canvas]
 ## Run BE only
 
 ```bat
-start_commander.bat
-rem or: python -m commander
+start_supervisor.bat
+rem or: python -m backend
 rem or: supervisor
 ```
 
@@ -36,7 +36,7 @@ rem or: supervisor
 1. `pip install -e .[canvas]` (and `../src` as above)
 2. Start MegaDesk (`python main.py` from `src/`)
 3. Catalog sidebar → **supervisor** → place on canvas (BE starts on drop)
-4. Double-click the placard for launch / stop / KILLALL controls
+4. Double-click the placard for Catalog Send / Running Stop controls
 
 Or print FE instructions:
 
@@ -49,12 +49,21 @@ python -m frontend
 With Redis available and Plant installed (`pip install -e ../Plant`):
 
 ```bat
-python -m commander.smoke_test
+python -m backend.smoke_test
 ```
 
 ## Layout
 
-- `commander/` — BE package (Pub/Sub server, process registry, Redis provision)
+- `backend/` — BE package (stream consumer, process registry, Redis provision)
 - `frontend/` — FE operator panel (`build_ui` for FeSpec)
 - `supervisor_node.py` — `MegaDesk.nodes` → `get_exec_spec(mode)`
 - `pyproject.toml` — packaging; optional `[canvas]` for Dear PyGui
+
+## Redis control plane
+
+See `contracts/redis/supervisor.md`:
+
+- `LAUNCHREQUEST` stream — launch a discovered BE (`node_endpoint`, `parameters`)
+- `KILLREQUEST` stream — stop one instance (`node_endpoint`, `unique_id`)
+- `RUNNINGNODES:<unique_id>` hash — registry of live instances + PID
+- `GBD:SUPERVISOR:ALIVE` — BE heartbeat

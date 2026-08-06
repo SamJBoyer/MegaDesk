@@ -1,5 +1,72 @@
 {
-  "members": {},
+  "members": {
+    "5279ce8a-2c6b-4fac-a5d7-25cdb933b128": {
+      "canvas_id": "5279ce8a-2c6b-4fac-a5d7-25cdb933b128",
+      "type": "megadesk",
+      "nickname": "supervisor",
+      "node_name": "supervisor",
+      "position": [
+        245.42349999999982,
+        -15.763800000000089
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 520.0,
+        "height": 520.0,
+        "node_name": "supervisor",
+        "gui_open": false
+      }
+    },
+    "87b574af-105d-486f-9111-b88855766d0a": {
+      "canvas_id": "87b574af-105d-486f-9111-b88855766d0a",
+      "type": "megadesk",
+      "nickname": "merge_manager",
+      "node_name": "merge_manager",
+      "position": [
+        1618.1932957000001,
+        413.08299529999994
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 960.0,
+        "height": 600.0,
+        "node_name": "merge_manager",
+        "gui_open": true
+      }
+    },
+    "173c4b1b-7a27-49aa-99c8-8bcef2b34071": {
+      "canvas_id": "173c4b1b-7a27-49aa-99c8-8bcef2b34071",
+      "type": "megadesk",
+      "nickname": "ticket_dispatcher",
+      "node_name": "ticket_dispatcher",
+      "position": [
+        265.7836283,
+        1494.6209858
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 700.0,
+        "height": 520.0,
+        "node_name": "ticket_dispatcher",
+        "gui_open": false
+      }
+    }
+  },
   "hierarchy": {
     "layers": [
       {
@@ -7,7 +74,11 @@
         "name": "Layer 1",
         "visible": true,
         "locked": false,
-        "children": []
+        "children": [
+          "5279ce8a-2c6b-4fac-a5d7-25cdb933b128",
+          "87b574af-105d-486f-9111-b88855766d0a",
+          "173c4b1b-7a27-49aa-99c8-8bcef2b34071"
+        ]
       }
     ]
   }

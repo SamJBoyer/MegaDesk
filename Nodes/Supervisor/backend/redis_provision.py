@@ -1,4 +1,4 @@
-"""Attach to localhost Redis or provision Docker Redis + Insights (EE-4, RD-1)."""
+"""Attach to localhost Redis or provision Docker Redis + Insights."""
 
 from __future__ import annotations
 
@@ -14,8 +14,17 @@ REDIS_CONTAINER = "gbd-redis"
 INSIGHTS_CONTAINER = "gbd-redis-insight"
 INSIGHTS_PORT = 5540
 
-COMMANDER_ALIVE_KEY = "GBD:COMMANDER:ALIVE"
+SUPERVISOR_ALIVE_KEY = "GBD:SUPERVISOR:ALIVE"
 ALIVE_TTL_SECONDS = 5
+
+LAUNCHREQUEST_STREAM = "LAUNCHREQUEST"
+KILLREQUEST_STREAM = "KILLREQUEST"
+CONSUMER_GROUP = "supervisor"
+RUNNINGNODES_PREFIX = "RUNNINGNODES:"
+
+
+def running_nodes_key(unique_id: str) -> str:
+    return f"{RUNNINGNODES_PREFIX}{unique_id}"
 
 
 def ping_redis(host: str = REDIS_HOST, port: int = REDIS_PORT, timeout: float = 1.0) -> bool:
@@ -103,26 +112,32 @@ def provision_redis() -> redis.Redis:
     raise RuntimeError("Docker Redis started but localhost:6379 never became reachable")
 
 
-def connect_param_db(host: str = REDIS_HOST, port: int = REDIS_PORT) -> redis.Redis:
-    return redis.Redis(host=host, port=port, db=1, decode_responses=True)
+def mark_supervisor_alive(client: redis.Redis, ttl: int = ALIVE_TTL_SECONDS) -> None:
+    client.set(SUPERVISOR_ALIVE_KEY, "1", ex=ttl)
 
 
-def mark_commander_alive(client: redis.Redis, ttl: int = ALIVE_TTL_SECONDS) -> None:
-    client.set(COMMANDER_ALIVE_KEY, "1", ex=ttl)
-
-
-def clear_commander_alive(client: Optional[redis.Redis]) -> None:
+def clear_supervisor_alive(client: Optional[redis.Redis]) -> None:
     if client is None:
         return
     try:
-        client.delete(COMMANDER_ALIVE_KEY)
+        client.delete(SUPERVISOR_ALIVE_KEY)
     except Exception:
         pass
 
 
-def is_commander_alive(client: Optional[redis.Redis] = None) -> bool:
+def is_supervisor_alive(client: Optional[redis.Redis] = None) -> bool:
     try:
         c = client or redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
-        return c.exists(COMMANDER_ALIVE_KEY) == 1
+        return c.exists(SUPERVISOR_ALIVE_KEY) == 1
     except Exception:
         return False
+
+
+def ensure_consumer_groups(client: redis.Redis) -> None:
+    """Create LAUNCHREQUEST / KILLREQUEST consumer groups if missing."""
+    for stream in (LAUNCHREQUEST_STREAM, KILLREQUEST_STREAM):
+        try:
+            client.xgroup_create(stream, CONSUMER_GROUP, id="0", mkstream=True)
+        except redis.ResponseError as exc:
+            if "BUSYGROUP" not in str(exc):
+                raise

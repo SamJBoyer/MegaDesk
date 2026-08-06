@@ -1,4 +1,4 @@
-"""Launched-node process registry and graceful→force shutdown."""
+"""Launched-node process registry keyed by unique_id, with graceful→force shutdown."""
 
 from __future__ import annotations
 
@@ -13,7 +13,9 @@ from megadesk import BeSpec
 
 @dataclass
 class ManagedProcess:
-    nickname: str
+    unique_id: str
+    node_endpoint: str
+    parameters: str
     command: list[str]
     cwd: str
     process: subprocess.Popen
@@ -22,6 +24,10 @@ class ManagedProcess:
     @property
     def alive(self) -> bool:
         return self.process.poll() is None
+
+    @property
+    def pid(self) -> int:
+        return self.process.pid
 
 
 def _taskkill(pid: int, force: bool) -> None:
@@ -39,20 +45,23 @@ class ProcessRegistry:
         self._nodes: dict[str, ManagedProcess] = {}
 
     def store(self, entry: ManagedProcess) -> None:
-        existing = self._nodes.get(entry.nickname)
-        if existing and existing.alive:
-            self._shutdown_one(existing, grace_seconds=2.0)
-        self._nodes[entry.nickname] = entry
+        self._nodes[entry.unique_id] = entry
 
-    def get(self, nickname: str) -> Optional[ManagedProcess]:
-        return self._nodes.get(nickname)
+    def get(self, unique_id: str) -> Optional[ManagedProcess]:
+        return self._nodes.get(unique_id)
+
+    def pop(self, unique_id: str) -> Optional[ManagedProcess]:
+        return self._nodes.pop(unique_id, None)
 
     def alive_nodes(self) -> list[ManagedProcess]:
         return [n for n in self._nodes.values() if n.alive]
 
-    def stop(self, nickname: str, grace_seconds: float | None = None) -> bool:
-        """Stop one managed node by name. Returns True if an entry existed."""
-        entry = self._nodes.pop(nickname, None)
+    def all_ids(self) -> list[str]:
+        return list(self._nodes.keys())
+
+    def stop(self, unique_id: str, grace_seconds: float | None = None) -> bool:
+        """Stop one managed node by unique_id. Returns True if an entry existed."""
+        entry = self._nodes.pop(unique_id, None)
         if entry is None:
             return False
         if grace_seconds is None:
@@ -108,7 +117,12 @@ class ProcessRegistry:
             pass
 
 
-def launch_spec(spec: BeSpec) -> ManagedProcess:
+def launch_spec(
+    spec: BeSpec,
+    *,
+    unique_id: str,
+    parameters: str = "",
+) -> ManagedProcess:
     """Launch a BeSpec argv as a managed subprocess."""
     command = list(spec.argv)
     cwd = spec.cwd or None
@@ -125,7 +139,9 @@ def launch_spec(spec: BeSpec) -> ManagedProcess:
         creationflags=creationflags,
     )
     return ManagedProcess(
-        nickname=spec.name,
+        unique_id=unique_id,
+        node_endpoint=spec.name,
+        parameters=parameters,
         command=command,
         cwd=cwd or "",
         process=proc,

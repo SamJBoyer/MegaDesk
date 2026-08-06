@@ -79,11 +79,11 @@ does not scale with zoom). Closing via the chrome **x** leaves a placard
 Store a cleanup callable on the window with `dpg.set_item_user_data(tag, close_fn)`
 so the host can shut the FE down when collapsing to a placard.
 
-If the same entry point also returns a `BeSpec` for `"BE"`, MegaDesk publishes
-Redis `launch_node:<identity>` with the node name so Supervisor can start the
-backend process.
+If the same entry point also returns a `BeSpec` for `"BE"`, MegaDesk `XADD`s
+Redis `LAUNCHREQUEST` with `node_endpoint` = the node name (and `parameters=""`)
+so Supervisor can start the backend process.
 
-**Supervisor** is the exception: dropping its FE bootstraps the commander from
-its own `BeSpec` (`megadesk.ensure_supervisor_running`) because `launch_node`
-requires the commander to already be running. Install with
+**Supervisor** is the exception: dropping its FE bootstraps the Supervisor BE from
+its own `BeSpec` (`megadesk.ensure_supervisor_running`) because `LAUNCHREQUEST`
+requires the Supervisor BE to already be running. Install with
 `pip install -e ../Nodes/Supervisor[canvas]`.

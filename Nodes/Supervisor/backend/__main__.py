@@ -1,7 +1,7 @@
-"""Easy start for the GBD Windows commander backend (EE-1).
+"""Easy start for the MegaDesk Supervisor backend.
 
 Usage:
-    python -m commander
+    python -m backend
 """
 
 from __future__ import annotations
@@ -11,9 +11,9 @@ import signal
 import sys
 import time
 
-from commander.engine import ExecutionEngine
-from commander.pubsub_server import CommanderServer
-from commander.redis_provision import clear_commander_alive, provision_redis
+from backend.engine import ExecutionEngine
+from backend.redis_provision import clear_supervisor_alive, provision_redis
+from backend.stream_server import SupervisorServer
 
 
 def main() -> int:
@@ -21,7 +21,7 @@ def main() -> int:
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    log = logging.getLogger("gbd.commander")
+    log = logging.getLogger("gbd.supervisor")
 
     try:
         realtime = provision_redis()
@@ -30,15 +30,15 @@ def main() -> int:
         return 1
 
     engine = ExecutionEngine(realtime)
-    server = CommanderServer(realtime, engine)
+    server = SupervisorServer(realtime, engine)
     server.start()
-    log.info("GBD commander running. Redis localhost:6379. Ctrl+C to stop.")
+    log.info("Supervisor BE running. Redis localhost:6379. Ctrl+C to stop.")
 
     def _shutdown(*_args: object) -> None:
         log.info("Shutting down…")
         server.stop()
         engine.kill_all()
-        clear_commander_alive(realtime)
+        clear_supervisor_alive(realtime)
         sys.exit(0)
 
     signal.signal(signal.SIGINT, _shutdown)

@@ -11,7 +11,7 @@ def main() -> None:
         "  pip install -e .[canvas]\n"
         "  1. Start MegaDesk: python main.py  (from src/)\n"
         "  2. Catalog sidebar -> supervisor -> place on canvas\n"
-        "  3. The commander BE starts automatically on drop\n"
+        "  3. The Supervisor BE starts automatically on drop\n"
         "  4. Double-click the placard for the operator panel"
     )
 

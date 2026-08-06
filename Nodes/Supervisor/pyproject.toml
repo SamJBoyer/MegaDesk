@@ -23,10 +23,10 @@ canvas = [
 supervisor = "supervisor_node:get_exec_spec"
 
 [project.scripts]
-supervisor = "commander.__main__:main"
+supervisor = "backend.__main__:main"
 
 [tool.setuptools]
 py-modules = ["supervisor_node"]
 
 [tool.setuptools.packages.find]
-include = ["commander*", "frontend*"]
+include = ["backend*", "frontend*"]

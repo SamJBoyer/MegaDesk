@@ -1,11 +1,10 @@
-"""Thin Redis Pub/Sub client for Supervisor launch_node / stop_node."""
+"""Thin Redis stream client for Supervisor LAUNCHREQUEST / KILLREQUEST."""
 
 from __future__ import annotations
 
 import subprocess
 import sys
 import time
-import uuid
 from typing import Optional
 
 try:
@@ -16,24 +15,28 @@ except ImportError:  # pragma: no cover
 
 REDIS_HOST = "localhost"
 REDIS_PORT = 6379
-COMMANDER_ALIVE_KEY = "GBD:COMMANDER:ALIVE"
+SUPERVISOR_ALIVE_KEY = "GBD:SUPERVISOR:ALIVE"
 SUPERVISOR_NODE_NAME = "supervisor"
+LAUNCHREQUEST_STREAM = "LAUNCHREQUEST"
+KILLREQUEST_STREAM = "KILLREQUEST"
+RUNNINGNODES_PREFIX = "RUNNINGNODES:"
+
+
+def running_nodes_key(unique_id: str) -> str:
+    return f"{RUNNINGNODES_PREFIX}{unique_id}"
 
 
 class SupervisorClient:
     def __init__(
         self,
-        caller_identity: Optional[str] = None,
         host: str = REDIS_HOST,
         port: int = REDIS_PORT,
-        timeout: float = 5.0,
+        **_ignored: object,
     ) -> None:
         if redis is None:
             raise RuntimeError("redis package is required for SupervisorClient")
-        self.identity = caller_identity or f"executive-{uuid.uuid4().hex[:8]}"
-        self.timeout = timeout
+        # caller_identity kept as ignored kwarg for call-site compatibility.
         self.client = redis.Redis(host=host, port=port, db=0, decode_responses=True)
-        self.ack_channel = f"acknowledgements:{self.identity}"
 
     def redis_ok(self) -> bool:
         try:
@@ -43,39 +46,51 @@ class SupervisorClient:
 
     def backend_ok(self) -> bool:
         try:
-            return self.client.exists(COMMANDER_ALIVE_KEY) == 1
+            return self.client.exists(SUPERVISOR_ALIVE_KEY) == 1
         except Exception:
             return False
 
-    def request(self, channel_prefix: str, body: str) -> Optional[str]:
-        pubsub = self.client.pubsub(ignore_subscribe_messages=True)
-        pubsub.subscribe(self.ack_channel)
-        time.sleep(0.05)
-        try:
-            self.client.publish(f"{channel_prefix}:{self.identity}", body)
-            deadline = time.time() + self.timeout
-            while time.time() < deadline:
-                message = pubsub.get_message(timeout=0.25)
-                if message is None:
-                    continue
-                if message.get("type") != "message":
-                    continue
-                data = message.get("data")
-                if isinstance(data, bytes):
-                    data = data.decode("utf-8", errors="replace")
-                return str(data)
-            return None
-        finally:
-            pubsub.close()
+    def launch_node(self, node_endpoint: str, parameters: str = "") -> str:
+        """Fire-and-forget XADD to LAUNCHREQUEST. Returns stream entry id."""
+        return self.client.xadd(
+            LAUNCHREQUEST_STREAM,
+            {
+                "node_endpoint": node_endpoint,
+                "parameters": parameters,
+            },
+        )
 
-    def launch_node(self, name: str) -> Optional[str]:
-        return self.request("launch_node", name)
+    def kill_node(self, node_endpoint: str, unique_id: str) -> str:
+        """Fire-and-forget XADD to KILLREQUEST. Returns stream entry id."""
+        return self.client.xadd(
+            KILLREQUEST_STREAM,
+            {
+                "node_endpoint": node_endpoint,
+                "unique_id": unique_id,
+            },
+        )
 
-    def stop_node(self, name: str) -> Optional[str]:
-        return self.request("stop_node", name)
+    def list_running(self) -> list[dict[str, str]]:
+        out: list[dict[str, str]] = []
+        for key in self.client.scan_iter(match=f"{RUNNINGNODES_PREFIX}*", count=100):
+            data = self.client.hgetall(key)
+            if data:
+                out.append(data)
+        out.sort(key=lambda d: (d.get("node_endpoint", ""), d.get("unique_id", "")))
+        return out
 
-    def killall(self) -> None:
-        self.client.publish("KILLALL", "1")
+    def get_running(self, unique_id: str) -> Optional[dict[str, str]]:
+        data = self.client.hgetall(running_nodes_key(unique_id))
+        return data or None
+
+    def kill_all_running(self) -> int:
+        running = self.list_running()
+        for entry in running:
+            endpoint = entry.get("node_endpoint") or ""
+            uid = entry.get("unique_id") or ""
+            if endpoint and uid:
+                self.kill_node(endpoint, uid)
+        return len(running)
 
 
 def ensure_supervisor_running(
@@ -84,16 +99,16 @@ def ensure_supervisor_running(
     host: str = REDIS_HOST,
     port: int = REDIS_PORT,
 ) -> bool:
-    """Spawn the Supervisor BeSpec if the commander is not already alive.
+    """Spawn the Supervisor BeSpec if the BE is not already alive.
 
     Used when the Supervisor FE is dropped on the canvas (chicken-and-egg:
-    ``launch_node`` requires the commander, so the commander BeSpec is started
+    ``LAUNCHREQUEST`` requires the Supervisor BE, so the BeSpec is started
     directly from its ``MegaDesk.nodes`` BE spec).
     """
     if redis is None:
         return False
 
-    client = SupervisorClient(caller_identity="bootstrap", host=host, port=port)
+    client = SupervisorClient(host=host, port=port)
     if client.backend_ok():
         return True
 
