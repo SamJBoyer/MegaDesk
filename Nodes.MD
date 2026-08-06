@@ -20,7 +20,7 @@ Nodes/<Name>/
   pyproject.toml          # REQUIRED — registers MegaDesk.nodes
   <name>_node.py          # REQUIRED — get_exec_spec(mode)
   …                       # app / package code for FE and/or BE
-  Etc/Artwork/…           # optional icon for the Drop-in palette
+  Etc/Artwork/…           # optional icon for the Catalog palette
 ```
 
 **Rules:**
@@ -79,7 +79,7 @@ Front-end description for MegaDesk canvas hosting:
 | Field | Type | Role |
 |-------|------|------|
 | `name` | `str` | Node nickname (palette / canvas / Redis launch) |
-| `description` | `str` | Short blurb for Drop-in |
+| `description` | `str` | Short blurb for Catalog |
 | `icon` | `str \| None` | Path to an icon image, or `None` |
 | `default_width` | `int` | Initial window width |
 | `default_height` | `int` | Initial window height |
@@ -162,7 +162,7 @@ Keys prefer `spec.name`, falling back to the entry-point name.
 
 ## How the FE uses nodes (MegaDesk canvas)
 
-1. On startup, the canvas calls `discover_frontends()` (via `engine.megadesk_registry`) and fills the Drop-in palette (`megadesk:<name>`).
+1. On startup, the canvas calls `discover_frontends()` (via `engine.megadesk_registry`) and fills the Catalog palette (`megadesk:<name>`).
 2. Dropping a node places a canvas member (`type: "megadesk"`, `node_name` in `canvas.json`) and opens the Dear PyGui window via `FeSpec.build` at the drop point.
 3. Pan/zoom keeps the window world-anchored; close leaves a placard; double-click reopens the GUI.
 4. If `has_backend(node_name)` is true after drop:
@@ -180,7 +180,7 @@ pip install -e Nodes/Supervisor[canvas] # FE + BE
 python main.py   # from src/
 ```
 
-Built-in ideation tools (`sticky`, `container`) still use the thicker `BaseNode` contract and are separate from `MegaDesk.nodes`. Prefer `MegaDesk.nodes` + `FeSpec` for new productivity tools. See `src/docs/plugins.md`.
+New productivity tools use `MegaDesk.nodes` + `FeSpec`. See `src/docs/plugins.md`.
 
 ---
 
@@ -205,4 +205,4 @@ Typical Redis path after an FE drop that also has a BE:
 3. Register `[project.entry-points."MegaDesk.nodes"]`.
 4. `pip install -e Nodes/<Name>` (add `[canvas]` / Dear PyGui if the node has an FE).
 5. Restart MegaDesk / Supervisor so entry points are re-scanned.
-6. FE appears in Drop-in; BE is launchable by nickname once the commander is alive.
+6. FE appears in Catalog; BE is launchable by nickname once the commander is alive.

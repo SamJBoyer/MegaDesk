@@ -1,50 +1,37 @@
-<fields> 
+# MegaDesk FE canvas member (MegaDeskMember)
 
-<static>
-nickname: Display name of the node. This name will show up on the
-instance's header and in the dropbar 
-global_guid: Created once on set up, this is a global identifier
-for the node type (used by the registry and canvas.json). 
-icon: Path to an icon image for the Drop-in panel (absolute, CWD-
-relative, or relative to the node module). Empty or invalid paths
-use a default black square.
-description: high-level explaination of what this does. 
-is_container: bool — when True, this node is a spatial frame:
-contents become children and move with it.
+Canvas objects are MegaDesk FE shells backed by an `FeSpec`, not a thick
+inheritance hierarchy. Geometry and chrome are canvas-owned; the FE fills a
+hosted content panel via `FeSpec.build`.
 
-has_parent_limit: bool
-parent_limit: int 
-has_child_limit: bool
-child_limit: int 
+## Fields
 
-</static> 
+### Spec / type
 
-<instance> 
-canvas_id: guid that represents the instance's unique id  
-position: (x,y) coords of the object 
-scale: represents the scale of the object
-parents: [] represents the canvas_id of the parent objects in the 
-hiearchy  
-children: [] represents the canvas_id of the children objects in the 
-hiearchy  
-</instance> 
+| Field | Role |
+| --- | --- |
+| nickname / name | Display name (header + Catalog) |
+| global_guid | Discriminator `"megadesk"` in `canvas.json` |
+| node_name | FeSpec name / discovery key |
+| description | Short blurb from the FeSpec |
+| icon | Path on the FeSpec; empty/invalid → Catalog black square |
 
-</fields>
+### Instance
 
-<interface> 
+| Field | Role |
+| --- | --- |
+| canvas_id | Instance GUID |
+| position | World (x, y) |
+| scale | Placard scale when GUI is closed |
+| parents / children | Serialized empty lists (legacy shape; unused) |
+| data | FE payload (`width`, `height`, `gui_open`, `node_name`, …) |
 
-on_select(): what happens when the object is selected 
+## Interface (canvas hooks)
 
-on_start_drag(): what happens when the object is beginning to be 
-dsragged  
-on_drag()
-on_end_drag() 
-
-on_create(): what happens when the object is  created 
-on_destroy(): what happens when the object is deleted 
-
-on_object_enter(): what happens when another object is moved inside hte bounds 
-on_object_exit(): what happens when an object exits the bounds 
-
-
-</interface>  
+- `on_select` / `on_deselect`
+- `on_start_drag` / `on_drag` / `on_end_drag`
+- `on_start_resize` / `on_resize` / `on_end_resize`
+- `on_create` / `on_destroy`
+- `on_double_click` — reopen / focus hosted FE
+- `draw` / `draw_resize_handles` — canvas drawlist chrome
+- `open_window` / `close_window` — hosted panel lifecycle

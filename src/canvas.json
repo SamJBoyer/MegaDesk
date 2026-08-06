@@ -1,89 +1,10 @@
 {
-  "terms": [
-    {
-      "term": "Sticky",
-      "definition": "A colored text note that can be edited with a double-click."
-    },
-    {
-      "term": "Container",
-      "definition": "A frame that parents any objects fully inside its bounds."
-    },
-    {
-      "term": "Layer",
-      "definition": "A visibility/lock group for canvas members in the hierarchy."
-    }
-  ],
-  "members": {
-    "cebf0c36-ae19-4973-a935-513c3f0d72d0": {
-      "canvas_id": "cebf0c36-ae19-4973-a935-513c3f0d72d0",
-      "type": "megadesk",
-      "nickname": "merge_manager",
-      "node_name": "merge_manager",
-      "position": [
-        87.99052904860083,
-        2364.1505052580833
-      ],
-      "scale": [
-        1.0,
-        1.0
-      ],
-      "parents": [],
-      "children": [],
-      "data": {
-        "width": 329.5899737550842,
-        "height": 409.75186687391175,
-        "node_name": "merge_manager",
-        "gui_open": true
-      }
-    },
-    "3a7547e2-9757-4c44-b9ba-b0838a016d0a": {
-      "canvas_id": "3a7547e2-9757-4c44-b9ba-b0838a016d0a",
-      "type": "sticky",
-      "nickname": "Sticky",
-      "position": [
-        3461.1492580087074,
-        1893.8474749550544
-      ],
-      "scale": [
-        1.0,
-        1.0
-      ],
-      "parents": [],
-      "children": [],
-      "data": {
-        "text": "Sticky",
-        "fill": [
-          255,
-          245,
-          160,
-          240
-        ],
-        "edge": [
-          70,
-          70,
-          75,
-          255
-        ],
-        "width": 160.0,
-        "height": 160.0
-      }
-    }
-  },
+  "members": {},
   "hierarchy": {
     "layers": [
       {
         "id": "00000000-0000-0000-0000-000000000001",
         "name": "Layer 1",
-        "visible": true,
-        "locked": false,
-        "children": [
-          "cebf0c36-ae19-4973-a935-513c3f0d72d0",
-          "3a7547e2-9757-4c44-b9ba-b0838a016d0a"
-        ]
-      },
-      {
-        "id": "a83fcdba-7667-4aee-a558-bfc6c9d3c14b",
-        "name": "Balls",
         "visible": true,
         "locked": false,
         "children": []

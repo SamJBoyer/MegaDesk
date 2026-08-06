@@ -1,4 +1,4 @@
-"""Canvas-hosted shell for MegaDesk.nodes FE tools (not BaseNode)."""
+"""Canvas-hosted shell for MegaDesk.nodes FE tools."""
 
 from __future__ import annotations
 
@@ -9,9 +9,10 @@ import dearpygui.dearpygui as dpg
 
 from megadesk import FeSpec
 
-from engine.base_node import HANDLE_HALF, MIN_SCALE
-
 TYPE_DISCRIMINATOR = "megadesk"
+
+MIN_SCALE = 0.15
+HANDLE_HALF = 6.0  # screen-space half-size; converted via zoom when hit-testing
 
 # Screen-pixel header above the hosted content panel (drag / select / close).
 HEADER_H = 28.0
@@ -29,8 +30,6 @@ class MegaDeskMember:
     Position is world-anchored; width/height stay in screen pixels (windows
     do not scale with zoom).
     """
-
-    is_container: bool = False
 
     def __init__(
         self,
@@ -387,14 +386,6 @@ class MegaDeskMember:
 
     def on_destroy(self) -> None:
         self.close_window()
-
-    def on_object_enter(self, other_id: str) -> None:
-        if other_id not in self.children:
-            self.children.append(other_id)
-
-    def on_object_exit(self, other_id: str) -> None:
-        if other_id in self.children:
-            self.children.remove(other_id)
 
     def close_window(self) -> None:
         """Collapse the hosted FE to a placard (runs FE cleanup via user_data)."""

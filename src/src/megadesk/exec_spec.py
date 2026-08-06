@@ -1,4 +1,4 @@
-"""Thin FE/BE launch specs for MegaDesk nodes (not BaseNode)."""
+"""Thin FE/BE launch specs for MegaDesk nodes."""
 
 from __future__ import annotations
 

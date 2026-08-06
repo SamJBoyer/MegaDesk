@@ -1,4 +1,4 @@
-"""Whiteboard prototype — infinite Dear PyGui canvas with deployable nodes."""
+"""Whiteboard — infinite Dear PyGui canvas with MegaDesk FE members."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from engine.display_engine import (
     DRAWLIST_TAG,
     DisplayEngine,
 )
-from engine.registry import discover_nodes
+from engine.megadesk_registry import discover_megadesk_frontends
 
 
 def _apply_daytime_theme() -> None:
@@ -44,7 +44,7 @@ def _apply_daytime_theme() -> None:
 
 
 def main() -> None:
-    discover_nodes()
+    discover_megadesk_frontends()
 
     model = CanvasModel()
     model.load()
@@ -88,15 +88,13 @@ def main() -> None:
     ):
         dpg.add_drawlist(tag=DRAWLIST_TAG, width=1280, height=800)
 
-    dpg.create_viewport(title="Canvas2 Whiteboard", width=1280, height=800)
+    dpg.create_viewport(title="MegaDesk Canvas", width=1280, height=800)
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.set_primary_window(CANVAS_WINDOW, True)
 
     engine.build_sidebar()
     engine.refresh_layer_bar()
-    engine.refresh_hierarchy_panel()
-    engine.refresh_terms_panel()
     engine.on_viewport_resize()
     engine.open_all_megadesk_guis()
     engine.redraw()

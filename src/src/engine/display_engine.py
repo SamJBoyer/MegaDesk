@@ -1,4 +1,4 @@
-"""Display engine: parse canvas.json and render an interactive infinite board."""
+"""Display engine: render an interactive infinite board of MegaDesk FE members."""
 
 from __future__ import annotations
 
@@ -6,10 +6,8 @@ from typing import Callable, Optional
 
 import dearpygui.dearpygui as dpg
 
-from engine.autocomplete import apply_completion, match_terms
-from engine.base_node import BaseNode
 from engine.canvas_model import CanvasMember, CanvasModel
-from engine.icons import ICON_PX, get_icon_texture, get_icon_texture_for_path
+from engine.icons import ICON_PX, get_icon_texture_for_path
 from engine.megadesk_member import HEADER_H, MegaDeskMember
 from engine.megadesk_registry import (
     all_fe_specs,
@@ -17,34 +15,21 @@ from engine.megadesk_registry import (
     palette_key,
     parse_palette_key,
 )
-from engine.registry import all_node_types, get_node_class
 
 
 DRAWLIST_TAG = "canvas_drawlist"
 CANVAS_WINDOW = "canvas_window"
-SIDEBAR_TAG = "dropin_panel_window"
+SIDEBAR_TAG = "catalog_panel_window"
 LAYER_BAR_TAG = "layer_bar_window"
-TERMS_PANEL_TAG = "terms_panel_window"
-TERMS_LIST_TAG = "terms_list_child"
-HIERARCHY_PANEL_TAG = "hierarchy_panel_window"
-HIERARCHY_LIST_TAG = "hierarchy_list_child"
 CONTEXT_MENU = "canvas_context_menu"
-TEXT_EDIT_MODAL = "sticky_text_modal"
-TEXT_EDIT_INPUT = "sticky_text_input"
-TEXT_EDIT_AC_HINT = "sticky_text_ac_hint"
-TEXT_EDIT_AC_BTN = "sticky_text_ac_btn"
-TEXT_EDIT_AC_ALTS = "sticky_text_ac_alts"
 LAYER_RENAME_MODAL = "layer_rename_modal"
 LAYER_RENAME_INPUT = "layer_rename_input"
 
-# Floating chrome that should block Drop-in drops (geometric hit test).
+# Floating chrome that should block Catalog drops (geometric hit test).
 _PALETTE_BLOCKING_TAGS = (
     SIDEBAR_TAG,
     LAYER_BAR_TAG,
-    TERMS_PANEL_TAG,
-    HIERARCHY_PANEL_TAG,
     CONTEXT_MENU,
-    TEXT_EDIT_MODAL,
     LAYER_RENAME_MODAL,
 )
 _PALETTE_DRAG_THRESHOLD_PX = 5.0
@@ -78,10 +63,6 @@ class DisplayEngine:
         self._palette_press_pos: tuple[float, float] = (0.0, 0.0)
         self._target_layer_id: Optional[str] = None
         self._rename_layer_id: Optional[str] = None
-        self._edit_node_id: Optional[str] = None
-        self._ac_matches: list[str] = []
-        # Unity-style hierarchy: canvas_id / layer_id -> expanded
-        self._hier_expanded: dict[str, bool] = {}
 
         self._status_cb: Optional[Callable[[str], None]] = None
 
@@ -121,23 +102,16 @@ class DisplayEngine:
     # --- hit testing ---
 
     def hit_test(self, world_x: float, world_y: float) -> Optional[CanvasMember]:
-        # Prefer smaller / non-container nodes so frames don't steal child clicks
         hits: list[CanvasMember] = []
         for node in self.model.members.values():
             if not self.model.is_visible(node.canvas_id):
                 continue
-            if isinstance(node, MegaDeskMember):
-                node.set_view_zoom(self.zoom)
+            node.set_view_zoom(self.zoom)
             if node.contains_point(world_x, world_y):
                 hits.append(node)
         if not hits:
             return None
-
-        def rank(n: CanvasMember) -> tuple:
-            _, _, w, h = n.bounds()
-            return (1 if n.is_container else 0, w * h)
-
-        hits.sort(key=rank)
+        hits.sort(key=lambda n: n.bounds()[2] * n.bounds()[3])
         return hits[0]
 
     # --- rendering ---
@@ -149,7 +123,6 @@ class DisplayEngine:
 
         w = dpg.get_item_width(DRAWLIST_TAG) or 800
         h = dpg.get_item_height(DRAWLIST_TAG) or 600
-        # Daytime canvas backdrop
         dpg.draw_rectangle(
             (0, 0),
             (w, h),
@@ -160,37 +133,25 @@ class DisplayEngine:
         )
         self._draw_grid(w, h)
 
-        # Draw containers first (behind), then non-containers
-        containers = []
-        others = []
         for node in self.model.members.values():
             if not self.model.is_visible(node.canvas_id):
                 continue
-            if node.is_container:
-                containers.append(node)
-            else:
-                others.append(node)
-
-        for node in containers + others:
-            if isinstance(node, MegaDeskMember):
-                node.set_view_zoom(self.zoom)
+            node.set_view_zoom(self.zoom)
             node.draw(
                 DRAWLIST_TAG,
                 self.world_to_screen,
                 selected=(node.canvas_id in self.selected_ids),
             )
 
-        # Selection chrome: outline all selected; resize handles only for a single select
         for cid in self.selected_ids:
             node = self.model.members.get(cid)
             if not node or not self.model.is_visible(cid):
                 continue
-            if isinstance(node, MegaDeskMember):
-                node.set_view_zoom(self.zoom)
+            node.set_view_zoom(self.zoom)
             if len(self.selected_ids) == 1:
                 node.draw_resize_handles(DRAWLIST_TAG, self.world_to_screen)
             else:
-                if isinstance(node, MegaDeskMember) and node.is_gui_open():
+                if node.is_gui_open():
                     sx, sy = self.world_to_screen(node.position[0], node.position[1])
                     pmin = (sx - 3, sy - 3)
                     pmax = (sx + node.width + 3, sy + HEADER_H + node.height + 3)
@@ -224,11 +185,7 @@ class DisplayEngine:
         if self._palette_drag_type:
             mx, my = self._draw_mouse_pos()
             megadesk_name = parse_palette_key(self._palette_drag_type)
-            if megadesk_name is not None:
-                label = megadesk_name
-            else:
-                cls = get_node_class(self._palette_drag_type)
-                label = cls.nickname if cls else self._palette_drag_type
+            label = megadesk_name or self._palette_drag_type
             dpg.draw_text(
                 (mx + 12, my + 12),
                 f"+ {label}",
@@ -257,10 +214,10 @@ class DisplayEngine:
 
     # --- selection / mutation ---
 
-    def select(self, node: Optional[CanvasMember], *, sync_hierarchy: bool = True) -> None:
-        self.select_many([node] if node else [], sync_hierarchy=sync_hierarchy)
+    def select(self, node: Optional[CanvasMember]) -> None:
+        self.select_many([node] if node else [])
 
-    def select_many(self, nodes: list[CanvasMember], *, sync_hierarchy: bool = True) -> None:
+    def select_many(self, nodes: list[CanvasMember]) -> None:
         for cid in list(self.selected_ids):
             member = self.model.members.get(cid)
             if member:
@@ -275,18 +232,12 @@ class DisplayEngine:
         if len(self.selected_ids) == 1:
             self.selected_id = next(iter(self.selected_ids))
         elif self.selected_ids:
-            # Primary = smallest non-container (stable for context / single-ops)
             ranked = sorted(
                 (self.model.members[cid] for cid in self.selected_ids if cid in self.model.members),
-                key=lambda n: (
-                    1 if n.is_container else 0,
-                    n.bounds()[2] * n.bounds()[3],
-                ),
+                key=lambda n: n.bounds()[2] * n.bounds()[3],
             )
             self.selected_id = ranked[0].canvas_id if ranked else None
         self.redraw()
-        if sync_hierarchy:
-            self.refresh_hierarchy_panel()
 
     def delete_selected(self) -> None:
         if not self.selected_ids:
@@ -302,13 +253,11 @@ class DisplayEngine:
             self.model.delete_node(cid)
         self.redraw()
         self.refresh_layer_bar()
-        self.refresh_hierarchy_panel()
 
     def _nodes_in_marquee(self) -> list[CanvasMember]:
         """Return visible, unlocked nodes whose bounds intersect the screen marquee."""
         sx0, sy0 = self._marquee_start
         sx1, sy1 = self._marquee_end
-        # Ignore click-sized marquees
         if abs(sx1 - sx0) < 4 and abs(sy1 - sy0) < 4:
             return []
 
@@ -323,33 +272,12 @@ class DisplayEngine:
                 continue
             if self.model.is_locked(node.canvas_id):
                 continue
-            if isinstance(node, MegaDeskMember):
-                node.set_view_zoom(self.zoom)
+            node.set_view_zoom(self.zoom)
             bx, by, bw, bh = node.bounds()
             if bx + bw < min_x or bx > max_x or by + bh < min_y or by > max_y:
                 continue
             hits.append(node)
         return hits
-
-    def _selection_move_roots(self) -> list[str]:
-        """Selected ids not carried by another selected *container* parent."""
-        roots: list[str] = []
-        for cid in self.selected_ids:
-            node = self.model.members.get(cid)
-            if not node:
-                continue
-            carried = False
-            for pid in node.parents:
-                if pid not in self.selected_ids:
-                    continue
-                parent = self.model.members.get(pid)
-                if parent is not None and parent.is_container:
-                    carried = True
-                    break
-            if carried:
-                continue
-            roots.append(cid)
-        return roots
 
     def set_target_layer(self, layer_id: str) -> None:
         self._target_layer_id = layer_id
@@ -359,14 +287,13 @@ class DisplayEngine:
     def on_mouse_wheel(self, sender, app_data, user_data=None) -> None:
         if not self._mouse_over_canvas():
             return
-        delta = app_data  # +1 / -1 typically
+        delta = app_data
         old_zoom = self.zoom
         factor = 1.1 if delta > 0 else 1 / 1.1
         new_zoom = max(self.min_zoom, min(self.max_zoom, old_zoom * factor))
         if abs(new_zoom - old_zoom) < 1e-6:
             return
         mx, my = self._draw_mouse_pos()
-        # Zoom toward cursor
         wx = (mx - self.pan_x) / old_zoom
         wy = (my - self.pan_y) / old_zoom
         self.zoom = new_zoom
@@ -385,14 +312,11 @@ class DisplayEngine:
 
         if button == dpg.mvMouseButton_Left:
             if self._palette_press_type or self._palette_drag_type:
-                # Press started on the Drop-in panel; ignore canvas click-to-place.
                 return
 
-            # Prefer resize handles when exactly one object is selected
             if len(self.selected_ids) == 1 and self.selected_id in self.model.members:
                 sel = self.model.members[self.selected_id]
-                if isinstance(sel, MegaDeskMember):
-                    sel.set_view_zoom(self.zoom)
+                sel.set_view_zoom(self.zoom)
                 if not self.model.is_locked(self.selected_id):
                     handle = sel.hit_resize_handle(wx, wy, zoom=self.zoom)
                     if handle:
@@ -404,9 +328,8 @@ class DisplayEngine:
                         sel.on_start_resize(handle)
                         return
 
-            # Canvas-drawn close on open MegaDesk shells
             for node in self.model.members.values():
-                if not isinstance(node, MegaDeskMember) or not node.is_gui_open():
+                if not node.is_gui_open():
                     continue
                 if self.model.is_locked(node.canvas_id):
                     continue
@@ -419,8 +342,6 @@ class DisplayEngine:
 
             hit = self.hit_test(wx, wy)
             if hit and not self.model.is_locked(hit.canvas_id):
-                # Clicking a non-selected node replaces selection; clicking inside
-                # an existing multi-selection keeps the group for group-drag.
                 if hit.canvas_id not in self.selected_ids:
                     self.select(hit)
                 self._dragging_node = True
@@ -428,12 +349,11 @@ class DisplayEngine:
                 self._resize_handle = None
                 self._marquee = False
                 self._last_mouse = (mx, my)
-                for cid in self._selection_move_roots():
+                for cid in self.selected_ids:
                     node = self.model.members.get(cid)
                     if node:
                         node.on_start_drag()
             elif hit is None:
-                # Empty canvas: hold MB1 and drag to draw a selection box
                 self.select(None)
                 self._dragging_node = False
                 self._resizing_node = False
@@ -443,7 +363,6 @@ class DisplayEngine:
                 self._marquee_end = (mx, my)
                 self.redraw()
             else:
-                # Locked node under cursor — clear selection, no marquee
                 self.select(None)
                 self._dragging_node = False
                 self._resizing_node = False
@@ -466,13 +385,9 @@ class DisplayEngine:
         hit = self.hit_test(wx, wy)
         if hit and not self.model.is_locked(hit.canvas_id):
             self.select(hit)
-            if isinstance(hit, MegaDeskMember):
-                self.open_megadesk_gui(hit)
-                return
-            self._begin_text_edit(hit)
+            self.open_megadesk_gui(hit)
 
     def on_mouse_drag(self, sender, app_data, user_data=None) -> None:
-        # app_data: [button, dx, dy] in DPG 1.x/2.x
         if not isinstance(app_data, (list, tuple)) or len(app_data) < 1:
             return
         button = app_data[0]
@@ -508,8 +423,7 @@ class DisplayEngine:
                 return
             node = self.model.members.get(self.selected_id)
             if node and self._resize_handle:
-                if isinstance(node, MegaDeskMember):
-                    node.set_view_zoom(self.zoom)
+                node.set_view_zoom(self.zoom)
                 wx, wy = self.screen_to_world(mx, my)
                 node.on_resize(self._resize_handle, wx, wy)
                 self._last_mouse = (mx, my)
@@ -522,10 +436,10 @@ class DisplayEngine:
             dy_s = my - self._last_mouse[1]
             dx_w = dx_s / self.zoom
             dy_w = dy_s / self.zoom
-            for cid in self._selection_move_roots():
+            for cid in self.selected_ids:
                 if self.model.is_locked(cid):
                     continue
-                self.model.move_node(cid, dx_w, dy_w, move_children=True)
+                self.model.move_node(cid, dx_w, dy_w)
             self._last_mouse = (mx, my)
             self.sync_megadesk_windows()
             self.redraw()
@@ -551,17 +465,13 @@ class DisplayEngine:
                 node = self.model.members.get(self.selected_id)
                 if node:
                     node.on_end_resize()
-                    self.model._relink_containment(self.selected_id)
                     self.model.save()
-                    self.refresh_hierarchy_panel()
             elif self._dragging_node and self.selected_ids:
-                for cid in self._selection_move_roots():
+                for cid in self.selected_ids:
                     node = self.model.members.get(cid)
                     if node:
                         node.on_end_drag()
-                        self.model._relink_containment(cid)
                 self.model.save()
-                self.refresh_hierarchy_panel()
             self._dragging_node = False
             self._resizing_node = False
             self._resize_handle = None
@@ -576,38 +486,18 @@ class DisplayEngine:
                 self._open_context_menu()
 
     def on_key_press(self, sender, app_data, user_data=None) -> None:
-        editing = (
-            dpg.does_item_exist(TEXT_EDIT_MODAL) and dpg.is_item_shown(TEXT_EDIT_MODAL)
-        )
         if app_data == dpg.mvKey_Escape and (
             self._palette_press_type or self._palette_drag_type
         ):
             self._cancel_palette()
             return
-        # Ctrl+Enter accepts the top match. Avoid Tab — ImGui uses it for
-        # focus navigation and that flickers the modal.
-        if (
-            editing
-            and self._ac_matches
-            and app_data in (dpg.mvKey_Return, dpg.mvKey_NumPadEnter)
-            and dpg.is_key_down(dpg.mvKey_ModCtrl)
-            and dpg.does_item_exist(TEXT_EDIT_INPUT)
-            and dpg.is_item_focused(TEXT_EDIT_INPUT)
-        ):
-            self._accept_autocomplete()
-            return
         delete_keys = {dpg.mvKey_Delete, dpg.mvKey_Back}
         if app_data in delete_keys:
-            # Don't delete while editing text
-            if editing:
-                return
             self.delete_selected()
 
     def _mouse_over_canvas(self) -> bool:
         if not dpg.does_item_exist(DRAWLIST_TAG):
             return False
-        # Content panels own widget input; canvas owns header chrome + rim handles
-        # even when a hosted window is stacked above the drawlist.
         if self._megadesk_chrome_hit():
             return True
         if self._megadesk_window_hovered():
@@ -623,14 +513,14 @@ class DisplayEngine:
         wx, wy = self.screen_to_world(mx, my)
         if len(self.selected_ids) == 1 and self.selected_id in self.model.members:
             sel = self.model.members[self.selected_id]
-            if isinstance(sel, MegaDeskMember) and sel.is_gui_open():
+            if sel.is_gui_open():
                 sel.set_view_zoom(self.zoom)
                 if sel.hit_resize_handle(wx, wy, zoom=self.zoom):
                     return True
                 if sel.hit_close_button(wx, wy):
                     return True
         for node in self.model.members.values():
-            if not isinstance(node, MegaDeskMember) or not node.is_gui_open():
+            if not node.is_gui_open():
                 continue
             node.set_view_zoom(self.zoom)
             if node.contains_point(wx, wy) or node.hit_close_button(wx, wy):
@@ -660,8 +550,6 @@ class DisplayEngine:
             if self._item_contains_global(tag, mx, my):
                 return False
         for node in self.model.members.values():
-            if not isinstance(node, MegaDeskMember):
-                continue
             tag = node.window_tag
             if tag and self._item_contains_global(tag, mx, my):
                 return False
@@ -686,7 +574,7 @@ class DisplayEngine:
         self._marquee = False
 
     def _on_palette_active(self, sender, app_data, user_data) -> None:
-        """Fires while the Drop-in icon is held — keep the ghost under the cursor."""
+        """Fires while the Catalog icon is held — keep the ghost under the cursor."""
         if self._palette_press_type != user_data:
             self._on_palette_press(sender, app_data, user_data)
         was_dragging = self._palette_drag_type is not None
@@ -711,17 +599,16 @@ class DisplayEngine:
         mx, my = self._draw_mouse_pos()
         wx, wy = self.screen_to_world(mx, my)
         megadesk_name = parse_palette_key(type_guid)
-        if megadesk_name is not None:
-            node = self.model.add_megadesk_node(
-                megadesk_name, position=(wx, wy), layer_id=layer_id
-            )
-            self._maybe_launch_backend(megadesk_name)
-            self.open_megadesk_gui(node)
-        else:
-            node = self.model.add_node(type_guid, position=(wx, wy), layer_id=layer_id)
+        if megadesk_name is None:
+            self.redraw()
+            return
+        node = self.model.add_megadesk_node(
+            megadesk_name, position=(wx, wy), layer_id=layer_id
+        )
+        self._maybe_launch_backend(megadesk_name)
+        self.open_megadesk_gui(node)
         self.select(node)
         self.refresh_layer_bar()
-        self.refresh_hierarchy_panel()
         self.redraw()
 
     def _maybe_launch_backend(self, node_name: str) -> None:
@@ -780,7 +667,6 @@ class DisplayEngine:
                     callback=self._reset_view,
                 )
             dpg.add_menu_item(label="Save", callback=lambda: self.model.save())
-        # Position popup near cursor
         dpg.set_item_pos(CONTEXT_MENU, [mx, my])
 
     def _reset_view(self) -> None:
@@ -804,8 +690,6 @@ class DisplayEngine:
     def open_all_megadesk_guis(self) -> None:
         """Re-open FE panels for MegaDesk members that were saved as open."""
         for node in self.model.members.values():
-            if not isinstance(node, MegaDeskMember):
-                continue
             if node.data.get("gui_open", True) or node._want_gui_open:
                 self.open_megadesk_gui(node)
 
@@ -816,8 +700,6 @@ class DisplayEngine:
         hover_select: Optional[MegaDeskMember] = None
 
         for node in list(self.model.members.values()):
-            if not isinstance(node, MegaDeskMember):
-                continue
             node.set_view_zoom(self.zoom)
             tag = node.window_tag
             if not tag:
@@ -848,133 +730,18 @@ class DisplayEngine:
                 pass
 
         if hover_select is not None:
-            self.select(hover_select, sync_hierarchy=False)
+            self.select(hover_select)
         elif needs_redraw:
             self.redraw()
 
     def _megadesk_window_hovered(self) -> bool:
         for node in self.model.members.values():
-            if not isinstance(node, MegaDeskMember):
-                continue
             tag = node.window_tag
             if tag and dpg.does_item_exist(tag) and dpg.is_item_hovered(tag):
                 return True
         return False
 
-    # --- sticky text edit + autocomplete ---
-
-    def _begin_text_edit(self, node: CanvasMember) -> None:
-        if isinstance(node, MegaDeskMember):
-            self.open_megadesk_gui(node)
-            return
-        if not hasattr(node, "get_text"):
-            node.on_double_click()
-            return
-        self._edit_node_id = node.canvas_id
-        self._ac_matches = []
-        if dpg.does_item_exist(TEXT_EDIT_MODAL):
-            dpg.delete_item(TEXT_EDIT_MODAL)
-        with dpg.window(
-            label="Edit Text",
-            modal=True,
-            show=True,
-            tag=TEXT_EDIT_MODAL,
-            width=380,
-            height=220,
-            no_resize=True,
-        ):
-            dpg.add_input_text(
-                tag=TEXT_EDIT_INPUT,
-                default_value=node.get_text(),
-                multiline=True,
-                width=-1,
-                height=90,
-                callback=self._on_text_edit_changed,
-            )
-            # Stable widgets only — no show/hide windows (that caused flicker).
-            dpg.add_text(
-                "Type a glossary term for autocomplete.",
-                tag=TEXT_EDIT_AC_HINT,
-                color=(110, 110, 110, 255),
-                wrap=350,
-            )
-            with dpg.group(horizontal=True):
-                dpg.add_button(
-                    label="Insert match",
-                    tag=TEXT_EDIT_AC_BTN,
-                    enabled=False,
-                    callback=lambda: self._accept_autocomplete(),
-                )
-                dpg.add_text("", tag=TEXT_EDIT_AC_ALTS, color=(90, 90, 90, 255))
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Save", callback=self._commit_text_edit)
-                dpg.add_button(
-                    label="Cancel",
-                    callback=lambda: dpg.configure_item(TEXT_EDIT_MODAL, show=False),
-                )
-        self._refresh_autocomplete(node.get_text())
-        if dpg.does_item_exist(TEXT_EDIT_INPUT):
-            dpg.focus_item(TEXT_EDIT_INPUT)
-
-    def _on_text_edit_changed(self, sender, app_data, user_data=None) -> None:
-        self._refresh_autocomplete(str(app_data if app_data is not None else ""))
-
-    def _refresh_autocomplete(self, text: str) -> None:
-        self._ac_matches = match_terms(text, self.model.terms)
-        if not dpg.does_item_exist(TEXT_EDIT_AC_HINT):
-            return
-
-        if not self._ac_matches:
-            dpg.set_value(
-                TEXT_EDIT_AC_HINT,
-                "Type a glossary term for autocomplete.",
-            )
-            if dpg.does_item_exist(TEXT_EDIT_AC_BTN):
-                dpg.configure_item(TEXT_EDIT_AC_BTN, enabled=False, label="Insert match")
-            if dpg.does_item_exist(TEXT_EDIT_AC_ALTS):
-                dpg.set_value(TEXT_EDIT_AC_ALTS, "")
-            return
-
-        top = self._ac_matches[0]
-        extras = self._ac_matches[1:]
-        dpg.set_value(
-            TEXT_EDIT_AC_HINT,
-            f"Suggestion: {top}   (Ctrl+Enter or Insert)",
-        )
-        if dpg.does_item_exist(TEXT_EDIT_AC_BTN):
-            dpg.configure_item(TEXT_EDIT_AC_BTN, enabled=True, label=f"Insert “{top}”")
-        if dpg.does_item_exist(TEXT_EDIT_AC_ALTS):
-            dpg.set_value(
-                TEXT_EDIT_AC_ALTS,
-                ("Also: " + ", ".join(extras)) if extras else "",
-            )
-
-    def _accept_autocomplete(self, term: Optional[str] = None) -> None:
-        if not dpg.does_item_exist(TEXT_EDIT_INPUT):
-            return
-        choice = term or (self._ac_matches[0] if self._ac_matches else None)
-        if not choice:
-            return
-        current = str(dpg.get_value(TEXT_EDIT_INPUT) or "")
-        completed = apply_completion(current, choice)
-        dpg.set_value(TEXT_EDIT_INPUT, completed)
-        self._refresh_autocomplete(completed)
-        dpg.focus_item(TEXT_EDIT_INPUT)
-
-    def _commit_text_edit(self) -> None:
-        if not self._edit_node_id:
-            return
-        node = self.model.members.get(self._edit_node_id)
-        if node and hasattr(node, "set_text"):
-            node.set_text(dpg.get_value(TEXT_EDIT_INPUT))
-            self.model.save()
-        if dpg.does_item_exist(TEXT_EDIT_MODAL):
-            dpg.configure_item(TEXT_EDIT_MODAL, show=False)
-        self._edit_node_id = None
-        self._ac_matches = []
-        self.redraw()
-
-    # --- sidebar / layers UI ---
+    # --- Catalog / layers UI ---
 
     def build_sidebar(self) -> None:
         if dpg.does_item_exist(SIDEBAR_TAG):
@@ -985,7 +752,7 @@ class DisplayEngine:
         cell_w = ICON_PX + 16
 
         with dpg.window(
-            label="Drop-in",
+            label="Catalog",
             tag=SIDEBAR_TAG,
             pos=(10, 40),
             width=panel_w,
@@ -1004,12 +771,6 @@ class DisplayEngine:
                 autosize_y=False,
             ):
                 palette_entries: list[tuple[str, str, str, str | None]] = []
-                # (palette_key, label, description, icon_path)
-                for cls in all_node_types():
-                    path = cls.resolve_icon_path()
-                    palette_entries.append(
-                        (cls.global_guid, cls.nickname, cls.description or "", path)
-                    )
                 for spec in all_fe_specs():
                     palette_entries.append(
                         (
@@ -1110,7 +871,6 @@ class DisplayEngine:
         layer = self.model.create_layer()
         self._target_layer_id = layer["id"]
         self.refresh_layer_bar()
-        self.refresh_hierarchy_panel()
 
     def _ui_rename_layer(self) -> None:
         lid = self._target_layer_id or self.model.layers[0]["id"]
@@ -1147,20 +907,17 @@ class DisplayEngine:
         if dpg.does_item_exist(LAYER_RENAME_MODAL):
             dpg.configure_item(LAYER_RENAME_MODAL, show=False)
         self.refresh_layer_bar()
-        self.refresh_hierarchy_panel()
 
     def _ui_remove_layer(self) -> None:
         lid = self._target_layer_id or self.model.layers[0]["id"]
         self.model.remove_layer(lid)
         self._target_layer_id = self.model.layers[0]["id"]
         self.refresh_layer_bar()
-        self.refresh_hierarchy_panel()
         self.redraw()
 
     def _ui_toggle_visible(self, sender, app_data, user_data) -> None:
         self.model.set_layer_visible(user_data, bool(app_data))
         self.redraw()
-        self.refresh_hierarchy_panel()
 
     def _ui_toggle_lock(self, sender, app_data, user_data) -> None:
         self.model.set_layer_locked(user_data, bool(app_data))
@@ -1169,203 +926,11 @@ class DisplayEngine:
         self._target_layer_id = user_data
         self.refresh_layer_bar()
 
-    # --- Terms panel ---
-
-    def refresh_terms_panel(self) -> None:
-        if dpg.does_item_exist(TERMS_PANEL_TAG):
-            dpg.delete_item(TERMS_PANEL_TAG)
-
-        vp_w = dpg.get_viewport_client_width() or 1280
-        vp_h = dpg.get_viewport_client_height() or 800
-        panel_w = 300
-        panel_h = max(180, int(vp_h * 0.38))
-        pos_x = max(220, vp_w - panel_w - 10)
-        pos_y = max(40, vp_h - panel_h - 10)
-
-        with dpg.window(
-            label="Terms",
-            tag=TERMS_PANEL_TAG,
-            pos=(pos_x, pos_y),
-            width=panel_w,
-            height=panel_h,
-            no_close=True,
-            no_collapse=False,
-        ):
-            dpg.add_text("Term / Definition", color=(90, 90, 95, 255))
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="+ Term", callback=self._ui_add_term)
-            dpg.add_separator()
-            with dpg.child_window(tag=TERMS_LIST_TAG, width=-1, height=-1, border=False):
-                if not self.model.terms:
-                    dpg.add_text("No terms yet.", color=(120, 120, 125, 255))
-                for index, entry in enumerate(self.model.terms):
-                    with dpg.group(horizontal=True):
-                        dpg.add_input_text(
-                            default_value=entry.get("term", ""),
-                            width=90,
-                            hint="term",
-                            user_data=("term", index),
-                            callback=self._ui_term_field_changed,
-                        )
-                        dpg.add_input_text(
-                            default_value=entry.get("definition", ""),
-                            width=150,
-                            hint="definition",
-                            user_data=("definition", index),
-                            callback=self._ui_term_field_changed,
-                        )
-                        dpg.add_button(
-                            label="X",
-                            width=24,
-                            user_data=index,
-                            callback=self._ui_remove_term,
-                        )
-                    dpg.add_spacer(height=4)
-
-    def _ui_add_term(self) -> None:
-        self.model.add_term("", "")
-        self.refresh_terms_panel()
-
-    def _ui_remove_term(self, sender, app_data, user_data) -> None:
-        self.model.remove_term(int(user_data))
-        self.refresh_terms_panel()
-
-    def _ui_term_field_changed(self, sender, app_data, user_data) -> None:
-        field, index = user_data
-        value = str(app_data)
-        if field == "term":
-            self.model.update_term(int(index), term=value)
-        else:
-            self.model.update_term(int(index), definition=value)
-
-    # --- Hierarchy panel (Unity-style nested tree) ---
-
-    def refresh_hierarchy_panel(self) -> None:
-        if dpg.does_item_exist(HIERARCHY_PANEL_TAG):
-            dpg.delete_item(HIERARCHY_PANEL_TAG)
-
-        vp_w = dpg.get_viewport_client_width() or 1280
-        vp_h = dpg.get_viewport_client_height() or 800
-        panel_w = 300
-        terms_h = max(180, int(vp_h * 0.38))
-        panel_h = max(200, vp_h - terms_h - 60)
-        pos_x = max(220, vp_w - panel_w - 10)
-
-        with dpg.window(
-            label="Hierarchy",
-            tag=HIERARCHY_PANEL_TAG,
-            pos=(pos_x, 40),
-            width=panel_w,
-            height=panel_h,
-            no_close=True,
-            no_collapse=False,
-        ):
-            dpg.add_text("Scene hierarchy", color=(90, 90, 95, 255))
-            dpg.add_separator()
-            with dpg.child_window(tag=HIERARCHY_LIST_TAG, width=-1, height=-1, border=False):
-                if not self.model.members and not self.model.layers:
-                    dpg.add_text("Empty canvas", color=(120, 120, 125, 255))
-                else:
-                    for layer in self.model.layers:
-                        self._draw_hierarchy_layer(layer)
-
-    def _bind_hierarchy_handlers(self, item_id, canvas_id: Optional[str], expand_key: str) -> None:
-        """Click selects a member; track open/closed so rebuilds keep expand state."""
-        with dpg.item_handler_registry() as reg:
-            dpg.add_item_toggled_open_handler(
-                callback=self._ui_hier_toggled,
-                user_data=expand_key,
-            )
-            if canvas_id is not None:
-                dpg.add_item_clicked_handler(
-                    button=dpg.mvMouseButton_Left,
-                    callback=self._ui_hierarchy_select,
-                    user_data=canvas_id,
-                )
-        dpg.bind_item_handler_registry(item_id, reg)
-
-    def _draw_hierarchy_layer(self, layer: dict) -> None:
-        lid = str(layer["id"])
-        expanded = self._hier_expanded.get(lid, True)
-        root_ids = self.model.root_member_ids(lid)
-        visible_label = str(layer.get("name", "Layer"))
-        if not layer.get("visible", True):
-            visible_label = f"{visible_label} (hidden)"
-
-        with dpg.tree_node(
-            label=visible_label,
-            default_open=expanded,
-            open_on_arrow=True,
-            span_text_width=True,
-        ) as layer_node:
-            self._bind_hierarchy_handlers(layer_node, canvas_id=None, expand_key=lid)
-            if not root_ids:
-                dpg.add_text("(empty)", color=(120, 120, 125, 255))
-            else:
-                seen: set[str] = set()
-                for cid in root_ids:
-                    self._draw_hierarchy_member(cid, seen=seen)
-
-    def _draw_hierarchy_member(
-        self, canvas_id: str, seen: Optional[set[str]] = None
-    ) -> None:
-        if seen is None:
-            seen = set()
-        if canvas_id in seen:
-            return
-        seen.add(canvas_id)
-
-        node = self.model.members.get(canvas_id)
-        if not node:
-            return
-
-        child_ids = [cid for cid in node.children if cid in self.model.members]
-        expanded = self._hier_expanded.get(canvas_id, True)
-        selected = canvas_id in self.selected_ids
-        type_name = getattr(node, "global_guid", "") or node.nickname
-        mark = "* " if selected else ""
-        label = f"{mark}{node.nickname}  ({type_name})"
-
-        with dpg.tree_node(
-            label=label,
-            default_open=expanded,
-            open_on_arrow=True,
-            leaf=not child_ids,
-            selectable=True,
-            span_text_width=True,
-        ) as item:
-            self._bind_hierarchy_handlers(item, canvas_id=canvas_id, expand_key=canvas_id)
-            for cid in child_ids:
-                self._draw_hierarchy_member(cid, seen=seen)
-
-    def _ui_hier_toggled(self, sender, app_data, user_data) -> None:
-        # app_data is True when opened
-        self._hier_expanded[str(user_data)] = bool(app_data)
-
-    def _ui_hierarchy_select(self, sender, app_data, user_data) -> None:
-        node = self.model.members.get(str(user_data))
-        if not node:
-            return
-        # Don't rebuild this panel from inside its own click callback
-        self.select(node, sync_hierarchy=False)
-
     def on_viewport_resize(self) -> None:
         vp_w = dpg.get_viewport_client_width() or 1280
         vp_h = dpg.get_viewport_client_height() or 800
         if dpg.does_item_exist(LAYER_BAR_TAG):
             dpg.set_item_pos(LAYER_BAR_TAG, [10, max(40, vp_h - 260)])
-        panel_w = 300
-        terms_h = max(180, int(vp_h * 0.38))
-        hier_h = max(200, vp_h - terms_h - 60)
-        pos_x = max(220, vp_w - panel_w - 10)
-        if dpg.does_item_exist(HIERARCHY_PANEL_TAG):
-            dpg.set_item_pos(HIERARCHY_PANEL_TAG, [pos_x, 40])
-            dpg.set_item_width(HIERARCHY_PANEL_TAG, panel_w)
-            dpg.set_item_height(HIERARCHY_PANEL_TAG, hier_h)
-        if dpg.does_item_exist(TERMS_PANEL_TAG):
-            dpg.set_item_pos(TERMS_PANEL_TAG, [pos_x, max(40, vp_h - terms_h - 10)])
-            dpg.set_item_width(TERMS_PANEL_TAG, panel_w)
-            dpg.set_item_height(TERMS_PANEL_TAG, terms_h)
         if dpg.does_item_exist(CANVAS_WINDOW):
             dpg.set_item_width(CANVAS_WINDOW, vp_w)
             dpg.set_item_height(CANVAS_WINDOW, vp_h)

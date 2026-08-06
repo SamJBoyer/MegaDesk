@@ -2,11 +2,9 @@
 
 MegaDesk is a Dear PyGui whiteboard host (package root: `src/`).
 
-- **Built-in ideation tools** (`nodes/sticky`, `nodes/container`) use the thick
-  `BaseNode` contract.
-- **MegaDesk productivity nodes** (TicketDispatcher, MergeManager, …) use the
-  thin `FeSpec` contract from the shared `megadesk` package and register via
-  `MegaDesk.nodes` entry points.
+Canvas members are **MegaDesk productivity nodes** (TicketDispatcher, MergeManager, …).
+They use the thin `FeSpec` contract from the shared `megadesk` package and register via
+`MegaDesk.nodes` entry points.
 
 Install everything into the same MegaDesk conda env.
 
@@ -20,7 +18,7 @@ pip install -e ../Nodes/MergeManager
 python main.py
 ```
 
-## MegaDesk.nodes (preferred for tools)
+## MegaDesk.nodes
 
 Each tool exposes `get_exec_spec(mode)` where `mode` is `"FE"` or `"BE"`:
 
@@ -47,7 +45,7 @@ my_tool = "my_tool.node:get_exec_spec"
 
 ### Canvas-hosted FE shell
 
-MegaDesk discovers FE specs at startup and shows them in Drop-in. Dropping a
+MegaDesk discovers FE specs at startup and shows them in **Catalog**. Dropping a
 tool onto the canvas places a MegaDesk member (`type: "megadesk"` + `node_name`
 in `canvas.json`) and opens its Dear PyGui UI as a **hosted content panel**:
 
@@ -89,41 +87,3 @@ backend process.
 its own `BeSpec` (`megadesk.ensure_supervisor_running`) because `launch_node`
 requires the commander to already be running. Install with
 `pip install -e ../Nodes/Supervisor[canvas]`.
-
-## Built-in BaseNode (sticky / container)
-
-Built-ins still subclass `BaseNode` and self-register under `nodes/`.
-
-```python
-from executive import BaseNode, register
-
-@register
-class MyToolNode(BaseNode):
-    nickname = "My Tool"
-    global_guid = "my_tool"
-    description = "What this tool does."
-
-    def draw(self, drawlist, world_to_screen, selected: bool = False) -> None:
-        ...
-```
-
-| Import | Purpose |
-| --- | --- |
-| `from executive import BaseNode` | Thick parent for built-in canvas objects |
-| `from executive import register` | Register a built-in type |
-
-Activation: `on_double_click` (or sticky text edit). You **must** implement
-`draw(...)`.
-
-## Legacy `executive.nodes`
-
-External `BaseNode` plugins via `[project.entry-points."executive.nodes"]` are
-still loaded for compatibility. Prefer `MegaDesk.nodes` + `FeSpec` for new tools.
-
-## Sample BaseNode tool (legacy)
-
-```bash
-pip install -e .
-pip install -e examples/sample_canvas_tool[canvas]
-python main.py
-```

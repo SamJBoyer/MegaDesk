@@ -1,4 +1,4 @@
-MegaDesk canvas — Dear PyGui whiteboard host for ideation and agent-factory GUIs.
+MegaDesk canvas — Dear PyGui whiteboard host for MegaDesk FE tools.
 
 Install and run from this directory:
 
@@ -8,4 +8,4 @@ pip install -e .
 python main.py
 ```
 
-See `docs/plugins.md` for plugin contracts (`MegaDesk.nodes` / `FeSpec`, built-in `BaseNode`).
+See `docs/plugins.md` for the plugin contract (`MegaDesk.nodes` / `FeSpec`).

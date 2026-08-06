@@ -20,4 +20,4 @@ canvas = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["megadesk*", "engine*", "nodes*", "executive*", "new_nodes*"]
+include = ["megadesk*", "engine*"]

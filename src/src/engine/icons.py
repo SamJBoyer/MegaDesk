@@ -1,23 +1,20 @@
-"""Node icon textures for the Drop-in panel.
+"""Icon textures for the Catalog panel.
 
-Every registered node type gets a Dear PyGui texture. If ``BaseNode.icon`` is
-empty or does not resolve to a loadable image file, a solid black square is used.
+Every catalog FE entry gets a Dear PyGui texture. If the icon path is empty
+or does not resolve to a loadable image file, a solid black square is used.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Type
 
 import dearpygui.dearpygui as dpg
-
-from engine.base_node import BaseNode
 
 logger = logging.getLogger(__name__)
 
 ICON_PX = 48
-_REGISTRY_TAG = "executive_icon_texture_registry"
-_DEFAULT_TAG = "executive_default_node_icon"
+_REGISTRY_TAG = "catalog_icon_texture_registry"
+_DEFAULT_TAG = "catalog_default_node_icon"
 _CACHE: dict[str, int | str] = {}
 
 
@@ -76,7 +73,7 @@ def get_icon_texture_for_path(path: str | None, *, tag_suffix: str) -> int | str
         )
         return _ensure_default_texture()
 
-    tag = f"executive_node_icon::{tag_suffix}"
+    tag = f"catalog_node_icon::{tag_suffix}"
     if dpg.does_item_exist(tag):
         dpg.delete_item(tag)
 
@@ -89,12 +86,3 @@ def get_icon_texture_for_path(path: str | None, *, tag_suffix: str) -> int | str
     )
     _CACHE[cache_key] = tag
     return tag
-
-
-def get_icon_texture(node_cls: Type[BaseNode]) -> int | str:
-    """Return a texture tag for ``node_cls`` (cached; falls back to black square)."""
-    path = node_cls.resolve_icon_path()
-    return get_icon_texture_for_path(
-        path,
-        tag_suffix=getattr(node_cls, "global_guid", node_cls.__name__),
-    )

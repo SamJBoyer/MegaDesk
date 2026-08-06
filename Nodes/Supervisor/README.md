@@ -35,7 +35,7 @@ rem or: supervisor
 
 1. `pip install -e .[canvas]` (and `../src` as above)
 2. Start MegaDesk (`python main.py` from `src/`)
-3. Drop-in sidebar → **supervisor** → place on canvas (BE starts on drop)
+3. Catalog sidebar → **supervisor** → place on canvas (BE starts on drop)
 4. Double-click the placard for launch / stop / KILLALL controls
 
 Or print FE instructions:
