@@ -1,13 +1,13 @@
 {
   "members": {
-    "f0779846-68e3-41ee-bfab-924bf8b1c961": {
-      "canvas_id": "f0779846-68e3-41ee-bfab-924bf8b1c961",
+    "4f4485ed-71e9-41bb-acfa-b5ddc4a28186": {
+      "canvas_id": "4f4485ed-71e9-41bb-acfa-b5ddc4a28186",
       "type": "megadesk",
       "nickname": "merge_manager",
       "node_name": "merge_manager",
       "position": [
-        -8365.028366588744,
-        -2665.281559979963
+        -7441.427801804612,
+        849.8214549614551
       ],
       "scale": [
         1.0,
@@ -22,80 +22,14 @@
         "gui_open": true
       }
     },
-    "6156b9cc-18fd-4658-afc3-81fef71d8a59": {
-      "canvas_id": "6156b9cc-18fd-4658-afc3-81fef71d8a59",
-      "type": "megadesk",
-      "nickname": "ticket_dispatcher",
-      "node_name": "ticket_dispatcher",
-      "position": [
-        -7798.45457068845,
-        1714.738347957404
-      ],
-      "scale": [
-        1.0,
-        1.0
-      ],
-      "parents": [],
-      "children": [],
-      "data": {
-        "width": 700.0,
-        "height": 520.0,
-        "node_name": "ticket_dispatcher",
-        "gui_open": true
-      }
-    },
-    "0ef0d778-3799-4fb2-8573-075282e0582d": {
-      "canvas_id": "0ef0d778-3799-4fb2-8573-075282e0582d",
-      "type": "megadesk",
-      "nickname": "supervisor",
-      "node_name": "supervisor",
-      "position": [
-        1218.8669999999993,
-        219.96699999999996
-      ],
-      "scale": [
-        1.0,
-        1.0
-      ],
-      "parents": [],
-      "children": [],
-      "data": {
-        "width": 849.0,
-        "height": 514.0,
-        "node_name": "supervisor",
-        "gui_open": true
-      }
-    },
-    "4d206a5f-2a02-4282-97f7-b3f1de80dede": {
-      "canvas_id": "4d206a5f-2a02-4282-97f7-b3f1de80dede",
-      "type": "megadesk",
-      "nickname": "merge_manager",
-      "node_name": "merge_manager",
-      "position": [
-        288.1999305618191,
-        833.453521459091
-      ],
-      "scale": [
-        1.0,
-        1.0
-      ],
-      "parents": [],
-      "children": [],
-      "data": {
-        "width": 960.0,
-        "height": 600.0,
-        "node_name": "merge_manager",
-        "gui_open": true
-      }
-    },
-    "e89ffe43-63a2-4de8-84c7-500613c0ea07": {
-      "canvas_id": "e89ffe43-63a2-4de8-84c7-500613c0ea07",
+    "3af8443a-ba4e-4831-bf5a-c91247d9544e": {
+      "canvas_id": "3af8443a-ba4e-4831-bf5a-c91247d9544e",
       "type": "megadesk",
       "nickname": "plant",
       "node_name": "plant",
       "position": [
-        1283.6298400000003,
-        811.870203
+        -6413.597321257905,
+        838.4080735359184
       ],
       "scale": [
         1.0,
@@ -104,20 +38,20 @@
       "parents": [],
       "children": [],
       "data": {
-        "width": 1287.0,
+        "width": 720.0,
         "height": 640.0,
         "node_name": "plant",
         "gui_open": true
       }
     },
-    "e06b8068-5e31-441e-8b65-262ba530f29a": {
-      "canvas_id": "e06b8068-5e31-441e-8b65-262ba530f29a",
+    "6c2203b4-1764-4eb2-8f97-e867ff13cd9b": {
+      "canvas_id": "6c2203b4-1764-4eb2-8f97-e867ff13cd9b",
       "type": "megadesk",
       "nickname": "ticket_dispatcher",
       "node_name": "ticket_dispatcher",
       "position": [
-        350.9,
-        199.90000000000006
+        -7417.909210294383,
+        1518.8400751928702
       ],
       "scale": [
         1.0,
@@ -129,6 +63,28 @@
         "width": 700.0,
         "height": 520.0,
         "node_name": "ticket_dispatcher",
+        "gui_open": true
+      }
+    },
+    "98dbb88e-d03c-45c4-bc8b-21faa2f7c485": {
+      "canvas_id": "98dbb88e-d03c-45c4-bc8b-21faa2f7c485",
+      "type": "megadesk",
+      "nickname": "supervisor",
+      "node_name": "supervisor",
+      "position": [
+        506.51142000000027,
+        264.21241999999995
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 520.0,
+        "height": 520.0,
+        "node_name": "supervisor",
         "gui_open": true
       }
     }
@@ -141,12 +97,10 @@
         "visible": true,
         "locked": false,
         "children": [
-          "f0779846-68e3-41ee-bfab-924bf8b1c961",
-          "6156b9cc-18fd-4658-afc3-81fef71d8a59",
-          "0ef0d778-3799-4fb2-8573-075282e0582d",
-          "4d206a5f-2a02-4282-97f7-b3f1de80dede",
-          "e89ffe43-63a2-4de8-84c7-500613c0ea07",
-          "e06b8068-5e31-441e-8b65-262ba530f29a"
+          "4f4485ed-71e9-41bb-acfa-b5ddc4a28186",
+          "3af8443a-ba4e-4831-bf5a-c91247d9544e",
+          "6c2203b4-1764-4eb2-8f97-e867ff13cd9b",
+          "98dbb88e-d03c-45c4-bc8b-21faa2f7c485"
         ]
       }
     ]

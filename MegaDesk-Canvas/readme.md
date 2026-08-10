@@ -9,5 +9,6 @@ pip install -e .
 python main.py
 ```
 
-See `docs/plugins.md` for the plugin contract (`MegaDesk.nodes` / `FeSpec`).
+See [`Docs/node_protocol.md`](../Docs/node_protocol.md) for the node protocol
+(`MegaDesk.nodes` / `FeSpec` / `BeSpec` / canvas hosting).
 Shared importable APIs live in the `megadesk-contracts` package (`MegaDesk-contracts/`).

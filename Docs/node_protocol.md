@@ -1,14 +1,17 @@
-# MegaDesk Nodes
+# MegaDesk node protocol
+
+Canonical reference for how Nodes are discovered, launched, hosted on the canvas, and torn down. Glossary: [`Docs/glossary.md`](glossary.md). Persistence shape of the board: [`MegaDesk-Canvas/docs/root.md`](../MegaDesk-Canvas/docs/root.md). Redis Supervisor streams: [`MegaDesk-contracts/redis/supervisor.md`](../MegaDesk-contracts/redis/supervisor.md).
 
 A **node** is a modular tool inside MegaDesk. Nodes can expose a front-end (FE), a back-end (BE), or both. Discovery and launch are driven by packaging entry points.
-
 
 | Half | What it is | Who uses it |
 |------|------------|-------------|
 | **FE** | Always Dear PyGui. Integrated into the MegaDesk canvas shell. | MegaDesk canvas (`MegaDesk-Canvas/`) via `get_exec_spec("FE")` → `FeSpec` |
 | **BE** | Long-lived process (argv + optional cwd). Managed as a subprocess. | Supervisor BE via `get_exec_spec("BE")` → `BeSpec` |
 
-Shared contract lives in the installable `megadesk-contracts` package (`MegaDesk-contracts/`): `FeSpec`, `BeSpec`, entry-point discovery, and the Supervisor Redis client.
+Shared contract lives in the installable `megadesk-contracts` package (`MegaDesk-contracts/`): `FeSpec`, `BeSpec`, entry-point discovery, `SupervisorClient`, `frame_pump`, and logging helpers.
+
+**Naming (MegaDesk vs legacy Executive):** MegaDesk uses `MegaDesk.nodes` + `FeSpec`/`BeSpec` + canvas host class `MegaDeskMember`. That is not the older Executive stack (`executive.nodes` / `BaseNode`).
 
 ---
 
@@ -75,18 +78,21 @@ Front-end description for MegaDesk canvas hosting:
 |-------|------|------|
 | `name` | `str` | Node nickname (palette / canvas / Redis launch) |
 | `description` | `str` | Short blurb for Catalog |
-| `icon` | `str \| None` | Path to an icon image, or `None` |
+| `icon` | `str \| None` | Path to an icon image, or `None` (Catalog uses a black square if empty/invalid) |
 | `default_width` | `int` | Initial window width |
 | `default_height` | `int` | Initial window height |
-| `build` | callable | Builds the Dear PyGui UI |
+| `build` | callable | Builds the Dear PyGui UI into the host content parent |
 
-`build` signature (convention):
+`build` signature:
 
-```text
-(parent, *, tag_prefix, width=…, height=…) -> None
+```python
+def build_ui(parent: str, *, tag_prefix: str, width: int, height: int) -> None:
+    ...
 ```
 
-Fills the host content parent only — no `dpg.window`, no standalone viewport.
+**Contract:** fill the host content parent only — no `dpg.window`, no standalone viewport. MegaDesk owns the shell (header, close, position, size). Store a cleanup callable on the content parent with `dpg.set_item_user_data(parent, close_fn)` so the host can shut the FE down when collapsing to a placard or deleting the member (the host may wrap that callable).
+
+FEs that need a per-frame drain should use `megadesk_contracts.frame_pump.register` / `unregister`.
 
 FE-only example pattern:
 
@@ -114,7 +120,7 @@ Back-end launch instruction for Supervisor:
 |-------|------|------|
 | `name` | `str` | Managed nickname (`LAUNCHREQUEST` `node_endpoint`) |
 | `argv` | `list[str]` | Full process argv |
-| `cwd` | `str \| None` | Working directory (often the node package root) |
+| `cwd` | `str \| None` | Working directory (defaults to `None`; often the node package root) |
 
 Launch contract (Supervisor owns capture):
 
@@ -160,24 +166,26 @@ Installed entry points are scanned via `importlib.metadata` group `MegaDesk.node
 |----------|---------|
 | `discover_frontends()` | `dict[str, FeSpec]` — every node that returns an `FeSpec` for `"FE"` |
 | `discover_backends()` | `dict[str, BeSpec]` — every node that returns a `BeSpec` for `"BE"` |
-| `load_exec_spec(name, mode)` | One entry point’s result for that mode |
-| `get_backend(name)` | `BeSpec \| None` by nickname |
+| `load_exec_spec(name, mode)` | One entry point’s result for that mode (matches **entry-point name**) |
+| `get_backend(name)` | `BeSpec \| None` by nickname (also resolves via discovery keys / `BeSpec.name`) |
 | `has_backend(name)` | Whether a BE exists for that name |
 
 Keys prefer `spec.name`, falling back to the entry-point name.
+
+Related public helpers (same package): `SupervisorClient`, `ensure_supervisor_running`, `SUPERVISOR_NODE_NAME` (`"supervisor"`), `configure_node_logging`, `frame_pump`.
 
 ---
 
 ## How the FE uses nodes (MegaDesk canvas)
 
-1. On startup, the canvas calls `discover_frontends()` (via `engine.megadesk_registry`) and fills the Catalog palette (`megadesk:<name>`).
+1. On startup, the canvas calls `discover_frontends()` (via `engine.megadesk_registry.discover_megadesk_frontends`) and fills the Catalog palette (`megadesk:<name>`). Icons come from `FeSpec.icon`.
 2. Dropping a node places a canvas member (`type: "megadesk"`, `node_name` in `canvas.json`) and builds the FE into a host-owned shell under `canvas_window` via `FeSpec.build`.
-3. Pan/zoom keeps the shell world-anchored; close leaves a placard; double-click reopens the GUI.
+3. Pan/zoom keeps the shell world-anchored; open shells size at `world * view_zoom`. Close leaves a placard; double-click reopens the GUI. Open/closed is restored from `canvas.json` (`data.gui_open`).
 4. If `has_backend(node_name)` is true after drop:
-   - **Supervisor exception:** `ensure_supervisor_running()` spawns the Supervisor `BeSpec` directly (`python -m backend`) and waits for `GBD:SUPERVISOR:ALIVE`. The BE cannot process `LAUNCHREQUEST` itself because it is not up yet.
-   - **Every other BE node:** `XADD LAUNCHREQUEST` with `node_endpoint` = node name (and `parameters=""`) so the Supervisor BE starts that node’s `BeSpec`.
+   - **Supervisor exception:** `ensure_supervisor_running()` spawns the Supervisor `BeSpec` directly (`python -m backend`) and waits for `GBD:SUPERVISOR:ALIVE` (default timeout 12s). The BE cannot process `LAUNCHREQUEST` itself because it is not up yet. Bootstrap logging uses `logs/supervisor/supervisor.log` (append); it does not use the per-instance `<uid>.log` / `MEGADESK_*` pattern.
+   - **Every other BE node:** only if Redis is reachable **and** Supervisor is already alive, the canvas `XADD`s `LAUNCHREQUEST` with `node_endpoint` = node name (and `parameters=""`). Otherwise the BE launch is skipped.
 
-Canvas-side install:
+Canvas-side install (also summarized in `MegaDesk-Canvas/readme.md`):
 
 ```bash
 conda activate <MegaDesk-env>
@@ -189,7 +197,37 @@ pip install -e Nodes/Supervisor[canvas] # FE + BE
 python main.py   # from MegaDesk-Canvas/
 ```
 
-New productivity tools use `MegaDesk.nodes` + `FeSpec`. See `MegaDesk-Canvas/docs/plugins.md`.
+### Hosted shell (`MegaDeskMember`)
+
+Geometry and chrome are canvas-owned; the FE fills the host content parent via `FeSpec.build`.
+
+| Owner | Responsibility |
+| --- | --- |
+| **Canvas** | Shell `child_window` (header, close, pos/size), selection ring, resize handles, world position, drag |
+| **FE `build()`** | Widgets inside the host content parent only — no `dpg.window`, no standalone viewport |
+
+The shell is one DPG subtree (header + content) under `canvas_window`. Closing via the header **x** leaves a placard (`data.gui_open = false`); double-click reopens (engine calls `open_megadesk_gui`).
+
+### Canvas member persistence
+
+Members are serialized into `canvas.json` (typically the repo-root file). Discriminator in JSON is **`type: "megadesk"`** (in-memory the host also keeps `global_guid = "megadesk"`).
+
+| Field | Role |
+| --- | --- |
+| `canvas_id` | Instance GUID |
+| `type` | Always `"megadesk"` |
+| `nickname` | Display name (from `FeSpec.name`) |
+| `node_name` | Discovery / FeSpec name |
+| `position` | World `(x, y)` |
+| `scale` | `[scale_x, scale_y]` — placard scale when the GUI is closed; open shells force scale to 1 and use `data.width` / `data.height` × zoom |
+| `parents` / `children` | Serialized empty lists (legacy member-graph shape; unused). Layer membership lives under `hierarchy.layers[].children`. |
+| `data` | FE payload: `width`, `height`, `gui_open`, `node_name`, … |
+
+`icon` and Catalog black-square fallback live on `FeSpec`, not on the member record.
+
+### Engine interaction (brief)
+
+`DisplayEngine` drives selection, drag, resize, and drawlist placards/handles on `MegaDeskMember`. Lifecycle methods the host may call include `on_select` / `on_deselect`, drag/resize hooks, `on_create` / `on_destroy`, `draw` / `draw_resize_handles`, and `open_window` / `close_window`. Several drag/resize/create hooks are currently no-ops on the member; node authors should not rely on subclassing them — implement behavior inside `FeSpec.build` instead.
 
 ---
 
@@ -198,6 +236,10 @@ New productivity tools use `MegaDesk.nodes` + `FeSpec`. See `MegaDesk-Canvas/doc
 1. The Supervisor BE refreshes backends with `discover_backends()` (excluding its own Supervisor `BeSpec` so it never `LAUNCHREQUEST`s itself).
 2. On `LAUNCHREQUEST`, it assigns a `unique_id`, resolves `get_backend(node_endpoint)`, redirects stdout/stderr to a log file, injects `MEGADESK_*` env, and writes `RUNNINGNODES:<unique_id>` (`status=running`, PID, `log_path`, …).
 3. A reaper marks natural exits as `status=exited`, publishes `NODEEXIT`, and keeps the hash until Stop. `KILLREQUEST` tears down (if needed) and `DEL`s the hash. See `MegaDesk-contracts/redis/supervisor.md`.
+
+Callers outside the canvas can use `megadesk_contracts.SupervisorClient` (`launch_node`, `kill_node`, `list_running`, `get_running`, `kill_all_running`, `redis_ok`, `backend_ok`).
+
+---
 
 ## Logging standard
 
