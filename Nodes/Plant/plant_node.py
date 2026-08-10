@@ -25,8 +25,8 @@ def get_exec_spec(mode: Mode) -> FeSpec | BeSpec | None:
             name=NODE_NAME,
             description="Plant Floor — WORKORDER queue, live sandboxes, Floor repos.",
             icon=icon,
-            default_width=720,
-            default_height=640,
+            default_width=520,
+            default_height=400,
             build=build_ui,
         )
     if mode == "BE":

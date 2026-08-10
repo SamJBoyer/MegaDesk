@@ -122,12 +122,15 @@ class TicketDispatcher:
         parent: str,
         *,
         tag_prefix: str,
-        width: int = 700,
-        height: int = 520,
+        width: int = 480,
+        height: int = 160,
     ) -> None:
         """Fill the host content parent with Ticket Dispatcher widgets."""
         self._root_tag = tag_prefix
-        _ = width, height
+        _ = width
+        # Compact chrome: URL + status ≈ 48px; list starts at ~2 rows and grows.
+        self._row_h = 26
+        self._scroll_max = max(self._row_h * 2, height - 48) if height else None
 
         theme_tag = self._tag("ticket_theme")
         if not dpg.does_item_exist(theme_tag):
@@ -137,41 +140,34 @@ class TicketDispatcher:
                     dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (190, 198, 210, 255))
                     dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (175, 185, 200, 255))
                     dpg.add_theme_color(dpg.mvThemeCol_Text, (30, 32, 38, 255))
-                    dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
-                    dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 10, 8)
+                    dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 3)
+                    dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 6, 3)
 
         with dpg.group(parent=parent):
-            dpg.add_text("Ticket Dispatcher")
-            dpg.add_spacer(height=6)
-
             with dpg.group(horizontal=True):
-                dpg.add_text("Git URL")
                 dpg.add_input_text(
                     tag=self._tag("git_url"),
-                    width=480,
+                    width=-20,
                     hint="https://github.com/owner/repo",
                     callback=self._on_url_changed,
                     on_enter=True,
                 )
-                with dpg.drawlist(width=22, height=22, tag=self._tag("conn_light_dl")):
+                with dpg.drawlist(width=16, height=16, tag=self._tag("conn_light_dl")):
                     dpg.draw_circle(
-                        (11, 11),
-                        8,
+                        (8, 8),
+                        6,
                         fill=COLOR_DIM,
                         color=COLOR_DIM,
                         tag=self._tag("conn_light"),
                     )
 
-            dpg.add_spacer(height=4)
             dpg.add_text(
                 "Idle", tag=self._tag("status_text"), color=(160, 160, 160)
             )
-            dpg.add_separator()
-            dpg.add_text("Agent-ready tickets")
             dpg.add_child_window(
                 tag=self._tag("ticket_scroll"),
                 width=-1,
-                height=-1,
+                height=self._row_h * 2,
                 border=True,
             )
 
@@ -334,6 +330,16 @@ class TicketDispatcher:
             elif kind == "ticket":
                 self._ensure_ticket_row(msg[1])
 
+    def _resize_ticket_scroll(self) -> None:
+        scroll = self._tag("ticket_scroll")
+        if not dpg.does_item_exist(scroll):
+            return
+        n = max(2, len(self._tickets))
+        h = n * self._row_h
+        if self._scroll_max is not None:
+            h = min(h, self._scroll_max)
+        dpg.configure_item(scroll, height=h)
+
     def _ensure_ticket_row(self, ticket: IssueTicket) -> None:
         if ticket.id in self._tickets:
             self._tickets[ticket.id] = ticket
@@ -346,18 +352,18 @@ class TicketDispatcher:
 
         model_tag = self._tag(f"ticket_model_{ticket.id}")
         with dpg.group(parent=scroll, horizontal=True, tag=row_tag):
-            with dpg.drawlist(width=22, height=22):
+            with dpg.drawlist(width=16, height=16):
                 dpg.draw_circle(
-                    (11, 11),
-                    8,
+                    (8, 8),
+                    6,
                     fill=COLOR_GREEN,
                     color=COLOR_GREEN,
                     tag=light_tag,
                 )
             btn = dpg.add_button(
                 label=ticket.name,
-                width=-220,
-                height=28,
+                width=-150,
+                height=22,
                 user_data=ticket.id,
                 callback=self._on_ticket_pressed,
             )
@@ -365,12 +371,12 @@ class TicketDispatcher:
             dpg.add_combo(
                 items=list(MODEL_OPTIONS),
                 default_value=DEFAULT_MODEL,
-                width=200,
+                width=140,
                 height_mode=dpg.mvComboHeight_Small,
                 tag=model_tag,
             )
 
-        dpg.add_spacer(parent=scroll, height=4)
+        self._resize_ticket_scroll()
 
     def _on_ticket_pressed(self, sender, app_data, user_data: int) -> None:
         issue_id = user_data
@@ -440,8 +446,8 @@ def build_ui(
     parent: str,
     *,
     tag_prefix: str,
-    width: int = 700,
-    height: int = 520,
+    width: int = 480,
+    height: int = 160,
 ) -> None:
     """Module-level builder for FeSpec / MegaDesk canvas hosting."""
     TicketDispatcher().build_ui(

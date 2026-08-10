@@ -177,7 +177,7 @@ class MergeManager:
             dpg.set_value(dismissal_tag, label)
             dpg.configure_item(dismissal_button, show=True, enabled=True)
         else:
-            dpg.set_value(dismissal_tag, "dismissal tag")
+            dpg.set_value(dismissal_tag, "")
             dpg.configure_item(dismissal_button, show=True, enabled=False)
 
     def _ensure_group(self, stream_key: str) -> None:
@@ -315,19 +315,19 @@ class MergeManager:
         with dpg.table_row(parent=table, tag=row_tag):
             dpg.add_button(
                 label="testme",
-                width=70,
+                width=55,
                 callback=self._on_testme,
                 user_data=key,
             )
             dpg.add_button(
                 label="vscode",
-                width=70,
+                width=55,
                 callback=self._on_vscode,
                 user_data=key,
             )
             dpg.add_button(
                 label="cursor",
-                width=70,
+                width=55,
                 callback=self._on_cursor,
                 user_data=key,
             )
@@ -335,14 +335,14 @@ class MergeManager:
             with dpg.group(horizontal=True, tag=self._tag(f"actions::{key}")):
                 dpg.add_button(
                     label="merge",
-                    width=80,
+                    width=55,
                     tag=self._tag(f"merge::{key}"),
                     callback=self._on_merge,
                     user_data=key,
                 )
                 dpg.add_button(
-                    label="hard-reset agents",
-                    width=140,
+                    label="hard-reset",
+                    width=85,
                     tag=self._tag(f"reset::{key}"),
                     callback=self._on_hard_reset,
                     user_data=key,
@@ -350,7 +350,7 @@ class MergeManager:
                 )
                 dpg.add_button(
                     label="dismiss",
-                    width=80,
+                    width=60,
                     tag=self._tag(f"dismiss::{key}"),
                     callback=self._on_dismiss_row,
                     user_data=key,
@@ -540,8 +540,8 @@ class MergeManager:
         parent: str,
         *,
         tag_prefix: str,
-        width: int = 960,
-        height: int = 600,
+        width: int = 640,
+        height: int = 220,
     ) -> None:
         """Fill the host content parent with MergeManager widgets."""
         self._root_tag = tag_prefix
@@ -550,49 +550,38 @@ class MergeManager:
         with dpg.group(parent=parent):
             with dpg.group(horizontal=True):
                 dpg.add_text("", tag=self._tag("status_text"), color=COLOR_DIM)
-                dpg.add_spacer(width=20)
+                dpg.add_spacer(width=8)
                 dpg.add_text(
-                    "dismissal tag",
+                    "",
                     tag=self._tag("dismissal_tag"),
                     color=COLOR_DIM,
                 )
                 dpg.add_button(
                     label="Dismiss",
+                    width=60,
                     tag=self._tag("dismissal_button"),
                     callback=lambda: self._on_dismiss_header(),
                     enabled=False,
                 )
 
-            dpg.add_spacer(height=6)
+            dpg.add_spacer(height=2)
 
             with dpg.table(
                 tag=self._tag("ticket_table"),
-                header_row=True,
+                header_row=False,
                 borders_innerH=True,
                 borders_outerH=True,
-                borders_innerV=True,
+                borders_innerV=False,
                 borders_outerV=True,
                 resizable=True,
                 policy=dpg.mvTable_SizingStretchProp,
                 row_background=True,
             ):
-                dpg.add_table_column(label="testme", init_width_or_weight=0.1)
-                dpg.add_table_column(label="vscode", init_width_or_weight=0.1)
-                dpg.add_table_column(label="cursor", init_width_or_weight=0.1)
-                dpg.add_table_column(label="issue name", init_width_or_weight=0.5)
-                dpg.add_table_column(label="merge", init_width_or_weight=0.2)
-
-            dpg.add_spacer(height=8)
-            with dpg.child_window(
-                tag=self._tag("detail_pane"), height=-1, border=True
-            ):
-                dpg.add_text(
-                    "Finished tickets appear above. "
-                    "Merge attempts follow: success → dismiss; "
-                    "conflicts → WORKORDER; dirty agents → hard-reset.",
-                    wrap=900,
-                    color=COLOR_DIM,
-                )
+                dpg.add_table_column(init_width_or_weight=0.12)
+                dpg.add_table_column(init_width_or_weight=0.12)
+                dpg.add_table_column(init_width_or_weight=0.12)
+                dpg.add_table_column(init_width_or_weight=0.44)
+                dpg.add_table_column(init_width_or_weight=0.20)
 
         dpg.set_item_user_data(parent, self.shutdown)
         self._start_services()
@@ -639,8 +628,8 @@ def build_ui(
     parent: str,
     *,
     tag_prefix: str,
-    width: int = 960,
-    height: int = 600,
+    width: int = 640,
+    height: int = 220,
 ) -> None:
     """Module-level builder for FeSpec / MegaDesk canvas hosting."""
     MergeManager().build_ui(

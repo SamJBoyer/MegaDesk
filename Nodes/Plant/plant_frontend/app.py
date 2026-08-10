@@ -387,109 +387,96 @@ class PlantFloor:
                 f"new_wt: {w.new_wt}\n"
                 f"model: {w.model}"
             )
-        return "Select a live harness or Floor repo for details."
+        return ""
 
     def build_ui(
         self,
         parent: str,
         *,
         tag_prefix: str,
-        width: int = 720,
-        height: int = 640,
+        width: int = 520,
+        height: int = 400,
     ) -> None:
         """Fill the host content parent with Plant Floor widgets."""
         self._root_tag = tag_prefix
         _ = width, height
+        col_w = 250
 
         with dpg.group(parent=parent):
-            dpg.add_text("Plant Floor")
-            dpg.add_spacer(height=4)
-
             with dpg.group(horizontal=True):
-                dpg.add_text("Redis:")
+                dpg.add_text("R")
                 dpg.add_text("*", tag=self._tag("redis_dot"), color=COLOR_ERR)
-                dpg.add_spacer(width=12)
-                dpg.add_text("Docker:")
+                dpg.add_spacer(width=6)
+                dpg.add_text("D")
                 dpg.add_text("*", tag=self._tag("docker_dot"), color=COLOR_ERR)
-                dpg.add_spacer(width=10)
-                dpg.add_text("", tag=self._tag("status_lbl"), wrap=360, color=COLOR_DIM)
-
-            with dpg.group(horizontal=True):
-                dpg.add_text("Floor", color=COLOR_MUTED)
-                dpg.add_text("", tag=self._tag("floor_path"), color=COLOR_MUTED, wrap=520)
-
-            with dpg.group(horizontal=True):
+                dpg.add_spacer(width=8)
+                dpg.add_text("", tag=self._tag("status_lbl"), wrap=280, color=COLOR_DIM)
+                dpg.add_spacer(width=6)
                 dpg.add_button(
                     label="Refresh",
-                    width=80,
+                    width=58,
                     callback=lambda: self._on_refresh(),
                 )
                 dpg.add_button(
-                    label="Open Floor",
-                    width=90,
+                    label="Open",
+                    width=44,
                     callback=lambda: self._on_open_floor(),
                 )
                 dpg.add_button(
-                    label="Clear log",
-                    width=80,
+                    label="Clear",
+                    width=48,
                     callback=lambda: self._on_clear_log(),
                 )
 
-            dpg.add_separator()
+            dpg.add_text("", tag=self._tag("floor_path"), color=COLOR_MUTED, wrap=480)
 
             with dpg.group(horizontal=True):
-                with dpg.child_window(width=360, height=280, border=True):
-                    dpg.add_text("WORKORDER (recent)", color=COLOR_DIM)
+                with dpg.group():
+                    dpg.add_text("Queue", color=COLOR_DIM)
                     dpg.add_listbox(
                         items=["(loading…)"],
                         tag=self._tag("queue_list"),
-                        num_items=10,
-                        width=-1,
+                        num_items=2,
+                        width=col_w,
                         callback=self._on_queue_select,
                     )
-
-                with dpg.child_window(width=-1, height=280, border=True):
-                    dpg.add_text("LIVEHARNESS", color=COLOR_DIM)
+                with dpg.group():
+                    dpg.add_text("Live", color=COLOR_DIM)
                     dpg.add_listbox(
                         items=["(loading…)"],
                         tag=self._tag("live_list"),
-                        num_items=10,
+                        num_items=2,
                         width=-1,
                         callback=self._on_live_select,
                     )
 
             with dpg.group(horizontal=True):
-                with dpg.child_window(width=360, height=160, border=True):
-                    dpg.add_text("Floor repos", color=COLOR_DIM)
+                with dpg.group():
+                    dpg.add_text("Floor", color=COLOR_DIM)
                     dpg.add_listbox(
                         items=["(loading…)"],
                         tag=self._tag("floor_list"),
-                        num_items=5,
-                        width=-1,
+                        num_items=2,
+                        width=col_w,
                         callback=self._on_floor_select,
                     )
-
-                with dpg.child_window(width=-1, height=160, border=True):
-                    dpg.add_text("Docker sandboxes (pm-*)", color=COLOR_DIM)
+                with dpg.group():
+                    dpg.add_text("Docker", color=COLOR_DIM)
                     dpg.add_listbox(
                         items=["(loading…)"],
                         tag=self._tag("docker_list"),
-                        num_items=5,
+                        num_items=2,
                         width=-1,
                     )
 
-            dpg.add_separator()
-            dpg.add_text("Detail", color=COLOR_DIM)
             dpg.add_input_text(
                 tag=self._tag("detail"),
                 default_value="",
                 multiline=True,
                 readonly=True,
                 width=-1,
-                height=90,
+                height=52,
             )
-
-            dpg.add_text("Log", color=COLOR_DIM)
             dpg.add_input_text(
                 tag=self._tag("log"),
                 default_value="",
@@ -592,8 +579,8 @@ def build_ui(
     parent: str,
     *,
     tag_prefix: str,
-    width: int = 720,
-    height: int = 640,
+    width: int = 520,
+    height: int = 400,
 ) -> None:
     """Module-level builder for FeSpec / MegaDesk canvas hosting."""
     PlantFloor().build_ui(

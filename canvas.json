@@ -1,13 +1,13 @@
 {
   "members": {
-    "4f4485ed-71e9-41bb-acfa-b5ddc4a28186": {
-      "canvas_id": "4f4485ed-71e9-41bb-acfa-b5ddc4a28186",
+    "4976bbe8-9b08-46bf-8554-254a49b3c125": {
+      "canvas_id": "4976bbe8-9b08-46bf-8554-254a49b3c125",
       "type": "megadesk",
       "nickname": "merge_manager",
       "node_name": "merge_manager",
       "position": [
-        18.0,
-        40.0
+        1010.0,
+        473.0
       ],
       "scale": [
         1.0,
@@ -16,20 +16,20 @@
       "parents": [],
       "children": [],
       "data": {
-        "width": 960.0,
-        "height": 600.0,
+        "width": 640.0,
+        "height": 220.0,
         "node_name": "merge_manager",
         "gui_open": true
       }
     },
-    "3af8443a-ba4e-4831-bf5a-c91247d9544e": {
-      "canvas_id": "3af8443a-ba4e-4831-bf5a-c91247d9544e",
+    "436c3435-d575-47b4-8efc-bb1b32a20760": {
+      "canvas_id": "436c3435-d575-47b4-8efc-bb1b32a20760",
       "type": "megadesk",
       "nickname": "plant",
       "node_name": "plant",
       "position": [
-        1040.0,
-        40.0
+        1117.0,
+        -45.0
       ],
       "scale": [
         1.0,
@@ -38,20 +38,20 @@
       "parents": [],
       "children": [],
       "data": {
-        "width": 720.0,
-        "height": 640.0,
+        "width": 520.0,
+        "height": 400.0,
         "node_name": "plant",
         "gui_open": true
       }
     },
-    "6c2203b4-1764-4eb2-8f97-e867ff13cd9b": {
-      "canvas_id": "6c2203b4-1764-4eb2-8f97-e867ff13cd9b",
+    "f60829b6-d591-4a8c-ab72-7bf494eb7928": {
+      "canvas_id": "f60829b6-d591-4a8c-ab72-7bf494eb7928",
       "type": "megadesk",
       "nickname": "ticket_dispatcher",
       "node_name": "ticket_dispatcher",
       "position": [
-        119.0,
-        707.0
+        565.0,
+        338.0
       ],
       "scale": [
         1.0,
@@ -60,8 +60,8 @@
       "parents": [],
       "children": [],
       "data": {
-        "width": 700.0,
-        "height": 520.0,
+        "width": 480.0,
+        "height": 160.0,
         "node_name": "ticket_dispatcher",
         "gui_open": true
       }

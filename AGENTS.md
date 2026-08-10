@@ -23,3 +23,27 @@ We use different REDIS database for different levels of persistence. DB 0 is ter
 - **GBD:SUPERVISOR:SINGLETON** — one-BE lock
 - **GBD:SUPERVISOR:ALIVE** — heartbeat (TTL ~5s)
 - **RUNNINGNODES:<unique_id>** — hash registry (`status`, PID, `log_path`, …)
+
+---
+
+When designing the GUIs pay attention to these constraints:
+	
+This GUIS are going to combined on a master canvas which will have many other GUIS.
+Because of this, you must be conservative with the amount of space you use. 
+
+<DO-NOT>
+- add verbose text to the GUIS that explain the functions, this is a waste of space. 
+- double-add titles as this is a waste of space. 
+- add any new features not explicitly requested
+- preallocate more than 2 spaces in scrollboxes and lists that will populate with elements. 
+</DO-NOT>
+
+<DO>
+- Prefer sleek and simplistic GUIS
+- Prefer compact style with thin margins 
+- Allocate space to fill scrollboxes and lists with items AS they populate
+</DO>
+
+
+
+
