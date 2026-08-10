@@ -11,16 +11,15 @@ point. `get_exec_spec("FE")` / `get_exec_spec("BE")` keep them separate:
 | `BE` | Supervisor subprocess (`python -m backend`) |
 
 Dropping **supervisor** on the MegaDesk canvas bootstraps the Supervisor BE
-automatically (see `megadesk.ensure_supervisor_running`). The BE never
+automatically (see `megadesk_contracts.ensure_supervisor_running`). The BE never
 manages its own BeSpec via `LAUNCHREQUEST`.
 
 ## Setup
 
 ```bat
 conda activate <MegaDesk-env>
-pip install -e ../src
-pip install -e .
-pip install -e .[canvas]
+pip install -e ../../MegaDesk-contracts
+pip install -e ".[canvas]"
 ```
 
 ## Run BE only
@@ -33,8 +32,8 @@ rem or: supervisor
 
 ## Run with MegaDesk canvas
 
-1. `pip install -e .[canvas]` (and `../src` as above)
-2. Start MegaDesk (`python main.py` from `src/`)
+1. `pip install -e .[canvas]` (and MegaDesk-contracts as above)
+2. Start MegaDesk (`python main.py` from `MegaDesk-Canvas/`)
 3. Catalog sidebar → **supervisor** → place on canvas (BE starts on drop)
 4. Double-click the placard for Catalog Send / Running Stop controls
 
@@ -61,7 +60,7 @@ python -m backend.smoke_test
 
 ## Redis control plane
 
-See `contracts/redis/supervisor.md`:
+See `MegaDesk-contracts/redis/supervisor.md`:
 
 - `LAUNCHREQUEST` stream — launch a discovered BE (`node_endpoint`, `parameters`)
 - `KILLREQUEST` stream — stop one instance (`node_endpoint`, `unique_id`)

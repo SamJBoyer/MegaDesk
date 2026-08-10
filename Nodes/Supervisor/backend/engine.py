@@ -10,7 +10,7 @@ from typing import Optional
 
 import redis
 
-from megadesk import SUPERVISOR_NODE_NAME, BeSpec, discover_backends, get_backend
+from megadesk_contracts import SUPERVISOR_NODE_NAME, BeSpec, discover_backends, get_backend
 
 from backend.process_registry import ProcessRegistry, launch_spec
 from backend.redis_provision import NODEEXIT_STREAM, running_nodes_key
@@ -39,7 +39,7 @@ class ExecutionEngine:
         self.discover_backends()
 
     def discover_backends(self) -> dict[str, BeSpec]:
-        """Refresh the in-memory map of name → BeSpec from MegaDesk.nodes.
+        """Refresh the in-memory map of name → BeSpec from megadesk_contracts.nodes.
 
         Excludes the Supervisor BeSpec itself — the BE must not launch
         another supervisor via ``LAUNCHREQUEST``.

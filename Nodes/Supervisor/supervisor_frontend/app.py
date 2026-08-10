@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 import dearpygui.dearpygui as dpg
-from megadesk import discover_backends, ensure_supervisor_running, frame_pump
+from megadesk_contracts import discover_backends, ensure_supervisor_running, frame_pump
 
 from backend.client import SupervisorStreamClient
 

@@ -1,6 +1,6 @@
 """MegaDesk.nodes entry point for Plant (FE + BE).
 
-FE: Dear PyGui Plant Floor monitor (requires ``pip install -e .[canvas]``).
+FE: Dear PyGui Plant Floor monitor (requires ``[canvas]``).
 BE: PlantManager WORKORDER poller / Docker sandbox host.
 """
 
@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from megadesk import BeSpec, FeSpec, Mode
+from megadesk_contracts import BeSpec, FeSpec, Mode
 
 _PLANT_ROOT = Path(__file__).resolve().parent
 NODE_NAME = "plant"

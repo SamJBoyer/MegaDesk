@@ -15,7 +15,7 @@ from typing import Optional
 
 import dearpygui.dearpygui as dpg
 import redis
-from megadesk import frame_pump
+from megadesk_contracts import frame_pump
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
 from redis.exceptions import ResponseError

@@ -72,7 +72,7 @@ Log path convention: `Nodes/Supervisor/logs/<node_endpoint>/<unique_id>.log`
 4. `HSET RUNNINGNODES:<unique_id>` with identity, PID, `status=running`, `log_path`, `launched_at`
 
 The Supervisor BeSpec itself is never launched via this stream (bootstrap uses
-`megadesk.ensure_supervisor_running()`).
+`megadesk_contracts.ensure_supervisor_running()`).
 
 ### Example
 
@@ -199,7 +199,7 @@ shutdown.
 
 **Supervisor bootstrap:** dropping the `supervisor` FE does **not** use
 `LAUNCHREQUEST` (the BE is not up yet). MegaDesk / the FE call
-`megadesk.ensure_supervisor_running()`, which spawns the Supervisor `BeSpec`
+`megadesk_contracts.ensure_supervisor_running()`, which spawns the Supervisor `BeSpec`
 (`python -m backend`) directly and waits for `GBD:SUPERVISOR:ALIVE`.
 
 ---

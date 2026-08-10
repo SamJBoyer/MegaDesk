@@ -3,21 +3,16 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "megadesk"
+name = "megadesk-contracts"
 version = "0.1.0"
-description = "MegaDesk canvas host, node exec-spec contract, and discovery"
-readme = "docs/plugins.md"
+description = "MegaDesk shared node contract: FeSpec / BeSpec, discovery, Supervisor client, frame pump"
+readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "dearpygui>=2.0",
     "redis>=5.0.0",
 ]
 
-[project.optional-dependencies]
-canvas = [
-    "dearpygui>=2.0",
-]
-
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["megadesk*", "engine*"]
+include = ["megadesk_contracts*"]

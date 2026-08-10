@@ -9,11 +9,11 @@ description = "MegaDesk Supervisor: process lifecycle manager (BE) + operator pa
 requires-python = ">=3.10"
 dependencies = [
     "redis>=5.0.0",
-    "megadesk",
+    "megadesk-contracts",
 ]
 
 [project.optional-dependencies]
-# Install megadesk (`pip install -e ../src`) + dearpygui into the MegaDesk env, then:
+# Install megadesk-contracts (`pip install -e ../../MegaDesk-contracts`) + dearpygui into the MegaDesk env, then:
 #   pip install -e .[canvas]
 canvas = [
     "dearpygui>=2.0",

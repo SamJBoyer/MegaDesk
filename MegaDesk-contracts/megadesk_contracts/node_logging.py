@@ -20,7 +20,7 @@ def configure_node_logging(name: Optional[str] = None) -> logging.Logger:
 
     Returns a logger named after ``MEGADESK_NODE`` or ``name``.
     """
-    node = (name or os.environ.get(ENV_NODE) or "megadesk.node").strip() or "megadesk.node"
+    node = (name or os.environ.get(ENV_NODE) or "megadesk_contracts.node").strip() or "megadesk_contracts.node"
     unique_id = (os.environ.get(ENV_UNIQUE_ID) or "").strip()
     log_path = (os.environ.get(ENV_LOG_PATH) or "").strip()
 

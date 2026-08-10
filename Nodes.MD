@@ -5,10 +5,10 @@ A **node** is a modular tool inside MegaDesk. Nodes can expose a front-end (FE),
 
 | Half | What it is | Who uses it |
 |------|------------|-------------|
-| **FE** | Always Dear PyGui. Integrated into the MegaDesk canvas shell. | MegaDesk canvas (`src/`) via `get_exec_spec("FE")` → `FeSpec` |
+| **FE** | Always Dear PyGui. Integrated into the MegaDesk canvas shell. | MegaDesk canvas (`MegaDesk-Canvas/`) via `get_exec_spec("FE")` → `FeSpec` |
 | **BE** | Long-lived process (argv + optional cwd). Managed as a subprocess. | Supervisor BE via `get_exec_spec("BE")` → `BeSpec` |
 
-Shared contract lives in the installable `megadesk` package (shipped under `src/`): `FeSpec`, `BeSpec`, entry-point discovery, and the Supervisor Redis client.
+Shared contract lives in the installable `megadesk-contracts` package (`MegaDesk-contracts/`): `FeSpec`, `BeSpec`, entry-point discovery, and the Supervisor Redis client.
 
 ---
 
@@ -28,7 +28,7 @@ Nodes/<Name>/
 
 1. Nodes **must** ship a `pyproject.toml` with a `[project.entry-points."MegaDesk.nodes"]` entry.
 2. Nodes are always installed into the **MegaDesk conda env** (`pip install -e Nodes/<Name>`). Undiscoverable packages are invisible to FE and BE.
-3. Depend on `megadesk` so the node can import `FeSpec` / `BeSpec` / `Mode`.
+3. Depend on `megadesk-contracts` so the node can import `FeSpec` / `BeSpec` / `Mode`.
 4. FE-only, BE-only, and FE+BE are all valid. Return `None` for the mode you do not support.
 5. `get_exec_spec` must return a ready-to-use launch description — the caller should not need extra setup beyond what the installed package already provides.
 
@@ -91,7 +91,7 @@ Fills the host content parent only — no `dpg.window`, no standalone viewport.
 FE-only example pattern:
 
 ```python
-from megadesk import FeSpec, Mode
+from megadesk_contracts import FeSpec, Mode
 
 def get_exec_spec(mode: Mode):
     if mode == "FE":
@@ -129,14 +129,14 @@ subprocess.Popen(
 ```
 
 BE processes should write diagnostics to stdout/stderr (or call
-`megadesk.configure_node_logging()` at startup). Supervisor merges both streams
+`megadesk_contracts.configure_node_logging()` at startup). Supervisor merges both streams
 into the per-instance log file and records `log_path` / exit metadata on
 `RUNNINGNODES:<unique_id>`.
 
 BE-only example pattern:
 
 ```python
-from megadesk import BeSpec, Mode
+from megadesk_contracts import BeSpec, Mode
 
 def get_exec_spec(mode: Mode):
     if mode == "BE":
@@ -152,7 +152,7 @@ FE+BE example: return `FeSpec` for `"FE"` and `BeSpec` for `"BE"` from the same 
 
 ---
 
-## Discovery API (`megadesk`)
+## Discovery API (`megadesk_contracts`)
 
 Installed entry points are scanned via `importlib.metadata` group `MegaDesk.nodes`.
 
@@ -181,14 +181,15 @@ Canvas-side install:
 
 ```bash
 conda activate <MegaDesk-env>
-pip install -e src
+pip install -e MegaDesk-contracts
+pip install -e MegaDesk-Canvas
 pip install -e Nodes/TicketDispatcher   # FE example
 pip install -e Nodes/MergeManager       # FE example
 pip install -e Nodes/Supervisor[canvas] # FE + BE
-python main.py   # from src/
+python main.py   # from MegaDesk-Canvas/
 ```
 
-New productivity tools use `MegaDesk.nodes` + `FeSpec`. See `src/docs/plugins.md`.
+New productivity tools use `MegaDesk.nodes` + `FeSpec`. See `MegaDesk-Canvas/docs/plugins.md`.
 
 ---
 
@@ -196,13 +197,13 @@ New productivity tools use `MegaDesk.nodes` + `FeSpec`. See `src/docs/plugins.md
 
 1. The Supervisor BE refreshes backends with `discover_backends()` (excluding its own Supervisor `BeSpec` so it never `LAUNCHREQUEST`s itself).
 2. On `LAUNCHREQUEST`, it assigns a `unique_id`, resolves `get_backend(node_endpoint)`, redirects stdout/stderr to a log file, injects `MEGADESK_*` env, and writes `RUNNINGNODES:<unique_id>` (`status=running`, PID, `log_path`, …).
-3. A reaper marks natural exits as `status=exited`, publishes `NODEEXIT`, and keeps the hash until Stop. `KILLREQUEST` tears down (if needed) and `DEL`s the hash. See `contracts/redis/supervisor.md`.
+3. A reaper marks natural exits as `status=exited`, publishes `NODEEXIT`, and keeps the hash until Stop. `KILLREQUEST` tears down (if needed) and `DEL`s the hash. See `MegaDesk-contracts/redis/supervisor.md`.
 
 ## Logging standard
 
 | Half | Where diagnostics go |
 |------|----------------------|
-| **BE** | stdout/stderr → Supervisor file `logs/<endpoint>/<unique_id>.log`; prefer `megadesk.configure_node_logging()` |
+| **BE** | stdout/stderr → Supervisor file `logs/<endpoint>/<unique_id>.log`; prefer `megadesk_contracts.configure_node_logging()` |
 | **FE** | Module logger (`logging.getLogger(…)`). Canvas host reports uncaught `FeSpec.build` / BE-launch failures instead of swallowing them silently. |
 
 Do **not** put log line bodies on Redis streams.
@@ -217,7 +218,7 @@ Typical Redis path after an FE drop that also has a BE:
 
 ## Minimal checklist for a new node
 
-1. Create `Nodes/<Name>/` with `pyproject.toml` depending on `megadesk`.
+1. Create `Nodes/<Name>/` with `pyproject.toml` depending on `megadesk-contracts`.
 2. Add `<name>_node.py` with `get_exec_spec(mode)` returning `FeSpec` and/or `BeSpec`.
 3. Register `[project.entry-points."MegaDesk.nodes"]`.
 4. `pip install -e Nodes/<Name>` (add `[canvas]` / Dear PyGui if the node has an FE).

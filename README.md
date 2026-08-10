@@ -11,7 +11,7 @@ Sadly, Lucid's MCP tool is pretty bad which makes it so the visual language of t
 
 
 Individual modules:
-- MegaDesk canvas (`src/`): endless Dear PyGui canvas. Discovers FE nodes from `MegaDesk.nodes` via `get_exec_spec("FE")`. Dropping a node that also has a BE pings Supervisor over Redis (Supervisor itself is bootstrapped from its BeSpec). Install with `pip install -e src`.
+- MegaDesk canvas (`MegaDesk-Canvas/`): endless Dear PyGui canvas. Discovers FE nodes from `MegaDesk.nodes` via `get_exec_spec("FE")`. Dropping a node that also has a BE pings Supervisor over Redis (Supervisor itself is bootstrapped from its BeSpec). Install with `pip install -e MegaDesk-Canvas` (after `pip install -e MegaDesk-contracts`).
 
 - Nodes (`Nodes/`): productivity nodes installed via `pip install -e Nodes/<name>` (or `.[canvas]` where noted).
   - Supervisor: FE + BE node — process lifecycle manager (`LAUNCHREQUEST` / `KILLREQUEST` / `RUNNINGNODES`) plus canvas operator panel.
@@ -19,4 +19,4 @@ Individual modules:
   - MergeManager: FE-only Dear PyGui tool that merges finished worktrees into the agents branch.
   - TicketDispatcher: FE-only Dear PyGui tool that lists `agent-ready` GitHub issues and publishes WORKORDERs.
 
-Shared contract: installable `megadesk` package in `src/` (`FeSpec` / `BeSpec`, entry-point discovery, Supervisor client, canvas host).
+Shared contract: installable `megadesk-contracts` package in `MegaDesk-contracts/` (`FeSpec` / `BeSpec`, entry-point discovery, Supervisor client). Redis IPC docs live alongside it.

@@ -113,7 +113,7 @@ def ensure_supervisor_running(
     if client.backend_ok():
         return True
 
-    from megadesk.discovery import get_backend
+    from megadesk_contracts.discovery import get_backend
 
     spec = get_backend(SUPERVISOR_NODE_NAME)
     if spec is None:

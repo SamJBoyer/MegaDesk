@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, TextIO
 
-from megadesk import BeSpec
+from megadesk_contracts import BeSpec
 
 # Nodes/Supervisor — package root that owns logs/
 SUPERVISOR_ROOT = Path(__file__).resolve().parent.parent

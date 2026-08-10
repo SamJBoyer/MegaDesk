@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from megadesk import BeSpec, FeSpec, Mode
+from megadesk_contracts import BeSpec, FeSpec, Mode
 
 from ticket_dispatcher_app import build_ui
 

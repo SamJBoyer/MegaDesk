@@ -10,7 +10,7 @@ import signal
 import sys
 import time
 
-from megadesk import configure_node_logging
+from megadesk_contracts import configure_node_logging
 
 from backend.engine import ExecutionEngine
 from backend.redis_provision import clear_supervisor_alive, provision_redis

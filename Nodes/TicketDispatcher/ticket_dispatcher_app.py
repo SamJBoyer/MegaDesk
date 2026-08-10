@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 
 import dearpygui.dearpygui as dpg
 import redis
-from megadesk import frame_pump
+from megadesk_contracts import frame_pump
 
 POLL_INTERVAL_SEC = 3.0
 REDIS_HOST = "localhost"

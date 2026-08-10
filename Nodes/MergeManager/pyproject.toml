@@ -10,7 +10,7 @@ requires-python = ">=3.10"
 dependencies = [
     "dearpygui>=1.11.1",
     "redis>=5.0.0",
-    "megadesk",
+    "megadesk-contracts",
 ]
 
 [project.entry-points."MegaDesk.nodes"]

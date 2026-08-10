@@ -1,10 +1,10 @@
 """MegaDesk.nodes entry point for Supervisor (FE + BE).
 
-FE: Dear PyGui operator panel (requires ``pip install -e .[canvas]``).
+FE: Dear PyGui operator panel (requires ``[canvas]``).
 BE: Supervisor process lifecycle manager (``python -m backend``).
 
 Dropping the FE on the MegaDesk canvas bootstraps the BE (see
-``megadesk.ensure_supervisor_running``). The BE never manages its
+``megadesk_contracts.ensure_supervisor_running``). The BE never manages its
 own BeSpec via ``LAUNCHREQUEST``.
 """
 
@@ -13,7 +13,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from megadesk import BeSpec, FeSpec, Mode
+from megadesk_contracts import BeSpec, FeSpec, Mode
 
 _SUPERVISOR_ROOT = Path(__file__).resolve().parent
 NODE_NAME = "supervisor"

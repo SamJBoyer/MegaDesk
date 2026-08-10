@@ -12,11 +12,11 @@ dependencies = [
     "redis>=5.0.0",
     "docker>=7.0.0",
     "python-dotenv>=1.0.0",
-    "megadesk",
+    "megadesk-contracts",
 ]
 
 [project.optional-dependencies]
-# Install megadesk + dearpygui into the MegaDesk env, then:
+# Install megadesk-contracts + dearpygui into the MegaDesk env, then:
 #   pip install -e .[canvas]
 canvas = [
     "dearpygui>=1.11.1",

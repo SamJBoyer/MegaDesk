@@ -1,10 +1,10 @@
 # MegaDesk canvas plugins
 
-MegaDesk is a Dear PyGui whiteboard host (package root: `src/`).
+MegaDesk is a Dear PyGui whiteboard host (package root: `MegaDesk-Canvas/`).
 
 Canvas members are **MegaDesk productivity nodes** (TicketDispatcher, MergeManager, …).
-They use the thin `FeSpec` contract from the shared `megadesk` package and register via
-`MegaDesk.nodes` entry points.
+They use the thin `FeSpec` contract from the shared `megadesk-contracts` package and
+register via `MegaDesk.nodes` entry points.
 
 Install everything into the same MegaDesk conda env.
 
@@ -12,6 +12,7 @@ Install everything into the same MegaDesk conda env.
 
 ```bash
 conda activate <MegaDesk-env>
+pip install -e ../MegaDesk-contracts
 pip install -e .
 pip install -e ../Nodes/TicketDispatcher
 pip install -e ../Nodes/MergeManager
@@ -23,7 +24,7 @@ python main.py
 Each tool exposes `get_exec_spec(mode)` where `mode` is `"FE"` or `"BE"`:
 
 ```python
-from megadesk import FeSpec, Mode
+from megadesk_contracts import FeSpec, Mode
 
 def get_exec_spec(mode: Mode):
     if mode == "FE":
@@ -76,6 +77,6 @@ Redis `LAUNCHREQUEST` with `node_endpoint` = the node name (and `parameters=""`)
 so Supervisor can start the backend process.
 
 **Supervisor** is the exception: dropping its FE bootstraps the Supervisor BE from
-its own `BeSpec` (`megadesk.ensure_supervisor_running`) because `LAUNCHREQUEST`
+its own `BeSpec` (`megadesk_contracts.ensure_supervisor_running`) because `LAUNCHREQUEST`
 requires the Supervisor BE to already be running. Install with
 `pip install -e ../Nodes/Supervisor[canvas]`.

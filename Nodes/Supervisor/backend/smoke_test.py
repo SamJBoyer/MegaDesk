@@ -13,7 +13,7 @@ import sys
 import time
 from pathlib import Path
 
-from megadesk import discover_backends
+from megadesk_contracts import discover_backends
 
 from backend.client import SupervisorStreamClient
 from backend.redis_provision import (
@@ -83,7 +83,7 @@ def main() -> int:
     if NODE_NAME not in backends:
         return _fail(
             f"BE node {NODE_NAME!r} not discovered. "
-            "Install Plant editable: pip install -e ../Plant (and megadesk)."
+            "Install Plant editable: pip install -e ../Plant (and megadesk-contracts)."
         )
     _ok(f"Discovered BE nodes: {', '.join(sorted(backends))}")
 

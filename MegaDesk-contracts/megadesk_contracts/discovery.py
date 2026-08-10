@@ -5,9 +5,9 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
-from megadesk.exec_spec import BeSpec, FeSpec, Mode
+from megadesk_contracts.exec_spec import BeSpec, FeSpec, Mode
 
-log = logging.getLogger("megadesk.discovery")
+log = logging.getLogger("megadesk_contracts.discovery")
 
 ENTRY_POINT_GROUP = "MegaDesk.nodes"
 

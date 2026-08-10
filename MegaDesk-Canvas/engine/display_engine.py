@@ -658,7 +658,7 @@ class DisplayEngine:
         if not fe_has_backend(node_name):
             return
         try:
-            from megadesk import SUPERVISOR_NODE_NAME, SupervisorClient, ensure_supervisor_running
+            from megadesk_contracts import SUPERVISOR_NODE_NAME, SupervisorClient, ensure_supervisor_running
 
             if node_name == SUPERVISOR_NODE_NAME:
                 ok = ensure_supervisor_running()

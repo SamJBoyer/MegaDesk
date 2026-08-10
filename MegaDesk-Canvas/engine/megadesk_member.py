@@ -9,7 +9,7 @@ from uuid import uuid4
 
 import dearpygui.dearpygui as dpg
 
-from megadesk import FeSpec
+from megadesk_contracts import FeSpec
 
 log = logging.getLogger("megadesk.canvas")
 

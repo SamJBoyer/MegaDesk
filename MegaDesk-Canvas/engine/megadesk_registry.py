@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from megadesk import FeSpec, discover_frontends, has_backend
+from megadesk_contracts import FeSpec, discover_frontends, has_backend
 
 logger = logging.getLogger(__name__)
 

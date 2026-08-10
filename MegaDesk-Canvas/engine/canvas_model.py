@@ -12,7 +12,7 @@ from engine.megadesk_registry import get_fe_spec
 
 CanvasMember = MegaDeskMember
 
-# engine/ → package src/ → project root (src/) where canvas.json lives
+# engine/ → MegaDesk-Canvas/ → project root where canvas.json lives
 DEFAULT_CANVAS_PATH = Path(__file__).resolve().parent.parent.parent / "canvas.json"
 
 

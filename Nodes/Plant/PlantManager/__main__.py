@@ -49,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     try:
-        from megadesk import configure_node_logging
+        from megadesk_contracts import configure_node_logging
 
         configure_node_logging("plant")
     except Exception:

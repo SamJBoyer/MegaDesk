@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "megadesk-canvas"
+version = "0.1.0"
+description = "MegaDesk endless Dear PyGui canvas host"
+readme = "docs/plugins.md"
+requires-python = ">=3.10"
+dependencies = [
+    "dearpygui>=2.0",
+    "redis>=5.0.0",
+    "megadesk-contracts",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["engine*"]
