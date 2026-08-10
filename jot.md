@@ -1,4 +1,12 @@
 
+Context: I am extremily displeased with the way the canvas looks. Its junky and the subguis fit horribly on the canvas. The lines and grid are also mismatched with the canvas and the subguis have issues rendering. I'm concidering removing unneccessary features to get a better core experience. 
+
+
+Command: Dispatch subagents to remove the zooming feature and the layers feature. Then, rework the integration of the subguis into the canvas to encourage tighter integration. Take inspration for the ___workspace___ to show the proper level of integration. 
+
+Constraints: maintain the node_protocol method of discovering FE nodes. Keep the icons in the node cataloge. 
+
+
 
 
 ## Supervisor BE (today)

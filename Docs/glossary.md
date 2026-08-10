@@ -1,6 +1,6 @@
 <Terms>
 
-MegaDesk canvas / Canvas: The program responsible for creating an endless scrolling canvas. This program discovers the FEs of Nodes, handles placing them on the canvas, and owns Supervisor (BE started on launch; collapsible operator panel as chrome — not a Catalog node).
+MegaDesk canvas / Canvas: Dear PyGui `node_editor` board that discovers Node FEs via `MegaDesk.nodes`, hosts them as native `dpg.node` items, and owns Supervisor (BE started on launch; collapsible operator panel as chrome — not a Catalog node).
 
 Nodes: Programs in MegaDesk that perform some useful action or utility. Nodes can have a front-end (FE) that can be dragged and 
 dropped on the Canvas and/or a backend (BE) that runs some async task. Supervisor is Canvas infrastructure, not a Node.

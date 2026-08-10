@@ -1,4 +1,4 @@
-"""Whiteboard — infinite Dear PyGui canvas with MegaDesk FE members."""
+"""MegaDesk canvas — Dear PyGui node_editor hosting MegaDesk FE nodes."""
 
 from __future__ import annotations
 
@@ -10,7 +10,10 @@ from megadesk_contracts import ensure_supervisor_running
 from engine.canvas_model import CanvasModel
 from engine.display_engine import (
     CANVAS_WINDOW,
-    DRAWLIST_TAG,
+    NODE_EDITOR,
+    PAYLOAD_TYPE,
+    REF_NODE,
+    SIDEBAR_TAG,
     DisplayEngine,
 )
 from engine.megadesk_registry import discover_megadesk_frontends
@@ -66,28 +69,18 @@ def main() -> None:
     model.load()
 
     engine = DisplayEngine(model)
-    if model.layers:
-        engine._target_layer_id = model.layers[0]["id"]
 
     dpg.create_context()
     _apply_daytime_theme()
 
     with dpg.handler_registry():
-        dpg.add_mouse_wheel_handler(callback=engine.on_mouse_wheel)
-        dpg.add_mouse_click_handler(callback=engine.on_mouse_click)
-        dpg.add_mouse_double_click_handler(callback=engine.on_mouse_double_click)
-        dpg.add_mouse_drag_handler(
-            button=dpg.mvMouseButton_Left,
-            threshold=1,
-            callback=engine.on_mouse_drag,
-        )
-        dpg.add_mouse_drag_handler(
-            button=dpg.mvMouseButton_Right,
-            threshold=1,
-            callback=engine.on_mouse_drag,
-        )
-        dpg.add_mouse_release_handler(callback=engine.on_mouse_release)
         dpg.add_key_press_handler(callback=engine.on_key_press)
+
+    with dpg.theme() as ref_theme:
+        with dpg.theme_component(dpg.mvNode):
+            dpg.add_theme_style(
+                dpg.mvNodeStyleVar_NodePadding, 0, 0, category=dpg.mvThemeCat_Nodes
+            )
 
     with dpg.window(
         label="Canvas",
@@ -102,7 +95,25 @@ def main() -> None:
         width=1280,
         height=800,
     ):
-        dpg.add_drawlist(tag=DRAWLIST_TAG, width=1280, height=800)
+        with dpg.group(horizontal=True):
+            dpg.add_child_window(
+                tag=SIDEBAR_TAG,
+                width=240,
+                border=True,
+                no_scrollbar=False,
+            )
+            with dpg.child_window(width=-1, border=True, no_scrollbar=True):
+                with dpg.group(
+                    drop_callback=engine.on_canvas_drop,
+                    payload_type=PAYLOAD_TYPE,
+                ):
+                    with dpg.node_editor(
+                        tag=NODE_EDITOR,
+                        minimap=True,
+                        minimap_location=dpg.mvNodeMiniMap_Location_BottomRight,
+                    ):
+                        dpg.add_node(tag=REF_NODE, label="", show=False)
+                        dpg.bind_item_theme(REF_NODE, ref_theme)
 
     dpg.create_viewport(title="MegaDesk Canvas", width=1280, height=800)
     dpg.setup_dearpygui()
@@ -110,11 +121,9 @@ def main() -> None:
     dpg.set_primary_window(CANVAS_WINDOW, True)
 
     engine.build_sidebar()
-    engine.refresh_layer_bar()
     build_supervisor_panel()
     engine.on_viewport_resize()
     engine.open_all_megadesk_guis()
-    engine.redraw()
 
     def _on_resize(*_args: object) -> None:
         engine.on_viewport_resize()
@@ -123,7 +132,7 @@ def main() -> None:
     dpg.set_viewport_resize_callback(_on_resize)
 
     while dpg.is_dearpygui_running():
-        engine.sync_megadesk_windows()
+        engine.sync_megadesk_nodes()
         dpg.render_dearpygui_frame()
 
     model.save()

@@ -91,7 +91,7 @@ def build_ui(parent: str, *, tag_prefix: str, width: int, height: int) -> None:
     ...
 ```
 
-**Contract:** fill the host content parent only — no `dpg.window`, no standalone viewport. MegaDesk owns the shell (header, close, position, size). Store a cleanup callable on the content parent with `dpg.set_item_user_data(parent, close_fn)` so the host can shut the FE down when collapsing to a placard or deleting the member (the host may wrap that callable).
+**Contract:** fill the host content parent only — no `dpg.window`, no standalone viewport. MegaDesk owns the host `dpg.node` (label, close, position). Store a cleanup callable on the content parent with `dpg.set_item_user_data(parent, close_fn)` so the host can shut the FE down when deleting the member (the host may wrap that callable).
 
 FEs that need a per-frame drain should use `megadesk_contracts.frame_pump.register` / `unregister`.
 
@@ -180,8 +180,8 @@ Related public helpers (same package): `SupervisorClient`, `ensure_supervisor_ru
 ## How the FE uses nodes (MegaDesk canvas)
 
 1. On startup, the canvas calls `ensure_supervisor_running()` so the Supervisor BE (`python -m supervisor`) is up before UI drop can request BE launches. Then it calls `discover_frontends()` (via `engine.megadesk_registry.discover_megadesk_frontends`) and fills the Catalog palette (`megadesk:<name>`). Icons come from `FeSpec.icon`. The Supervisor operator UI is built as collapsible chrome via `build_supervisor_panel` — it is not a Catalog entry.
-2. Dropping a node places a canvas member (`type: "megadesk"`, `node_name` in `canvas.json`) and builds the FE into a host-owned shell under `canvas_window` via `FeSpec.build`.
-3. Pan/zoom keeps the shell world-anchored; open shells size at `world * view_zoom`. Close leaves a placard; double-click reopens the GUI. Open/closed is restored from `canvas.json` (`data.gui_open`).
+2. Dropping a node places a canvas member (`type: "megadesk"`, `node_name` in `canvas.json`) and hosts the FE as a native `dpg.node` inside the canvas `node_editor` via `FeSpec.build`.
+3. Nodes on the board are always the live FE (no placard / closed state). Middle-mouse pans the editor; there is no canvas zoom. Delete removes the selected node(s).
 4. If `has_backend(node_name)` is true after drop: only if Redis is reachable **and** Supervisor is already alive, the canvas `XADD`s `LAUNCHREQUEST` with `node_endpoint` = node name (and `parameters=""`). Otherwise the BE launch is skipped.
 
 Canvas-side install (also summarized in `MegaDesk-Canvas/readme.md`):
@@ -198,18 +198,18 @@ python main.py   # from MegaDesk-Canvas/ — starts Supervisor BE on launch
 
 ### Hosted shell (`MegaDeskMember`)
 
-Geometry and chrome are canvas-owned; the FE fills the host content parent via `FeSpec.build`.
+FEs are hosted inside native Dear PyGui `dpg.node` items in a `dpg.node_editor` (not floating `child_window` shells over a drawlist). The FE fills a host content parent via `FeSpec.build`.
 
 | Owner | Responsibility |
 | --- | --- |
-| **Canvas** | Shell `child_window` (header, close, pos/size), selection ring, resize handles, world position, drag |
+| **Canvas** | `dpg.node` + static `node_attribute`, content parent, editor-grid position, delete |
 | **FE `build()`** | Widgets inside the host content parent only — no `dpg.window`, no standalone viewport |
 
-The shell is one DPG subtree (header + content) under `canvas_window`. Closing via the header **x** leaves a placard (`data.gui_open = false`); double-click reopens (engine calls `open_megadesk_gui`).
+Closing via the node **x** (or Delete) removes the member from the board and from `canvas.json`.
 
 ### Canvas member persistence
 
-Members are serialized into `canvas.json` (typically the repo-root file). Discriminator in JSON is **`type: "megadesk"`** (in-memory the host also keeps `global_guid = "megadesk"`).
+Members are serialized into `canvas.json` (typically the repo-root file). Persistence is **members-only** (`{"members": {...}}`); legacy `hierarchy` / layers keys are ignored if present. Discriminator in JSON is **`type: "megadesk"`** (in-memory the host also keeps `global_guid = "megadesk"`).
 
 | Field | Role |
 | --- | --- |
@@ -217,16 +217,16 @@ Members are serialized into `canvas.json` (typically the repo-root file). Discri
 | `type` | Always `"megadesk"` |
 | `nickname` | Display name (from `FeSpec.name`) |
 | `node_name` | Discovery / FeSpec name |
-| `position` | World `(x, y)` |
-| `scale` | `[scale_x, scale_y]` — placard scale when the GUI is closed; open shells force scale to 1 and use `data.width` / `data.height` × zoom |
-| `parents` / `children` | Serialized empty lists (legacy member-graph shape; unused). Layer membership lives under `hierarchy.layers[].children`. |
-| `data` | FE payload: `width`, `height`, `gui_open`, `node_name`, … |
+| `position` | Editor-grid `(x, y)` |
+| `scale` | Kept as `[1, 1]` for compatibility |
+| `parents` / `children` | Serialized empty lists (legacy member-graph shape; unused) |
+| `data` | FE payload: `width`, `height`, `node_name`, … |
 
 `icon` and Catalog black-square fallback live on `FeSpec`, not on the member record.
 
 ### Engine interaction (brief)
 
-`DisplayEngine` drives selection, drag, resize, and drawlist placards/handles on `MegaDeskMember`. Lifecycle methods the host may call include `on_select` / `on_deselect`, drag/resize hooks, `on_create` / `on_destroy`, `draw` / `draw_resize_handles`, and `open_window` / `close_window`. Several drag/resize/create hooks are currently no-ops on the member; node authors should not rely on subclassing them — implement behavior inside `FeSpec.build` instead.
+`DisplayEngine` hosts members as `dpg.node` items, handles Catalog drop (editor-grid coords via a hidden reference node), BE launch on drop, Delete-key removal, and periodic position sync into the model. Node authors should implement behavior inside `FeSpec.build`, not by subclassing host lifecycle hooks.
 
 ---
 

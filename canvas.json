@@ -6,8 +6,8 @@
       "nickname": "merge_manager",
       "node_name": "merge_manager",
       "position": [
-        -7441.427801804612,
-        849.8214549614551
+        18.0,
+        40.0
       ],
       "scale": [
         1.0,
@@ -28,8 +28,8 @@
       "nickname": "plant",
       "node_name": "plant",
       "position": [
-        -6413.597321257905,
-        838.4080735359184
+        1040.0,
+        40.0
       ],
       "scale": [
         1.0,
@@ -50,8 +50,8 @@
       "nickname": "ticket_dispatcher",
       "node_name": "ticket_dispatcher",
       "position": [
-        -7417.909210294383,
-        1518.8400751928702
+        119.0,
+        707.0
       ],
       "scale": [
         1.0,
@@ -66,20 +66,5 @@
         "gui_open": true
       }
     }
-  },
-  "hierarchy": {
-    "layers": [
-      {
-        "id": "2be3e9d7-6022-4fa3-a839-3d9cc89f5d25",
-        "name": "Layer 1",
-        "visible": true,
-        "locked": false,
-        "children": [
-          "4f4485ed-71e9-41bb-acfa-b5ddc4a28186",
-          "3af8443a-ba4e-4831-bf5a-c91247d9544e",
-          "6c2203b4-1764-4eb2-8f97-e867ff13cd9b"
-        ]
-      }
-    ]
   }
 }
