@@ -2,6 +2,24 @@
 
 This project follows a structure. MegaDesk is the name of the entire project and is the name of the root repo. MegaDesk-Canvas is the folder that contains the code for running the canvas that integrates the Nodes. 
 
-MegaDesk-contracts contains the code for the contracts that allow Nodes to integrate with the canvas. 
+MegaDesk-contracts contains the code for the contracts that allow Nodes to integrate with the canvas. MegaDesk-contracts is installable. Contracts should be written in there. If a contract is modified or added make sure it is reflected in MegaDesk-contracts
 
 Nodes is the folder that contains the Nodes. Some nodes are both Front-end and back-end. Always make sure you are placing the content in the appropriate place. 
+
+----
+
+We use different REDIS database for different levels of persistence. DB 0 is termporary and DB 1 is persistent. 
+
+
+
+
+**DB 0 (ephemeral)** — streams / Plant default traffic:
+- **LAUNCHREQUEST** — consume `node_endpoint` (+ `parameters`, currently always `""`); discover BE via `MegaDesk.nodes` → `BeSpec`; `Popen` with `MEGADESK_*` env
+- **KILLREQUEST** — match `node_endpoint` + `unique_id`, graceful→force shutdown, `DEL` the RUNNINGNODES hash
+- **NODEEXIT** — published on natural exit (metadata only; no log bodies)
+- Plant `WORKORDER` / `LIVEHARNESS` / `FINISHED` also live here (`redis://localhost:6379/0`)
+
+**DB 1 (persistent):**
+- **GBD:SUPERVISOR:SINGLETON** — one-BE lock
+- **GBD:SUPERVISOR:ALIVE** — heartbeat (TTL ~5s)
+- **RUNNINGNODES:<unique_id>** — hash registry (`status`, PID, `log_path`, …)
