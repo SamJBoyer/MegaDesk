@@ -7,9 +7,11 @@ A **node** is a modular tool inside MegaDesk. Nodes can expose a front-end (FE),
 | Half | What it is | Who uses it |
 |------|------------|-------------|
 | **FE** | Always Dear PyGui. Integrated into the MegaDesk canvas shell. | MegaDesk canvas (`MegaDesk-Canvas/`) via `get_exec_spec("FE")` → `FeSpec` |
-| **BE** | Long-lived process (argv + optional cwd). Managed as a subprocess. | Supervisor BE via `get_exec_spec("BE")` → `BeSpec` |
+| **BE** | Long-lived process (argv + optional cwd). Managed as a subprocess. | Canvas-owned Supervisor BE via `get_exec_spec("BE")` → `BeSpec` |
 
 Shared contract lives in the installable `megadesk-contracts` package (`MegaDesk-contracts/`): `FeSpec`, `BeSpec`, entry-point discovery, `SupervisorClient`, `frame_pump`, and logging helpers.
+
+**Supervisor** is Canvas infrastructure (`MegaDesk-Canvas/supervisor/`), not a Catalog / `MegaDesk.nodes` entry. The BE starts on canvas launch via `megadesk_contracts.ensure_supervisor_running()` (`python -m supervisor`). The operator UI is a collapsible panel (`supervisor.panel.build_supervisor_panel`), not a droppable FE.
 
 **Naming (MegaDesk vs legacy Executive):** MegaDesk uses `MegaDesk.nodes` + `FeSpec`/`BeSpec` + canvas host class `MegaDeskMember`. That is not the older Executive stack (`executive.nodes` / `BaseNode`).
 
@@ -52,7 +54,6 @@ Examples in-repo:
 
 | Node | Entry point | Modes |
 |------|-------------|-------|
-| Supervisor | `supervisor` | FE + BE |
 | Plant | `plant` | FE + BE |
 | MergeManager | `merge_manager` | FE only |
 | TicketDispatcher | `ticket_dispatcher` | FE only |
@@ -114,7 +115,7 @@ def get_exec_spec(mode: Mode):
 
 ### `BeSpec` (mode `"BE"`)
 
-Back-end launch instruction for Supervisor:
+Back-end launch instruction for the Canvas-owned Supervisor:
 
 | Field | Type | Role |
 |-------|------|------|
@@ -128,7 +129,7 @@ Launch contract (Supervisor owns capture):
 subprocess.Popen(
   BeSpec.argv,
   cwd=BeSpec.cwd,
-  stdout=log_file,          # Nodes/Supervisor/logs/<name>/<unique_id>.log
+  stdout=log_file,          # MegaDesk-Canvas/logs/<name>/<unique_id>.log
   stderr=STDOUT,
   env={…, MEGADESK_UNIQUE_ID, MEGADESK_NODE, MEGADESK_LOG_PATH},
 )
@@ -137,7 +138,7 @@ subprocess.Popen(
 BE processes should write diagnostics to stdout/stderr (or call
 `megadesk_contracts.configure_node_logging()` at startup). Supervisor merges both streams
 into the per-instance log file and records `log_path` / exit metadata on
-`RUNNINGNODES:<unique_id>`.
+`RUNNINGNODES:<unique_id>` (Redis DB 1).
 
 BE-only example pattern:
 
@@ -154,7 +155,7 @@ def get_exec_spec(mode: Mode):
     return None
 ```
 
-FE+BE example: return `FeSpec` for `"FE"` and `BeSpec` for `"BE"` from the same function (see `Nodes/Supervisor/supervisor_node.py`).
+FE+BE example: return `FeSpec` for `"FE"` and `BeSpec` for `"BE"` from the same function (see `Nodes/Plant/plant_node.py`).
 
 ---
 
@@ -172,18 +173,16 @@ Installed entry points are scanned via `importlib.metadata` group `MegaDesk.node
 
 Keys prefer `spec.name`, falling back to the entry-point name.
 
-Related public helpers (same package): `SupervisorClient`, `ensure_supervisor_running`, `SUPERVISOR_NODE_NAME` (`"supervisor"`), `configure_node_logging`, `frame_pump`.
+Related public helpers (same package): `SupervisorClient`, `ensure_supervisor_running`, `configure_node_logging`, `frame_pump`. Redis DB / key constants: `REDIS_DB_EPHEMERAL`, `REDIS_DB_PERSISTENT`, `SUPERVISOR_SINGLETON_KEY`, `SUPERVISOR_ALIVE_KEY`.
 
 ---
 
 ## How the FE uses nodes (MegaDesk canvas)
 
-1. On startup, the canvas calls `discover_frontends()` (via `engine.megadesk_registry.discover_megadesk_frontends`) and fills the Catalog palette (`megadesk:<name>`). Icons come from `FeSpec.icon`.
+1. On startup, the canvas calls `ensure_supervisor_running()` so the Supervisor BE (`python -m supervisor`) is up before UI drop can request BE launches. Then it calls `discover_frontends()` (via `engine.megadesk_registry.discover_megadesk_frontends`) and fills the Catalog palette (`megadesk:<name>`). Icons come from `FeSpec.icon`. The Supervisor operator UI is built as collapsible chrome via `build_supervisor_panel` — it is not a Catalog entry.
 2. Dropping a node places a canvas member (`type: "megadesk"`, `node_name` in `canvas.json`) and builds the FE into a host-owned shell under `canvas_window` via `FeSpec.build`.
 3. Pan/zoom keeps the shell world-anchored; open shells size at `world * view_zoom`. Close leaves a placard; double-click reopens the GUI. Open/closed is restored from `canvas.json` (`data.gui_open`).
-4. If `has_backend(node_name)` is true after drop:
-   - **Supervisor exception:** `ensure_supervisor_running()` spawns the Supervisor `BeSpec` directly (`python -m backend`) and waits for `GBD:SUPERVISOR:ALIVE` (default timeout 12s). The BE cannot process `LAUNCHREQUEST` itself because it is not up yet. Bootstrap logging uses `logs/supervisor/supervisor.log` (append); it does not use the per-instance `<uid>.log` / `MEGADESK_*` pattern.
-   - **Every other BE node:** only if Redis is reachable **and** Supervisor is already alive, the canvas `XADD`s `LAUNCHREQUEST` with `node_endpoint` = node name (and `parameters=""`). Otherwise the BE launch is skipped.
+4. If `has_backend(node_name)` is true after drop: only if Redis is reachable **and** Supervisor is already alive, the canvas `XADD`s `LAUNCHREQUEST` with `node_endpoint` = node name (and `parameters=""`). Otherwise the BE launch is skipped.
 
 Canvas-side install (also summarized in `MegaDesk-Canvas/readme.md`):
 
@@ -193,8 +192,8 @@ pip install -e MegaDesk-contracts
 pip install -e MegaDesk-Canvas
 pip install -e Nodes/TicketDispatcher   # FE example
 pip install -e Nodes/MergeManager       # FE example
-pip install -e Nodes/Supervisor[canvas] # FE + BE
-python main.py   # from MegaDesk-Canvas/
+pip install -e Nodes/Plant              # FE + BE example
+python main.py   # from MegaDesk-Canvas/ — starts Supervisor BE on launch
 ```
 
 ### Hosted shell (`MegaDeskMember`)
@@ -233,9 +232,9 @@ Members are serialized into `canvas.json` (typically the repo-root file). Discri
 
 ## How the BE uses nodes (Supervisor)
 
-1. The Supervisor BE refreshes backends with `discover_backends()` (excluding its own Supervisor `BeSpec` so it never `LAUNCHREQUEST`s itself).
-2. On `LAUNCHREQUEST`, it assigns a `unique_id`, resolves `get_backend(node_endpoint)`, redirects stdout/stderr to a log file, injects `MEGADESK_*` env, and writes `RUNNINGNODES:<unique_id>` (`status=running`, PID, `log_path`, …).
-3. A reaper marks natural exits as `status=exited`, publishes `NODEEXIT`, and keeps the hash until Stop. `KILLREQUEST` tears down (if needed) and `DEL`s the hash. See `MegaDesk-contracts/redis/supervisor.md`.
+1. The Supervisor BE refreshes backends with `discover_backends()`.
+2. On `LAUNCHREQUEST` (Redis DB 0), it assigns a `unique_id`, resolves `get_backend(node_endpoint)`, redirects stdout/stderr to a log file under `MegaDesk-Canvas/logs/`, injects `MEGADESK_*` env, and writes `RUNNINGNODES:<unique_id>` on DB 1 (`status=running`, PID, `log_path`, …).
+3. A reaper marks natural exits as `status=exited`, publishes `NODEEXIT` (DB 0), and keeps the hash until Stop. `KILLREQUEST` tears down (if needed) and `DEL`s the hash. See `MegaDesk-contracts/redis/supervisor.md`.
 
 Callers outside the canvas can use `megadesk_contracts.SupervisorClient` (`launch_node`, `kill_node`, `list_running`, `get_running`, `kill_all_running`, `redis_ok`, `backend_ok`).
 
@@ -245,15 +244,15 @@ Callers outside the canvas can use `megadesk_contracts.SupervisorClient` (`launc
 
 | Half | Where diagnostics go |
 |------|----------------------|
-| **BE** | stdout/stderr → Supervisor file `logs/<endpoint>/<unique_id>.log`; prefer `megadesk_contracts.configure_node_logging()` |
+| **BE** | stdout/stderr → Supervisor file `MegaDesk-Canvas/logs/<endpoint>/<unique_id>.log`; prefer `megadesk_contracts.configure_node_logging()` |
 | **FE** | Module logger (`logging.getLogger(…)`). Canvas host reports uncaught `FeSpec.build` / BE-launch failures instead of swallowing them silently. |
 
 Do **not** put log line bodies on Redis streams.
 
 Typical Redis path after an FE drop that also has a BE:
 
-1. Caller `XADD`s `LAUNCHREQUEST` with `node_endpoint` and `parameters=""`
-2. Supervisor BE consumes the stream and registers `RUNNINGNODES:<unique_id>`
+1. Caller `XADD`s `LAUNCHREQUEST` with `node_endpoint` and `parameters=""` (DB 0)
+2. Supervisor BE consumes the stream and registers `RUNNINGNODES:<unique_id>` (DB 1)
 3. There is no ack channel — observe `RUNNINGNODES:*` if confirmation is needed
 
 ---
@@ -264,5 +263,5 @@ Typical Redis path after an FE drop that also has a BE:
 2. Add `<name>_node.py` with `get_exec_spec(mode)` returning `FeSpec` and/or `BeSpec`.
 3. Register `[project.entry-points."MegaDesk.nodes"]`.
 4. `pip install -e Nodes/<Name>` (add `[canvas]` / Dear PyGui if the node has an FE).
-5. Restart MegaDesk / Supervisor so entry points are re-scanned.
+5. Restart MegaDesk so entry points are re-scanned (Supervisor BE starts with the canvas).
 6. FE appears in Catalog; BE is launchable by endpoint once the Supervisor BE is alive.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 import dearpygui.dearpygui as dpg
+from megadesk_contracts import ensure_supervisor_running
 
 from engine.canvas_model import CanvasModel
 from engine.display_engine import (
@@ -13,6 +14,7 @@ from engine.display_engine import (
     DisplayEngine,
 )
 from engine.megadesk_registry import discover_megadesk_frontends
+from supervisor.panel import build_supervisor_panel, reposition_supervisor_panel
 
 
 def _apply_daytime_theme() -> None:
@@ -50,7 +52,15 @@ def main() -> None:
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
+    log = logging.getLogger("megadesk.canvas")
     discover_megadesk_frontends()
+
+    # Supervisor BE is canvas-owned — start before the UI so LAUNCHREQUEST works.
+    if not ensure_supervisor_running():
+        log.error(
+            "Supervisor BE failed to start "
+            "(see MegaDesk-Canvas/logs/supervisor/supervisor.log)"
+        )
 
     model = CanvasModel()
     model.load()
@@ -101,11 +111,16 @@ def main() -> None:
 
     engine.build_sidebar()
     engine.refresh_layer_bar()
+    build_supervisor_panel()
     engine.on_viewport_resize()
     engine.open_all_megadesk_guis()
     engine.redraw()
 
-    dpg.set_viewport_resize_callback(lambda *args: engine.on_viewport_resize())
+    def _on_resize(*_args: object) -> None:
+        engine.on_viewport_resize()
+        reposition_supervisor_panel()
+
+    dpg.set_viewport_resize_callback(_on_resize)
 
     while dpg.is_dearpygui_running():
         engine.sync_megadesk_windows()

@@ -1,0 +1,237 @@
+"""Attach to localhost Redis or provision Docker Redis + Insights.
+
+Redis databases:
+  db0 — ephemeral control plane (LAUNCHREQUEST / KILLREQUEST / NODEEXIT, Plant streams)
+  db1 — persistent supervisor state (singleton, RUNNINGNODES, alive heartbeat)
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+import time
+from dataclasses import dataclass
+from typing import Optional
+
+import redis
+
+REDIS_HOST = "localhost"
+REDIS_PORT = 6379
+REDIS_DB_EPHEMERAL = 0
+REDIS_DB_PERSISTENT = 1
+REDIS_CONTAINER = "gbd-redis"
+INSIGHTS_CONTAINER = "gbd-redis-insight"
+INSIGHTS_PORT = 5540
+
+SUPERVISOR_ALIVE_KEY = "GBD:SUPERVISOR:ALIVE"
+SUPERVISOR_SINGLETON_KEY = "GBD:SUPERVISOR:SINGLETON"
+ALIVE_TTL_SECONDS = 5
+SINGLETON_TTL_SECONDS = 10
+
+LAUNCHREQUEST_STREAM = "LAUNCHREQUEST"
+KILLREQUEST_STREAM = "KILLREQUEST"
+NODEEXIT_STREAM = "NODEEXIT"
+CONSUMER_GROUP = "supervisor"
+RUNNINGNODES_PREFIX = "RUNNINGNODES:"
+
+
+def running_nodes_key(unique_id: str) -> str:
+    return f"{RUNNINGNODES_PREFIX}{unique_id}"
+
+
+def ping_redis(host: str = REDIS_HOST, port: int = REDIS_PORT, timeout: float = 1.0) -> bool:
+    try:
+        client = redis.Redis(
+            host=host, port=port, db=REDIS_DB_EPHEMERAL, socket_connect_timeout=timeout
+        )
+        return bool(client.ping())
+    except Exception:
+        return False
+
+
+def _docker_available() -> bool:
+    try:
+        result = subprocess.run(
+            ["docker", "info"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _container_running(name: str) -> bool:
+    result = subprocess.run(
+        ["docker", "inspect", "-f", "{{.State.Running}}", name],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    return result.returncode == 0 and result.stdout.strip().lower() == "true"
+
+
+def _ensure_container(name: str, run_args: list[str]) -> None:
+    inspect = subprocess.run(
+        ["docker", "inspect", name],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    if inspect.returncode == 0:
+        if not _container_running(name):
+            subprocess.run(["docker", "start", name], check=True, capture_output=True, text=True)
+        return
+    subprocess.run(["docker", "run", "-d", "--name", name, *run_args], check=True, capture_output=True, text=True)
+
+
+@dataclass
+class RedisHandles:
+    """Ephemeral (db0) + persistent (db1) clients on the same Redis server."""
+
+    ephemeral: redis.Redis
+    persistent: redis.Redis
+
+
+def connect_handles(
+    host: str = REDIS_HOST, port: int = REDIS_PORT
+) -> RedisHandles:
+    return RedisHandles(
+        ephemeral=redis.Redis(
+            host=host, port=port, db=REDIS_DB_EPHEMERAL, decode_responses=True
+        ),
+        persistent=redis.Redis(
+            host=host, port=port, db=REDIS_DB_PERSISTENT, decode_responses=True
+        ),
+    )
+
+
+def provision_redis() -> RedisHandles:
+    """Prefer existing localhost Redis; otherwise start Docker Redis + Insights."""
+    if ping_redis():
+        return connect_handles()
+
+    if not _docker_available():
+        raise RuntimeError(
+            "Redis is not reachable on localhost:6379 and Docker is unavailable. "
+            "Start Redis locally or install/start Docker."
+        )
+
+    _ensure_container(
+        REDIS_CONTAINER,
+        [
+            "-p",
+            f"{REDIS_PORT}:6379",
+            "redis:7",
+        ],
+    )
+    _ensure_container(
+        INSIGHTS_CONTAINER,
+        [
+            "-p",
+            f"{INSIGHTS_PORT}:5540",
+            "redis/redisinsight:latest",
+        ],
+    )
+
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        if ping_redis():
+            return connect_handles()
+        time.sleep(0.5)
+
+    raise RuntimeError("Docker Redis started but localhost:6379 never became reachable")
+
+
+def mark_supervisor_alive(persistent: redis.Redis, ttl: int = ALIVE_TTL_SECONDS) -> None:
+    persistent.set(SUPERVISOR_ALIVE_KEY, "1", ex=ttl)
+
+
+def clear_supervisor_alive(persistent: Optional[redis.Redis]) -> None:
+    if persistent is None:
+        return
+    try:
+        persistent.delete(SUPERVISOR_ALIVE_KEY)
+    except Exception:
+        pass
+
+
+def is_supervisor_alive(persistent: Optional[redis.Redis] = None) -> bool:
+    try:
+        c = persistent or redis.Redis(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            db=REDIS_DB_PERSISTENT,
+            decode_responses=True,
+        )
+        return c.exists(SUPERVISOR_ALIVE_KEY) == 1
+    except Exception:
+        return False
+
+
+def acquire_supervisor_singleton(
+    persistent: redis.Redis,
+    *,
+    owner: Optional[str] = None,
+    ttl: int = SINGLETON_TTL_SECONDS,
+) -> bool:
+    """Claim the supervisor singleton on db1. Only one BE may hold it.
+
+    If the key exists but the alive heartbeat is gone, the lock is treated as
+    stale and stolen (crash recovery).
+    """
+    token = owner or str(os.getpid())
+    if persistent.set(SUPERVISOR_SINGLETON_KEY, token, nx=True, ex=ttl):
+        return True
+    if is_supervisor_alive(persistent):
+        return False
+    # Stale lock — previous supervisor died without clearing.
+    persistent.set(SUPERVISOR_SINGLETON_KEY, token, ex=ttl)
+    return True
+
+
+def refresh_supervisor_singleton(
+    persistent: redis.Redis,
+    *,
+    owner: Optional[str] = None,
+    ttl: int = SINGLETON_TTL_SECONDS,
+) -> bool:
+    """Refresh singleton TTL if we still own it. Returns False if ownership lost."""
+    token = owner or str(os.getpid())
+    current = persistent.get(SUPERVISOR_SINGLETON_KEY)
+    if current is None:
+        return bool(persistent.set(SUPERVISOR_SINGLETON_KEY, token, nx=True, ex=ttl))
+    if current != token:
+        return False
+    persistent.expire(SUPERVISOR_SINGLETON_KEY, ttl)
+    return True
+
+
+def release_supervisor_singleton(
+    persistent: Optional[redis.Redis],
+    *,
+    owner: Optional[str] = None,
+) -> None:
+    if persistent is None:
+        return
+    token = owner or str(os.getpid())
+    try:
+        current = persistent.get(SUPERVISOR_SINGLETON_KEY)
+        if current == token:
+            persistent.delete(SUPERVISOR_SINGLETON_KEY)
+    except Exception:
+        pass
+
+
+def ensure_consumer_groups(ephemeral: redis.Redis) -> None:
+    """Create LAUNCHREQUEST / KILLREQUEST consumer groups on db0 if missing."""
+    for stream in (LAUNCHREQUEST_STREAM, KILLREQUEST_STREAM):
+        try:
+            ephemeral.xgroup_create(stream, CONSUMER_GROUP, id="0", mkstream=True)
+        except redis.ResponseError as exc:
+            if "BUSYGROUP" not in str(exc):
+                raise

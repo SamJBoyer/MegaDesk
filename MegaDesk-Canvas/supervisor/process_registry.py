@@ -12,9 +12,9 @@ from typing import Optional, TextIO
 
 from megadesk_contracts import BeSpec
 
-# Nodes/Supervisor — package root that owns logs/
-SUPERVISOR_ROOT = Path(__file__).resolve().parent.parent
-LOGS_ROOT = SUPERVISOR_ROOT / "logs"
+# MegaDesk-Canvas — package root that owns logs/
+CANVAS_ROOT = Path(__file__).resolve().parent.parent
+LOGS_ROOT = CANVAS_ROOT / "logs"
 
 ENV_UNIQUE_ID = "MEGADESK_UNIQUE_ID"
 ENV_NODE = "MEGADESK_NODE"

@@ -1,4 +1,4 @@
-"""Supervisor operator panel — catalog Send + running Stop via Redis streams."""
+"""Supervisor operator panel — collapsible canvas chrome (not a Catalog node)."""
 
 from __future__ import annotations
 
@@ -7,14 +7,13 @@ from pathlib import Path
 from typing import Optional
 
 import dearpygui.dearpygui as dpg
-from megadesk_contracts import discover_backends, ensure_supervisor_running, frame_pump
-
-from backend.client import SupervisorStreamClient
+from megadesk_contracts import SupervisorClient, discover_backends, ensure_supervisor_running, frame_pump
 
 COLOR_GREEN = (46, 204, 113, 255)
 COLOR_RED = (231, 76, 60, 255)
 COLOR_DIM = (120, 120, 130, 255)
 
+SUPERVISOR_PANEL_TAG = "supervisor_panel_window"
 _STATUS_POLL_S = 1.0
 _PROCESS_LOG_TAIL = 80
 _LIVE: dict[str, "SupervisorPanel"] = {}
@@ -22,8 +21,8 @@ _LIVE: dict[str, "SupervisorPanel"] = {}
 
 class SupervisorPanel:
     def __init__(self) -> None:
-        self._client: Optional[SupervisorStreamClient] = None
-        self._root_tag = "primary"
+        self._client: Optional[SupervisorClient] = None
+        self._root_tag = "supervisor_panel"
         self._redis_ok = False
         self._backend_ok = False
         self._last_poll = 0.0
@@ -37,9 +36,9 @@ class SupervisorPanel:
         self._frame_registered = False
 
     @property
-    def client(self) -> SupervisorStreamClient:
+    def client(self) -> SupervisorClient:
         if self._client is None:
-            self._client = SupervisorStreamClient()
+            self._client = SupervisorClient()
         return self._client
 
     def _tag(self, suffix: str) -> str:
@@ -130,9 +129,7 @@ class SupervisorPanel:
         try:
             self._redis_ok = self.client.redis_ok()
             self._backend_ok = self.client.backend_ok() if self._redis_ok else False
-            self._backends = sorted(
-                name for name in discover_backends() if name != "supervisor"
-            )
+            self._backends = sorted(discover_backends())
             self._running = self.client.list_running() if self._redis_ok else []
             live = sum(1 for e in self._running if (e.get("status") or "running") != "exited")
             exited = len(self._running) - live
@@ -154,7 +151,9 @@ class SupervisorPanel:
         if ok:
             self._append_log("Backend running")
         else:
-            self._append_log("Backend failed to start — see logs/supervisor/supervisor.log")
+            self._append_log(
+                "Backend failed to start — see MegaDesk-Canvas/logs/supervisor/supervisor.log"
+            )
         return ok
 
     def build_ui(
@@ -165,7 +164,7 @@ class SupervisorPanel:
         width: int = 520,
         height: int = 520,
     ) -> None:
-        """Fill the host content parent with Supervisor widgets."""
+        """Fill a parent with Supervisor widgets."""
         self._root_tag = tag_prefix
         _ = width, height
 
@@ -238,7 +237,6 @@ class SupervisorPanel:
             )
 
         dpg.set_item_user_data(parent, self.shutdown)
-        self._ensure_backend()
         self._poll_status(force=True)
         if not self._frame_registered:
             frame_pump.register(self._on_frame)
@@ -246,7 +244,9 @@ class SupervisorPanel:
         _LIVE[tag_prefix] = self
 
     def _on_frame(self) -> None:
-        if not dpg.does_item_exist(self._root_tag):
+        if not dpg.does_item_exist(SUPERVISOR_PANEL_TAG) and not dpg.does_item_exist(
+            self._root_tag
+        ):
             return
         self._poll_status()
 
@@ -337,27 +337,52 @@ class SupervisorPanel:
         self._poll_status(force=True)
 
 
-def build_ui(
-    parent: str,
+def build_supervisor_panel(
     *,
-    tag_prefix: str,
-    width: int = 520,
-    height: int = 520,
-) -> None:
-    """Module-level builder for FeSpec / MegaDesk canvas hosting."""
-    SupervisorPanel().build_ui(
-        parent,
-        tag_prefix=tag_prefix,
+    pos: tuple[int, int] | None = None,
+    width: int = 360,
+    height: int = 560,
+) -> SupervisorPanel:
+    """Create the collapsible Supervisor floating panel on the canvas."""
+    if dpg.does_item_exist(SUPERVISOR_PANEL_TAG):
+        dpg.delete_item(SUPERVISOR_PANEL_TAG)
+        for panel in list(_LIVE.values()):
+            panel.shutdown()
+
+    vp_w = dpg.get_viewport_client_width() or 1280
+    if pos is None:
+        pos = (max(10, vp_w - width - 16), 40)
+
+    with dpg.window(
+        label="Supervisor",
+        tag=SUPERVISOR_PANEL_TAG,
+        pos=list(pos),
+        width=width,
+        height=height,
+        no_close=True,
+        no_collapse=False,
+    ):
+        content = dpg.add_child_window(
+            tag=f"{SUPERVISOR_PANEL_TAG}::content",
+            width=-1,
+            height=-1,
+            border=False,
+        )
+
+    panel = SupervisorPanel()
+    panel.build_ui(
+        content,
+        tag_prefix=SUPERVISOR_PANEL_TAG,
         width=width,
         height=height,
     )
+    return panel
 
 
-def main() -> None:
-    raise SystemExit(
-        "Supervisor FE is canvas-only. Drop it from the MegaDesk Catalog."
-    )
-
-
-if __name__ == "__main__":
-    main()
+def reposition_supervisor_panel() -> None:
+    """Keep the panel near the right edge after viewport resize."""
+    if not dpg.does_item_exist(SUPERVISOR_PANEL_TAG):
+        return
+    vp_w = dpg.get_viewport_client_width() or 1280
+    width = dpg.get_item_width(SUPERVISOR_PANEL_TAG) or 360
+    dpg.set_item_pos(SUPERVISOR_PANEL_TAG, [max(10, vp_w - int(width) - 16), 40])

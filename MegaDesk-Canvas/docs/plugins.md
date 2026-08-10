@@ -1,7 +1,7 @@
 # MegaDesk canvas plugins
 
 Canonical documentation for the node protocol (`MegaDesk.nodes`, `FeSpec` /
-`BeSpec`, canvas hosting, Supervisor launch) lives in:
+`BeSpec`, canvas hosting, Canvas-owned Supervisor BE launch) lives in:
 
 **[`Docs/node_protocol.md`](../../Docs/node_protocol.md)**
 

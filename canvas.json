@@ -66,14 +66,14 @@
         "gui_open": true
       }
     },
-    "98dbb88e-d03c-45c4-bc8b-21faa2f7c485": {
-      "canvas_id": "98dbb88e-d03c-45c4-bc8b-21faa2f7c485",
+    "d41de2f5-2c69-43c8-9dea-1bd9372240de": {
+      "canvas_id": "d41de2f5-2c69-43c8-9dea-1bd9372240de",
       "type": "megadesk",
-      "nickname": "supervisor",
-      "node_name": "supervisor",
+      "nickname": "ticket_dispatcher",
+      "node_name": "ticket_dispatcher",
       "position": [
-        506.51142000000027,
-        264.21241999999995
+        -839.5927647476647,
+        -752.000714836408
       ],
       "scale": [
         1.0,
@@ -82,9 +82,75 @@
       "parents": [],
       "children": [],
       "data": {
-        "width": 520.0,
+        "width": 700.0,
         "height": 520.0,
-        "node_name": "supervisor",
+        "node_name": "ticket_dispatcher",
+        "gui_open": true
+      }
+    },
+    "bd7cd4c3-20d4-4eb5-be75-2e98305f96b1": {
+      "canvas_id": "bd7cd4c3-20d4-4eb5-be75-2e98305f96b1",
+      "type": "megadesk",
+      "nickname": "merge_manager",
+      "node_name": "merge_manager",
+      "position": [
+        -367.01622350999855,
+        228.7244630099995
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 960.0,
+        "height": 600.0,
+        "node_name": "merge_manager",
+        "gui_open": true
+      }
+    },
+    "c6599c39-572a-441b-985b-808b3eb74ba1": {
+      "canvas_id": "c6599c39-572a-441b-985b-808b3eb74ba1",
+      "type": "megadesk",
+      "nickname": "plant",
+      "node_name": "plant",
+      "position": [
+        -1280.2909453900002,
+        283.9643377599997
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 720.0,
+        "height": 640.0,
+        "node_name": "plant",
+        "gui_open": true
+      }
+    },
+    "8dd6bdc7-6007-4e9c-b3d3-c9028a60a2c1": {
+      "canvas_id": "8dd6bdc7-6007-4e9c-b3d3-c9028a60a2c1",
+      "type": "megadesk",
+      "nickname": "plant",
+      "node_name": "plant",
+      "position": [
+        -1073.0704345229005,
+        -57.4905687097004
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 720.0,
+        "height": 640.0,
+        "node_name": "plant",
         "gui_open": true
       }
     }
@@ -100,7 +166,10 @@
           "4f4485ed-71e9-41bb-acfa-b5ddc4a28186",
           "3af8443a-ba4e-4831-bf5a-c91247d9544e",
           "6c2203b4-1764-4eb2-8f97-e867ff13cd9b",
-          "98dbb88e-d03c-45c4-bc8b-21faa2f7c485"
+          "d41de2f5-2c69-43c8-9dea-1bd9372240de",
+          "bd7cd4c3-20d4-4eb5-be75-2e98305f96b1",
+          "c6599c39-572a-441b-985b-808b3eb74ba1",
+          "8dd6bdc7-6007-4e9c-b3d3-c9028a60a2c1"
         ]
       }
     ]

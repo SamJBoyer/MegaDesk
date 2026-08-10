@@ -11,12 +11,12 @@ Sadly, Lucid's MCP tool is pretty bad which makes it so the visual language of t
 
 
 Individual modules:
-- MegaDesk canvas (`MegaDesk-Canvas/`): endless Dear PyGui canvas. Discovers FE nodes from `MegaDesk.nodes` via `get_exec_spec("FE")`. Dropping a node that also has a BE pings Supervisor over Redis (Supervisor itself is bootstrapped from its BeSpec). Install with `pip install -e MegaDesk-Canvas` (after `pip install -e MegaDesk-contracts`).
+- MegaDesk canvas (`MegaDesk-Canvas/`): endless Dear PyGui canvas. Discovers FE nodes from `MegaDesk.nodes` via `get_exec_spec("FE")`. Owns Supervisor (BE started on launch via `ensure_supervisor_running()`; collapsible operator panel). Dropping a node that also has a BE `XADD`s `LAUNCHREQUEST` over Redis. Install with `pip install -e MegaDesk-Canvas` (after `pip install -e MegaDesk-contracts`).
+  - Supervisor (`MegaDesk-Canvas/supervisor/`): Canvas infrastructure — process lifecycle manager (`LAUNCHREQUEST` / `KILLREQUEST` / `RUNNINGNODES`; Redis DB 0 streams, DB 1 persistent keys). Not a Catalog node.
 
 - Nodes (`Nodes/`): productivity nodes installed via `pip install -e Nodes/<name>` (or `.[canvas]` where noted).
-  - Supervisor: FE + BE node — process lifecycle manager (`LAUNCHREQUEST` / `KILLREQUEST` / `RUNNINGNODES`) plus canvas operator panel.
   - Plant: FE + BE node — Redis WORKORDER poller that launches Docker agent sandboxes, plus Floor monitor panel.
   - MergeManager: FE-only Dear PyGui tool that merges finished worktrees into the agents branch.
   - TicketDispatcher: FE-only Dear PyGui tool that lists `agent-ready` GitHub issues and publishes WORKORDERs.
 
-Shared contract: installable `megadesk-contracts` package in `MegaDesk-contracts/` (`FeSpec` / `BeSpec`, entry-point discovery, Supervisor client). Redis IPC docs live alongside it.
+Shared contract: installable `megadesk-contracts` package in `MegaDesk-contracts/` (`FeSpec` / `BeSpec`, entry-point discovery, Supervisor client). Redis IPC docs live alongside it (DB 0 ephemeral / DB 1 Supervisor persistent).

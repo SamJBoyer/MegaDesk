@@ -12,7 +12,11 @@ from megadesk_contracts.exec_spec import BeSpec, FeSpec, Mode
 from megadesk_contracts import frame_pump
 from megadesk_contracts.node_logging import configure_node_logging
 from megadesk_contracts.supervisor_client import (
+    REDIS_DB_EPHEMERAL,
+    REDIS_DB_PERSISTENT,
+    SUPERVISOR_ALIVE_KEY,
     SUPERVISOR_NODE_NAME,
+    SUPERVISOR_SINGLETON_KEY,
     SupervisorClient,
     ensure_supervisor_running,
 )
@@ -22,7 +26,11 @@ __all__ = [
     "BeSpec",
     "FeSpec",
     "Mode",
+    "REDIS_DB_EPHEMERAL",
+    "REDIS_DB_PERSISTENT",
+    "SUPERVISOR_ALIVE_KEY",
     "SUPERVISOR_NODE_NAME",
+    "SUPERVISOR_SINGLETON_KEY",
     "SupervisorClient",
     "configure_node_logging",
     "discover_backends",

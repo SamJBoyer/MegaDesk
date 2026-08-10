@@ -1,5 +1,0 @@
-# Prefer pyproject.toml.
-redis>=5.0.0
-megadesk
-# FE (optional): pip install -e .[canvas]
-# dearpygui>=2.0

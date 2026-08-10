@@ -10,10 +10,10 @@ from typing import Optional
 
 import redis
 
-from megadesk_contracts import SUPERVISOR_NODE_NAME, BeSpec, discover_backends, get_backend
+from megadesk_contracts import BeSpec, discover_backends, get_backend
 
-from backend.process_registry import ProcessRegistry, launch_spec
-from backend.redis_provision import NODEEXIT_STREAM, running_nodes_key
+from supervisor.process_registry import ProcessRegistry, launch_spec
+from supervisor.redis_provision import NODEEXIT_STREAM, running_nodes_key
 
 log = logging.getLogger("gbd.supervisor")
 
@@ -31,25 +31,23 @@ def _utc_now_iso() -> str:
 
 
 class ExecutionEngine:
-    def __init__(self, realtime: redis.Redis, registry: Optional[ProcessRegistry] = None) -> None:
-        self.realtime = realtime
+    def __init__(
+        self,
+        ephemeral: redis.Redis,
+        persistent: redis.Redis,
+        registry: Optional[ProcessRegistry] = None,
+    ) -> None:
+        self.ephemeral = ephemeral
+        self.persistent = persistent
         self.registry = registry or ProcessRegistry()
         self._backends: dict[str, BeSpec] = {}
         self._lock = threading.RLock()
         self.discover_backends()
 
     def discover_backends(self) -> dict[str, BeSpec]:
-        """Refresh the in-memory map of name → BeSpec from megadesk_contracts.nodes.
-
-        Excludes the Supervisor BeSpec itself — the BE must not launch
-        another supervisor via ``LAUNCHREQUEST``.
-        """
+        """Refresh the in-memory map of name → BeSpec from megadesk_contracts."""
         with self._lock:
-            self._backends = {
-                name: spec
-                for name, spec in discover_backends().items()
-                if name != SUPERVISOR_NODE_NAME
-            }
+            self._backends = dict(discover_backends())
             log.info(
                 "Discovered %d BE node(s): %s",
                 len(self._backends),
@@ -70,10 +68,10 @@ class ExecutionEngine:
                 spec = self._backends.get(node_endpoint)
         if spec is None:
             spec = get_backend(node_endpoint)
-            if spec is not None and spec.name != SUPERVISOR_NODE_NAME:
+            if spec is not None:
                 with self._lock:
                     self._backends[spec.name] = spec
-        if spec is None or spec.name == SUPERVISOR_NODE_NAME:
+        if spec is None:
             raise NodeLaunchError(f"Unknown BE node: {node_endpoint}")
         return spec
 
@@ -82,8 +80,6 @@ class ExecutionEngine:
         node_endpoint = node_endpoint.strip()
         if not node_endpoint:
             raise NodeLaunchError("Empty node_endpoint")
-        if node_endpoint == SUPERVISOR_NODE_NAME:
-            raise NodeLaunchError("Cannot launch supervisor via LAUNCHREQUEST")
 
         spec = self._resolve_spec(node_endpoint)
         unique_id = str(uuid.uuid4())
@@ -94,7 +90,7 @@ class ExecutionEngine:
             raise NodeLaunchError(f"Failed to launch {node_endpoint}: {exc}") from exc
 
         self.registry.store(entry)
-        self.realtime.hset(
+        self.persistent.hset(
             running_nodes_key(unique_id),
             mapping={
                 "node_endpoint": entry.node_endpoint,
@@ -128,7 +124,7 @@ class ExecutionEngine:
         if entry is None:
             # Stale / exited hash without in-memory process — still clear Redis.
             key = running_nodes_key(unique_id)
-            stored = self.realtime.hgetall(key)
+            stored = self.persistent.hgetall(key)
             if not stored:
                 raise NodeKillError(f"No managed process for unique_id: {unique_id}")
             if node_endpoint and stored.get("node_endpoint") != node_endpoint:
@@ -136,7 +132,7 @@ class ExecutionEngine:
                     f"node_endpoint mismatch for {unique_id}: "
                     f"expected {stored.get('node_endpoint')!r}, got {node_endpoint!r}"
                 )
-            self.realtime.delete(key)
+            self.persistent.delete(key)
             log.info("Cleared stale RUNNINGNODES for unique_id=%s", unique_id)
             return
 
@@ -147,7 +143,7 @@ class ExecutionEngine:
             )
 
         self.registry.stop(unique_id)
-        self.realtime.delete(running_nodes_key(unique_id))
+        self.persistent.delete(running_nodes_key(unique_id))
         log.info("Killed %s unique_id=%s", entry.node_endpoint, unique_id)
 
     def kill_all(self) -> None:
@@ -155,13 +151,13 @@ class ExecutionEngine:
         self.registry.kill_all()
         for unique_id in ids:
             try:
-                self.realtime.delete(running_nodes_key(unique_id))
+                self.persistent.delete(running_nodes_key(unique_id))
             except Exception:
                 pass
         # Also clear any exited Redis-only hashes left behind by the reaper.
         try:
-            for key in self.realtime.scan_iter(match="RUNNINGNODES:*", count=100):
-                self.realtime.delete(key)
+            for key in self.persistent.scan_iter(match="RUNNINGNODES:*", count=100):
+                self.persistent.delete(key)
         except Exception:
             pass
 
@@ -179,8 +175,8 @@ class ExecutionEngine:
             self.registry.pop(unique_id)
             key = running_nodes_key(unique_id)
             try:
-                if self.realtime.exists(key):
-                    self.realtime.hset(
+                if self.persistent.exists(key):
+                    self.persistent.hset(
                         key,
                         mapping={
                             "status": "exited",
@@ -189,7 +185,7 @@ class ExecutionEngine:
                             "log_path": entry.log_path,
                         },
                     )
-                    self.realtime.xadd(
+                    self.ephemeral.xadd(
                         NODEEXIT_STREAM,
                         {
                             "unique_id": unique_id,

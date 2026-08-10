@@ -29,6 +29,7 @@ DRAWLIST_TAG = "canvas_drawlist"
 CANVAS_WINDOW = "canvas_window"
 SIDEBAR_TAG = "catalog_panel_window"
 LAYER_BAR_TAG = "layer_bar_window"
+SUPERVISOR_PANEL_TAG = "supervisor_panel_window"
 CONTEXT_MENU = "canvas_context_menu"
 LAYER_RENAME_MODAL = "layer_rename_modal"
 LAYER_RENAME_INPUT = "layer_rename_input"
@@ -37,6 +38,7 @@ LAYER_RENAME_INPUT = "layer_rename_input"
 _PALETTE_BLOCKING_TAGS = (
     SIDEBAR_TAG,
     LAYER_BAR_TAG,
+    SUPERVISOR_PANEL_TAG,
     CONTEXT_MENU,
     LAYER_RENAME_MODAL,
 )
@@ -649,26 +651,15 @@ class DisplayEngine:
         self.redraw()
 
     def _maybe_launch_backend(self, node_name: str) -> None:
-        """Ping Supervisor when the dropped MegaDesk node exposes a BE.
+        """XADD LAUNCHREQUEST when the dropped MegaDesk node exposes a BE.
 
-        The Supervisor node is special: its BE *is* the lifecycle manager, so
-        dropping it bootstraps ``python -m backend`` via its BeSpec instead of
-        ``LAUNCHREQUEST`` (which requires the Supervisor BE to already be up).
+        Supervisor BE is canvas-owned and started on canvas startup — it is no
+        longer a Catalog node.
         """
         if not fe_has_backend(node_name):
             return
         try:
-            from megadesk_contracts import SUPERVISOR_NODE_NAME, SupervisorClient, ensure_supervisor_running
-
-            if node_name == SUPERVISOR_NODE_NAME:
-                ok = ensure_supervisor_running()
-                if not ok:
-                    log.error(
-                        "Failed to start Supervisor BE for drop of %s "
-                        "(see Nodes/Supervisor/logs/supervisor/supervisor.log)",
-                        node_name,
-                    )
-                return
+            from megadesk_contracts import SupervisorClient
 
             client = SupervisorClient()
             if not client.redis_ok():
@@ -680,7 +671,7 @@ class DisplayEngine:
             if not client.backend_ok():
                 log.warning(
                     "Skip BE launch for %s: Supervisor BE not alive "
-                    "(drop supervisor first or Start BE)",
+                    "(canvas should start it on launch; use Supervisor panel Start BE)",
                     node_name,
                 )
                 return
