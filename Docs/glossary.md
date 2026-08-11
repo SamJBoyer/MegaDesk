@@ -11,4 +11,10 @@ Node_protocol: the protocol by which the Canvas discovers, setups, and tears dow
 
 Supervisor: Canvas-owned process lifecycle manager under `MegaDesk-Canvas/supervisor/`. BE: `python -m supervisor` (bootstrap via `ensure_supervisor_running()`). FE: collapsible panel. Redis: streams on DB 0; singleton / alive / RUNNINGNODES on DB 1.
 
+MissionControl: FE + BE node under `Nodes/MissionControl/`. FE is the Floor monitor panel. BE is MissionControlManager (`python -m MissionControlManager`), which consumes Redis `WORKORDER` (consumer group `mission_control`) and launches AgentHandler Docker sandboxes. Discovery key / `FeSpec.name` / `BeSpec.name`: `mission_control`.
+
+AgentHandler: One-shot sandbox worker (`python -m AgentHandler`) started by MissionControlManager. Reads Redis hash `AGENTHANDLER:<GUID>`, loads ticket details from `WORKORDER` via `ticket_id`, runs a Cursor agent on the mounted Floor worktree, then publishes `FINISHED:<REPO>` and deletes the hash.
+
+Floor: Git worktree farm under MissionControl (`Floor/<repo>/.bare` plus `wt/dev`, `wt/agents`, `wt/tickets/<ticket>`). Ticket branches are created from `agents`.
+
 </Terms>

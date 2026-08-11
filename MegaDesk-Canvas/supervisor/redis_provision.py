@@ -1,7 +1,7 @@
 """Attach to localhost Redis or provision Docker Redis + Insights.
 
 Redis databases:
-  db0 — ephemeral control plane (LAUNCHREQUEST / KILLREQUEST / NODEEXIT, Plant streams)
+  db0 — ephemeral control plane (LAUNCHREQUEST / KILLREQUEST / NODEEXIT, MissionControl streams)
   db1 — persistent supervisor state (singleton, RUNNINGNODES, alive heartbeat)
 """
 

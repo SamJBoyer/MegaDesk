@@ -15,7 +15,7 @@ Individual modules:
   - Supervisor (`MegaDesk-Canvas/supervisor/`): Canvas infrastructure — process lifecycle manager (`LAUNCHREQUEST` / `KILLREQUEST` / `RUNNINGNODES`; Redis DB 0 streams, DB 1 persistent keys). Not a Catalog node.
 
 - Nodes (`Nodes/`): productivity nodes installed via `pip install -e Nodes/<name>` (or `.[canvas]` where noted).
-  - Plant: FE + BE node — Redis WORKORDER poller that launches Docker agent sandboxes, plus Floor monitor panel.
+  - MissionControl: FE + BE node — Redis WORKORDER poller that launches Docker agent sandboxes, plus Floor monitor panel.
   - MergeManager: FE-only Dear PyGui tool that merges finished worktrees into the agents branch.
   - TicketDispatcher: FE-only Dear PyGui tool that lists `agent-ready` GitHub issues and publishes WORKORDERs.
 

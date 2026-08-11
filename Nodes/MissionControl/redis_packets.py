@@ -1,26 +1,13 @@
 """Standard Redis packet shapes (MissionControl/prompt2).
 
-Streams / hashes used across MissionControl, TicketDispatcher, and MergeManager:
-
 (STREAM) WORKORDER
-  - repo
-  - URL
-  - new_wt        "true" | "false"
-  - wt            absolute path when new_wt is false
-  - ticket_name
-  - instructions
-  - model         default "auto"
+  - repo, URL, new_wt, wt, ticket_name, instructions, model
 
 (HASH) AGENTHANDLER:<GUID>
-  - ticket_id     WORKORDER stream id
-  - status
-  - error
+  - ticket_id, status, error
 
 (STREAM) FINISHED:<REPO>
-  - ticket_name
-  - ticket_id
-  - wt            absolute path to ticket worktree
-  - agent_dir     absolute path to agents worktree
+  - ticket_name, ticket_id, wt, agent_dir
 """
 
 from __future__ import annotations
@@ -78,7 +65,6 @@ def workorder_fields(
     model: str = DEFAULT_MODEL,
     wt: str = "",
 ) -> dict[str, str]:
-    """Build a WORKORDER stream entry (all values are strings for Redis)."""
     fields = {
         "repo": str(repo).strip(),
         "URL": str(url).strip(),
@@ -100,7 +86,6 @@ def workorder_fields(
 
 
 def parse_workorder(fields: Mapping[str, Any]) -> dict[str, Any]:
-    """Parse WORKORDER stream fields into a normalized dict."""
     repo = fields.get("repo") or fields.get("REPO")
     url = fields.get("URL") or fields.get("url") or ""
     ticket_name = (
@@ -141,7 +126,6 @@ def finished_fields(
     wt: str,
     agent_dir: str,
 ) -> dict[str, str]:
-    """Build a FINISHED:<REPO> stream entry."""
     fields = {
         "ticket_name": str(ticket_name).strip(),
         "ticket_id": str(ticket_id).strip(),
@@ -155,7 +139,6 @@ def finished_fields(
 
 
 def parse_finished(fields: Mapping[str, Any]) -> dict[str, str]:
-    """Parse FINISHED:<REPO> stream fields into a normalized dict."""
     ticket_name = fields.get("ticket_name") or fields.get("ticket") or ""
     ticket_id = fields.get("ticket_id") or ""
     wt = fields.get("wt") or fields.get("workpath") or ""
@@ -178,7 +161,6 @@ def agent_handler_fields(
     status: str = "",
     error: str = "",
 ) -> dict[str, str]:
-    """Build an AGENTHANDLER:<GUID> hash."""
     if not str(ticket_id).strip():
         raise ValueError("AGENTHANDLER requires ticket_id")
     return {
@@ -206,23 +188,3 @@ def load_workorder(redis: Any, ticket_id: str) -> dict[str, Any]:
         raise LookupError(f"WORKORDER entry {ticket_id!r} not found")
     _entry_id, fields = rows[0]
     return parse_workorder(fields)
-
-
-def merge_workorder_instructions(
-    *,
-    repo: str,
-    wt: str,
-    agent_dir: str,
-    ticket_name: str,
-) -> str:
-    """Instructions published when a local merge hits conflicts."""
-    return (
-        f"Resolve merge conflicts for ticket {ticket_name!r} in repo {repo}.\n\n"
-        f"Context:\n"
-        f"- Ticket worktree (absolute path): {wt}\n"
-        f"- Agents worktree (absolute path): {agent_dir}\n"
-        f"- new_wt is false; work in the existing worktree at the mounted path.\n"
-        f"- Cleanly merge the ticket branch into agents.\n"
-        f"- Resolve every conflict carefully and leave agents buildable.\n"
-        f"- Commit the merge with a clear message naming the ticket and what was merged.\n"
-    )
