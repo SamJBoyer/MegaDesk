@@ -7,10 +7,7 @@ import logging
 import os
 from pathlib import Path
 
-from MissionControlManager.env import load_mission_control_env
 from MissionControlManager.pool import IMAGE_NAME, build_image
-
-load_mission_control_env()
 
 
 def project_root() -> Path:

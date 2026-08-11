@@ -10,10 +10,6 @@ import sys
 import threading
 from pathlib import Path
 
-from MissionControlManager.env import load_mission_control_env
-
-load_mission_control_env()
-
 log = logging.getLogger("pool")
 
 IMAGE_NAME = os.environ.get("MISSION_CONTROL_IMAGE", "mission-control-agent:latest")

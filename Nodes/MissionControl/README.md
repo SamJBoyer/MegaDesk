@@ -33,17 +33,15 @@ cd C:\Users\GoodSirington\Desktop\MissionControl
 pip install -r requirements.txt
 ```
 
-Create a `.env` in the project root (gitignored):
+Set `CURSOR_API_KEY` in the process environment (User-level so MegaDesk/Supervisor inherit it). PowerShell:
 
-```env
-CURSOR_API_KEY=cursor_...
+```powershell
+[System.Environment]::SetEnvironmentVariable("CURSOR_API_KEY", "cursor_...", "User")
 ```
 
-Optional:
+Restart MegaDesk (and the terminal/IDE that launched it) after setting a User env var.
 
-```env
-REDIS_URL=redis://localhost:6379/0
-```
+Optional: `REDIS_URL` (default `redis://localhost:6379/0`).
 
 ## Build the agent image
 
@@ -130,7 +128,6 @@ Floor/
 | `redis_packets.py` | Shared Redis field builders/parsers |
 | `Dockerfile` | Sandbox image; entrypoint `python -m AgentHandler` |
 | `Floor/` | Local bare clones + worktrees (gitignored) |
-| `.env` | Secrets (gitignored) |
 
 ## Notes
 

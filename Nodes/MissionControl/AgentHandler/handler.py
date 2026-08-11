@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from cursor_sdk import Agent, CursorAgentError, LocalAgentOptions
-from dotenv import load_dotenv
 from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
@@ -25,10 +24,6 @@ from redis_packets import (
     load_workorder,
     parse_agent_handler,
 )
-
-# Load MissionControl/.env when present (does not override existing env vars).
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(_PROJECT_ROOT / ".env", override=False)
 
 log = logging.getLogger("agent_handler")
 

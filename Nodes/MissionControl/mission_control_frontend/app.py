@@ -15,7 +15,6 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
-from MissionControlManager.env import load_mission_control_env
 from MissionControlManager.floor import default_floor
 from redis_packets import (
     AGENTHANDLER_PREFIX,
@@ -23,8 +22,6 @@ from redis_packets import (
     parse_agent_handler,
     parse_workorder,
 )
-
-load_mission_control_env()
 
 POLL_INTERVAL_SEC = 1.5
 DEFAULT_REDIS_URL = "redis://localhost:6379/0"

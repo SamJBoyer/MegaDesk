@@ -6,8 +6,8 @@
       "nickname": "merge_manager",
       "node_name": "merge_manager",
       "position": [
-        1010.0,
-        473.0
+        767.0,
+        534.0
       ],
       "scale": [
         1.0,
@@ -22,36 +22,14 @@
         "gui_open": true
       }
     },
-    "436c3435-d575-47b4-8efc-bb1b32a20760": {
-      "canvas_id": "436c3435-d575-47b4-8efc-bb1b32a20760",
-      "type": "megadesk",
-      "nickname": "mission_control",
-      "node_name": "mission_control",
-      "position": [
-        1117.0,
-        -45.0
-      ],
-      "scale": [
-        1.0,
-        1.0
-      ],
-      "parents": [],
-      "children": [],
-      "data": {
-        "width": 520.0,
-        "height": 400.0,
-        "node_name": "mission_control",
-        "gui_open": true
-      }
-    },
     "f60829b6-d591-4a8c-ab72-7bf494eb7928": {
       "canvas_id": "f60829b6-d591-4a8c-ab72-7bf494eb7928",
       "type": "megadesk",
       "nickname": "ticket_dispatcher",
       "node_name": "ticket_dispatcher",
       "position": [
-        565.0,
-        338.0
+        551.0,
+        212.0
       ],
       "scale": [
         1.0,
@@ -63,6 +41,28 @@
         "width": 480.0,
         "height": 160.0,
         "node_name": "ticket_dispatcher",
+        "gui_open": true
+      }
+    },
+    "48e5ab77-69b4-421a-a48e-ed464a7603f1": {
+      "canvas_id": "48e5ab77-69b4-421a-a48e-ed464a7603f1",
+      "type": "megadesk",
+      "nickname": "mission_control",
+      "node_name": "mission_control",
+      "position": [
+        1066.0,
+        55.0
+      ],
+      "scale": [
+        1.0,
+        1.0
+      ],
+      "parents": [],
+      "children": [],
+      "data": {
+        "width": 520.0,
+        "height": 400.0,
+        "node_name": "mission_control",
         "gui_open": true
       }
     }
