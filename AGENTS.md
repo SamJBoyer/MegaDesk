@@ -13,11 +13,11 @@ We use different REDIS database for different levels of persistence. DB 0 is ter
 
 
 
-**DB 0 (ephemeral)** — streams / Plant default traffic:
+**DB 0 (ephemeral)** — streams / MissionControl default traffic:
 - **LAUNCHREQUEST** — consume `node_endpoint` (+ `parameters`, currently always `""`); discover BE via `MegaDesk.nodes` → `BeSpec`; `Popen` with `MEGADESK_*` env
 - **KILLREQUEST** — match `node_endpoint` + `unique_id`, graceful→force shutdown, `DEL` the RUNNINGNODES hash
 - **NODEEXIT** — published on natural exit (metadata only; no log bodies)
-- Plant `WORKORDER` / `LIVEHARNESS` / `FINISHED` also live here (`redis://localhost:6379/0`)
+- MissionControl `WORKORDER` / `AGENTHANDLER` / `FINISHED` also live here (`redis://localhost:6379/0`)
 
 **DB 1 (persistent):**
 - **GBD:SUPERVISOR:SINGLETON** — one-BE lock

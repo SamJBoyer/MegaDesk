@@ -32,7 +32,7 @@ UUID for this launch
 Identifies this instance (matches RUNNINGNODES:<unique_id>)
 MEGADESK_NODE
 BeSpec.name
-Node nickname (e.g. plant)
+Node nickname (e.g. mission_control)
 MEGADESK_LOG_PATH
 Absolute path to MegaDesk-Canvas/logs/<endpoint>/<unique_id>.log
 Where stdout/stderr are already redirected

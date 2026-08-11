@@ -26,7 +26,7 @@ from megadesk_contracts import FeSpec, BeSpec, Mode, frame_pump, SupervisorClien
 |------|----------|
 | [`megadesk_contracts/`](megadesk_contracts/) | Installable Python package (`megadesk-contracts`) |
 | [`redis/README.md`](redis/README.md) | Connection defaults, DB split, encoding rules, package index |
-| [`redis/plant-pipeline.md`](redis/plant-pipeline.md) | `WORKORDER` → `LIVEHARNESS:<GUID>` → `FINISHED:<REPO>` |
+| [`redis/mission-control-pipeline.md`](redis/mission-control-pipeline.md) | `WORKORDER` → `AGENTHANDLER:<GUID>` → `FINISHED:<REPO>` |
 | [`redis/supervisor.md`](redis/supervisor.md) | Supervisor streams (DB 0), `RUNNINGNODES` / singleton / alive (DB 1) |
 
 ## Modules that speak Redis
@@ -34,8 +34,8 @@ from megadesk_contracts import FeSpec, BeSpec, Mode, frame_pump, SupervisorClien
 | Module | Role |
 |--------|------|
 | **TicketDispatcher** | Publishes `WORKORDER` (`new_wt=true`) on DB 0 |
-| **Plant / PlantManager** | Consumes `WORKORDER`; writes `LIVEHARNESS:<GUID>` on DB 0 |
-| **Plant / LiveHarness** | Reads harness hash + `WORKORDER`; publishes `FINISHED:<REPO>` on DB 0 |
+| **MissionControl / MissionControlManager** | Consumes `WORKORDER`; writes `AGENTHANDLER:<GUID>` on DB 0 |
+| **MissionControl / AgentHandler** | Reads `AGENTHANDLER:<GUID>` + `WORKORDER`; publishes `FINISHED:<REPO>` on DB 0 |
 | **MergeManager** | Consumes `FINISHED:<REPO>`; may republish conflict `WORKORDER`s (`new_wt=false`) on DB 0 |
 | **Supervisor** (Canvas-owned, `MegaDesk-Canvas/supervisor/`) | Consumes `LAUNCHREQUEST` / `KILLREQUEST` on DB 0; writes `RUNNINGNODES:<unique_id>` + singleton/alive on DB 1. Bootstrapped by canvas startup via `ensure_supervisor_running()` — not a Catalog node. |
 | **MegaDesk canvas (`MegaDesk-Canvas/`)** | On canvas drop of a MegaDesk FE that also exposes a BE, `XADD`s `LAUNCHREQUEST` |

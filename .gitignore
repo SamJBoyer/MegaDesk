@@ -51,8 +51,8 @@ ehthumbs.db
 *.tmp
 *.bak
 
-# Plant Floor worktrees (bare clones + checkouts)
-Nodes/Plant/Floor/
+# MissionControl Floor worktrees (bare clones + checkouts)
+Nodes/MissionControl/Floor/
 
 # Docker / local runtime leftovers
 .docker/

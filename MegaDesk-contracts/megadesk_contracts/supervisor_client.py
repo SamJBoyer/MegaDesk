@@ -1,7 +1,7 @@
 """Thin Redis stream client for Supervisor LAUNCHREQUEST / KILLREQUEST.
 
 Redis databases:
-  db0 — ephemeral streams (LAUNCHREQUEST / KILLREQUEST / NODEEXIT, Plant traffic)
+  db0 — ephemeral streams (LAUNCHREQUEST / KILLREQUEST / NODEEXIT, MissionControl traffic)
   db1 — persistent supervisor state (singleton, RUNNINGNODES, alive heartbeat)
 """
 

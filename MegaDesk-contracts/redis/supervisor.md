@@ -17,7 +17,7 @@ Node backends are discovered from installed `MegaDesk.nodes` entry points via
 `get_exec_spec("BE")` → `BeSpec` (argv + optional cwd). There are no YAML
 manifests. Launch `parameters` are present on the wire but currently always `""`.
 
-This family is independent of the Plant pipeline streams, but shares the same
+This family is independent of the MissionControl pipeline streams, but shares the same
 localhost Redis server (different DB indexes).
 
 There is **no** request/response ack path. Producers `XADD` and move on;
@@ -35,7 +35,7 @@ Constants live in `megadesk_contracts.supervisor_client`:
 
 | DB | Role |
 |----|------|
-| `0` (ephemeral) | `LAUNCHREQUEST`, `KILLREQUEST`, `NODEEXIT`; Plant pipeline traffic |
+| `0` (ephemeral) | `LAUNCHREQUEST`, `KILLREQUEST`, `NODEEXIT`; MissionControl pipeline traffic |
 | `1` (persistent) | `GBD:SUPERVISOR:SINGLETON`, `GBD:SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>` |
 
 Launch contract for BE nodes:
@@ -101,7 +101,7 @@ optional Insight on `5540`) happens inside the Supervisor BE — see
 ### Example
 
 ```text
-XADD LAUNCHREQUEST * node_endpoint plant parameters ""
+XADD LAUNCHREQUEST * node_endpoint mission_control parameters ""
 ```
 
 ---
@@ -134,7 +134,7 @@ XADD LAUNCHREQUEST * node_endpoint plant parameters ""
 ### Example
 
 ```text
-XADD KILLREQUEST * node_endpoint plant unique_id 3f2a9c1e-…
+XADD KILLREQUEST * node_endpoint mission_control unique_id 3f2a9c1e-…
 ```
 
 ---
@@ -171,9 +171,9 @@ clears it. Intentional kill always `DEL`s the hash.
 ### Example
 
 ```text
-HSET RUNNINGNODES:3f2a9c1e-… node_endpoint plant unique_id 3f2a9c1e-…
+HSET RUNNINGNODES:3f2a9c1e-… node_endpoint mission_control unique_id 3f2a9c1e-…
   parameters "" PID 12345 status running
-  log_path C:/…/MegaDesk-Canvas/logs/plant/3f2a9c1e-….log
+  log_path C:/…/MegaDesk-Canvas/logs/mission_control/3f2a9c1e-….log
   launched_at 2026-08-06T20:00:00+00:00 exit_code "" exited_at ""
 ```
 
@@ -204,8 +204,8 @@ Metadata only — **never** log line bodies.
 ### Example
 
 ```text
-XADD NODEEXIT * unique_id 3f2a9c1e-… node_endpoint plant
-  exit_code 1 log_path C:/…/MegaDesk-Canvas/logs/plant/3f2a9c1e-….log
+XADD NODEEXIT * unique_id 3f2a9c1e-… node_endpoint mission_control
+  exit_code 1 log_path C:/…/MegaDesk-Canvas/logs/mission_control/3f2a9c1e-….log
   exited_at 2026-08-06T20:01:00+00:00
 ```
 

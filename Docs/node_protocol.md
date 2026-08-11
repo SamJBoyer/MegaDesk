@@ -54,7 +54,7 @@ Examples in-repo:
 
 | Node | Entry point | Modes |
 |------|-------------|-------|
-| Plant | `plant` | FE + BE |
+| MissionControl | `mission_control` | FE + BE |
 | MergeManager | `merge_manager` | FE only |
 | TicketDispatcher | `ticket_dispatcher` | FE only |
 
@@ -148,14 +148,14 @@ from megadesk_contracts import BeSpec, Mode
 def get_exec_spec(mode: Mode):
     if mode == "BE":
         return BeSpec(
-            name="plant",
-            argv=[sys.executable, "-u", "-m", "PlantManager"],
+            name="mission_control",
+            argv=[sys.executable, "-u", "-m", "MissionControlManager"],
             cwd=str(package_root),
         )
     return None
 ```
 
-FE+BE example: return `FeSpec` for `"FE"` and `BeSpec` for `"BE"` from the same function (see `Nodes/Plant/plant_node.py`).
+FE+BE example: return `FeSpec` for `"FE"` and `BeSpec` for `"BE"` from the same function (see `Nodes/MissionControl/mission_control_node.py`).
 
 ---
 
@@ -192,7 +192,7 @@ pip install -e MegaDesk-contracts
 pip install -e MegaDesk-Canvas
 pip install -e Nodes/TicketDispatcher   # FE example
 pip install -e Nodes/MergeManager       # FE example
-pip install -e Nodes/Plant              # FE + BE example
+pip install -e Nodes/MissionControl     # FE + BE example
 python main.py   # from MegaDesk-Canvas/ — starts Supervisor BE on launch
 ```
 
