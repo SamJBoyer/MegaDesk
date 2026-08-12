@@ -187,14 +187,16 @@ Related public helpers (same package): `SupervisorClient`, `ensure_supervisor_ru
 Canvas-side install (also summarized in `MegaDesk-Canvas/readme.md`):
 
 ```bash
-conda activate <MegaDesk-env>
+conda activate MEGADESK
 pip install -e MegaDesk-contracts
 pip install -e MegaDesk-Canvas
 pip install -e Nodes/TicketDispatcher   # FE example
 pip install -e Nodes/MergeManager       # FE example
-pip install -e Nodes/MissionControl     # FE + BE example
+pip install -e Nodes/MissionControl[canvas]     # FE + BE example
 python main.py   # from MegaDesk-Canvas/ — starts Supervisor BE on launch
 ```
+
+To reinstall every node from scratch, run `scripts/refresh_nodes.sh` in git bash — it uninstalls and editable-reinstalls each `Nodes/<Name>/` into `MEGADESK`, then verifies discovery.
 
 ### Hosted shell (`MegaDeskMember`)
 
@@ -262,6 +264,6 @@ Typical Redis path after an FE drop that also has a BE:
 1. Create `Nodes/<Name>/` with `pyproject.toml` depending on `megadesk-contracts`.
 2. Add `<name>_node.py` with `get_exec_spec(mode)` returning `FeSpec` and/or `BeSpec`.
 3. Register `[project.entry-points."MegaDesk.nodes"]`.
-4. `pip install -e Nodes/<Name>` (add `[canvas]` / Dear PyGui if the node has an FE).
+4. `pip install -e Nodes/<Name>` (add `[canvas]` / Dear PyGui if the node has an FE), or run `scripts/refresh_nodes.sh`, which picks the new node up automatically.
 5. Restart MegaDesk so entry points are re-scanned (Supervisor BE starts with the canvas).
 6. FE appears in Catalog; BE is launchable by endpoint once the Supervisor BE is alive.

@@ -5,4 +5,4 @@ Summary: MegaDesk FE node: dispatch agent-ready GitHub issues
 Requires-Python: >=3.10
 Requires-Dist: dearpygui>=1.11.1
 Requires-Dist: redis>=5.0.0
-Requires-Dist: megadesk
+Requires-Dist: megadesk-contracts

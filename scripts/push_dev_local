@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# Ground truth: publish local dev onto the remote branch that agents work from.
+set -euo pipefail
+
+REMOTE="origin"
+SOURCE_BRANCH="dev"
+AGENT_BRANCH="agents"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_ROOT"
+
+if ! git remote get-url "$REMOTE" >/dev/null 2>&1; then
+    echo "error: no remote '$REMOTE' in $REPO_ROOT" >&2
+    exit 1
+fi
+
+if ! git rev-parse --verify --quiet "refs/heads/$SOURCE_BRANCH" >/dev/null; then
+    echo "error: no local '$SOURCE_BRANCH' branch in $REPO_ROOT" >&2
+    exit 1
+fi
+
+if [ "$(git rev-parse --abbrev-ref HEAD)" = "$AGENT_BRANCH" ]; then
+    echo "error: '$AGENT_BRANCH' is checked out; switch to '$SOURCE_BRANCH' first" >&2
+    exit 1
+fi
+
+DIRTY="$(git status --porcelain --untracked-files=no)"
+if [ -n "$DIRTY" ]; then
+    echo "warning: uncommitted changes are NOT published:" >&2
+    printf '%s\n' "$DIRTY" | sed 's/^/         /' >&2
+fi
+
+echo "==> fetching $REMOTE"
+git fetch --prune "$REMOTE"
+git worktree prune
+
+DEV_SHA="$(git rev-parse "$SOURCE_BRANCH")"
+
+echo "==> pushing $SOURCE_BRANCH -> $REMOTE/$SOURCE_BRANCH"
+git push "$REMOTE" "$SOURCE_BRANCH:refs/heads/$SOURCE_BRANCH"
+
+if ! git rev-parse --verify --quiet "refs/remotes/$REMOTE/$AGENT_BRANCH" >/dev/null; then
+    echo "==> creating $REMOTE/$AGENT_BRANCH from $SOURCE_BRANCH"
+    git push "$REMOTE" "$SOURCE_BRANCH:refs/heads/$AGENT_BRANCH"
+    RESULT_SHA="$DEV_SHA"
+else
+    AGENT_SHA="$(git rev-parse "$REMOTE/$AGENT_BRANCH")"
+    if [ "$AGENT_SHA" = "$DEV_SHA" ]; then
+        echo "==> $REMOTE/$AGENT_BRANCH already matches $SOURCE_BRANCH"
+        RESULT_SHA="$DEV_SHA"
+    elif git merge-base --is-ancestor "$AGENT_SHA" "$DEV_SHA"; then
+        echo "==> fast-forwarding $REMOTE/$AGENT_BRANCH to $SOURCE_BRANCH"
+        git push "$REMOTE" "$SOURCE_BRANCH:refs/heads/$AGENT_BRANCH"
+        RESULT_SHA="$DEV_SHA"
+    else
+        # Merge in a scratch worktree so the checked-out dev tree is never disturbed.
+        TMP_DIR="$(mktemp -d)"
+        WORKTREE="$TMP_DIR/$AGENT_BRANCH"
+        cleanup() {
+            git worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
+            rm -rf "$TMP_DIR"
+        }
+        trap cleanup EXIT
+
+        echo "==> merging $SOURCE_BRANCH into $REMOTE/$AGENT_BRANCH"
+        git worktree add --detach "$WORKTREE" "$AGENT_SHA" >/dev/null
+        if ! git -C "$WORKTREE" merge -m "Merge $SOURCE_BRANCH into $AGENT_BRANCH" "$DEV_SHA"; then
+            git -C "$WORKTREE" merge --abort >/dev/null 2>&1 || true
+            echo "error: $SOURCE_BRANCH does not merge cleanly into $REMOTE/$AGENT_BRANCH; resolve it manually" >&2
+            exit 1
+        fi
+        RESULT_SHA="$(git -C "$WORKTREE" rev-parse HEAD)"
+        git -C "$WORKTREE" push "$REMOTE" "HEAD:refs/heads/$AGENT_BRANCH"
+    fi
+fi
+
+echo "==> verifying"
+git fetch --quiet "$REMOTE" "$AGENT_BRANCH"
+REMOTE_SHA="$(git rev-parse FETCH_HEAD)"
+if [ "$REMOTE_SHA" != "$RESULT_SHA" ]; then
+    echo "error: $REMOTE/$AGENT_BRANCH is $REMOTE_SHA, expected $RESULT_SHA" >&2
+    exit 1
+fi
+if ! git merge-base --is-ancestor "$DEV_SHA" "$REMOTE_SHA"; then
+    echo "error: $REMOTE/$AGENT_BRANCH does not contain $SOURCE_BRANCH" >&2
+    exit 1
+fi
+
+# Only advance the local agents ref; never discard local agents commits.
+if ! git rev-parse --verify --quiet "refs/heads/$AGENT_BRANCH" >/dev/null; then
+    git update-ref "refs/heads/$AGENT_BRANCH" "$RESULT_SHA"
+elif git merge-base --is-ancestor "$(git rev-parse "$AGENT_BRANCH")" "$RESULT_SHA"; then
+    git update-ref "refs/heads/$AGENT_BRANCH" "$RESULT_SHA"
+else
+    echo "warning: local '$AGENT_BRANCH' has commits not in $REMOTE/$AGENT_BRANCH; left unchanged" >&2
+fi
+
+echo "==> $REMOTE/$AGENT_BRANCH at $(git rev-parse --short "$REMOTE_SHA") contains $SOURCE_BRANCH $(git rev-parse --short "$DEV_SHA")"

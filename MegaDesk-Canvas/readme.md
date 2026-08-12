@@ -9,7 +9,7 @@ entry. Managed BE logs land under `logs/<endpoint>/<unique_id>.log`.
 Install and run from this directory (after installing contracts):
 
 ```bash
-conda activate <MegaDesk-env>
+conda activate MEGADESK
 pip install -e ../MegaDesk-contracts
 pip install -e .
 python main.py

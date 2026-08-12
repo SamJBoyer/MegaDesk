@@ -10,7 +10,7 @@ Implementation helpers live in module-local `redis_packets.py` files; when those
 ## Install
 
 ```bash
-conda activate <MegaDesk-env>
+conda activate MEGADESK
 pip install -e MegaDesk-contracts
 ```
 

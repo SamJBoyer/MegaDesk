@@ -1,0 +1,32 @@
+{
+    "python.defaultInterpreterPath": "C:/Users/GoodSirington/anaconda3/envs/MEGADESK/python.exe",
+    "python.terminal.activateEnvironment": true,
+    "terminal.integrated.defaultProfile.windows": "PowerShell (MEGADESK)",
+    "terminal.integrated.profiles.windows": {
+        "PowerShell (MEGADESK)": {
+            "path": "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+            "args": [
+                "-NoExit",
+                "-Command",
+                "& 'C:\\Users\\GoodSirington\\anaconda3\\shell\\condabin\\conda-hook.ps1' ; conda activate 'MEGADESK'"
+            ],
+            "icon": "terminal-powershell"
+        },
+        "Command Prompt (MEGADESK)": {
+            "path": "C:\\Windows\\System32\\cmd.exe",
+            "args": [
+                "/K",
+                "call C:\\Users\\GoodSirington\\anaconda3\\condabin\\conda.bat activate MEGADESK"
+            ],
+            "icon": "terminal-cmd"
+        },
+        "Git Bash (MEGADESK)": {
+            "path": "C:\\Program Files\\Git\\bin\\bash.exe",
+            "args": [
+                "-c",
+                "source 'C:/Users/GoodSirington/anaconda3/etc/profile.d/conda.sh' && conda activate MEGADESK; exec bash --login -i"
+            ],
+            "icon": "terminal-bash"
+        }
+    }
+}

@@ -20,3 +20,12 @@ Individual modules:
   - TicketDispatcher: FE-only Dear PyGui tool that lists `agent-ready` GitHub issues and publishes WORKORDERs.
 
 Shared contract: installable `megadesk-contracts` package in `MegaDesk-contracts/` (`FeSpec` / `BeSpec`, entry-point discovery, Supervisor client). Redis IPC docs live alongside it (DB 0 ephemeral / DB 1 Supervisor persistent).
+
+## Environment
+
+Project env is the conda env `MEGADESK` (Python 3.13, at `anaconda3/envs/MEGADESK`) with all packages pip-installed `-e`. `.vscode/settings.json` auto-activates it in every Cursor-integrated terminal (PowerShell, Command Prompt, Git Bash) — new terminals start with `(MEGADESK)` already active. To activate it manually elsewhere: `conda activate MEGADESK`. To reinstall all Nodes from scratch, run `scripts/refresh_nodes` (Git Bash).
+
+## Scripts (`scripts/`, run in git bash)
+
+- `refresh_nodes.sh` — uninstalls every node under `Nodes/` from `MEGADESK` and reinstalls it editable, then verifies entry-point discovery.
+- `push_dev_local.sh` — pushes local `dev` to `origin/dev` and merges it into `origin/agents`, the branch agents work from.

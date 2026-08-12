@@ -20,7 +20,7 @@ REDIS_HOST = "localhost"
 REDIS_PORT = 6379
 REDIS_STREAM_KEY = "WORKORDER"
 DEFAULT_MODEL = "auto"
-MODEL_OPTIONS = ("auto", "cursor-grok-4.5-high")
+MODEL_OPTIONS = ("auto", "grok-4.5")
 GH_TIMEOUT_SEC = 15
 
 COLOR_GREEN = (80, 200, 80, 255)

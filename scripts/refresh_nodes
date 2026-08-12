@@ -1,0 +1,137 @@
+#!/usr/bin/env bash
+# Ground truth: return the MEGADESK conda env to a known-good Node install state.
+set -euo pipefail
+
+ENV_NAME="MEGADESK"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+resolve_conda_base() {
+    if command -v conda >/dev/null 2>&1; then
+        conda info --base 2>/dev/null | tr -d '\r'
+        return
+    fi
+    local candidate
+    for candidate in "$HOME/anaconda3" "$HOME/miniconda3" "/c/ProgramData/anaconda3" "/c/ProgramData/miniconda3"; do
+        if [ -d "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return
+        fi
+    done
+}
+
+CONDA_BASE="$(resolve_conda_base)"
+if [ -n "$CONDA_BASE" ] && command -v cygpath >/dev/null 2>&1; then
+    CONDA_BASE="$(cygpath -u "$CONDA_BASE")"
+fi
+PY="${CONDA_BASE:-}/envs/$ENV_NAME/python.exe"
+
+if [ -z "$CONDA_BASE" ] || [ ! -f "$PY" ]; then
+    echo "error: $ENV_NAME interpreter not found (looked for '$PY')" >&2
+    echo "       create it with: conda create -y -n $ENV_NAME python=3.13" >&2
+    exit 1
+fi
+
+echo "==> env $ENV_NAME ($PY)"
+
+if ! "$PY" -c "import megadesk_contracts" >/dev/null 2>&1; then
+    echo "error: megadesk-contracts is not installed in $ENV_NAME; nodes cannot resolve their contract" >&2
+    echo "       run: '$PY' -m pip install -e '$REPO_ROOT/MegaDesk-contracts'" >&2
+    exit 1
+fi
+
+# Only immediate subdirectories of Nodes/ are real nodes; Nodes/*/Floor/ holds repo clones.
+node_specs() {
+    "$PY" - "$REPO_ROOT/Nodes" <<'PY'
+import sys
+import tomllib
+from pathlib import Path
+
+SKIP_EXTRAS = {"dev", "test", "tests", "docs", "lint", "sandbox"}
+
+for pyproject in sorted(Path(sys.argv[1]).glob("*/pyproject.toml")):
+    project = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("project", {})
+    name = project.get("name")
+    if not name:
+        continue
+    extras = sorted(
+        e for e in project.get("optional-dependencies", {}) if e.lower() not in SKIP_EXTRAS
+    )
+    endpoints = project.get("entry-points", {}).get("MegaDesk.nodes", {})
+    print(f"{pyproject.parent.as_posix()}|{name}|{','.join(extras)}|{','.join(sorted(endpoints))}")
+PY
+}
+
+SPECS=()
+while IFS= read -r line; do
+    line="${line%$'\r'}"
+    [ -n "$line" ] && SPECS+=("$line")
+done < <(node_specs)
+
+if [ "${#SPECS[@]}" -eq 0 ]; then
+    echo "error: no installable nodes found under $REPO_ROOT/Nodes" >&2
+    exit 1
+fi
+
+EXPECTED=()
+for spec in "${SPECS[@]}"; do
+    IFS='|' read -r _dir dist _extras endpoints <<<"$spec"
+    EXPECTED+=("$dist")
+    IFS=',' read -ra eps <<<"$endpoints"
+    for ep in "${eps[@]}"; do
+        [ -n "$ep" ] && EXPECTED+=("$ep")
+    done
+done
+
+for spec in "${SPECS[@]}"; do
+    IFS='|' read -r _dir dist _extras _endpoints <<<"$spec"
+    echo "==> uninstalling $dist"
+    "$PY" -m pip uninstall -y "$dist" >/dev/null 2>&1 || true
+done
+
+for spec in "${SPECS[@]}"; do
+    IFS='|' read -r dir _dist _extras _endpoints <<<"$spec"
+    rm -rf "$dir"/*.egg-info "$dir/build"
+done
+
+for spec in "${SPECS[@]}"; do
+    IFS='|' read -r dir dist extras _endpoints <<<"$spec"
+    target="$dir"
+    [ -n "$extras" ] && target="$dir[$extras]"
+    echo "==> installing $dist${extras:+ [$extras]}"
+    if ! OUT="$("$PY" -m pip install -e "$target" 2>&1)"; then
+        printf '%s\n' "$OUT" >&2
+        echo "error: install failed for $target" >&2
+        exit 1
+    fi
+done
+
+echo "==> verifying"
+"$PY" - "${EXPECTED[@]}" <<'PY'
+import sys
+from importlib.metadata import PackageNotFoundError, version
+
+import megadesk_contracts as mc
+
+frontends = sorted(mc.discover_frontends())
+backends = sorted(mc.discover_backends())
+discovered = set(frontends) | set(backends)
+
+missing = []
+for name in sys.argv[1:]:
+    if name in discovered:
+        continue
+    try:
+        version(name)
+    except PackageNotFoundError:
+        missing.append(name)
+
+print("frontends: " + ", ".join(frontends))
+print("backends:  " + ", ".join(backends))
+
+if missing:
+    print("error: missing after refresh: " + ", ".join(sorted(missing)), file=sys.stderr)
+    raise SystemExit(1)
+PY
+
+echo "==> refresh complete"

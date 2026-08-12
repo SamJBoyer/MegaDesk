@@ -37,3 +37,9 @@ MEGADESK_LOG_PATH
 Absolute path to MegaDesk-Canvas/logs/<endpoint>/<unique_id>.log
 Where stdout/stderr are already redirected
 They’re so the child process can know which instance it is and where its log file lives — useful for configure_node_logging() and any BE logic that needs instance identity. They are not Redis keys or a separate protocol; just process env.
+
+
+_____
+
+
+Complete these actions in order: 
