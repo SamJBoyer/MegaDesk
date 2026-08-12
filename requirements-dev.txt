@@ -1,0 +1,5 @@
+# Integration suite (tests/). Everything the harness itself needs is already a
+# megadesk-contracts dependency; git and a local Redis server must be on PATH.
+# Do not add pytest-xdist: one Dear PyGui context per process means the canvas
+# tests must run serially.
+pytest>=8.0

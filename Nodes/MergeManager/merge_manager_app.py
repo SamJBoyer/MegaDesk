@@ -316,18 +316,21 @@ class MergeManager:
             dpg.add_button(
                 label="testme",
                 width=55,
+                tag=self._tag(f"testme::{key}"),
                 callback=self._on_testme,
                 user_data=key,
             )
             dpg.add_button(
                 label="vscode",
                 width=55,
+                tag=self._tag(f"vscode::{key}"),
                 callback=self._on_vscode,
                 user_data=key,
             )
             dpg.add_button(
                 label="cursor",
                 width=55,
+                tag=self._tag(f"cursor::{key}"),
                 callback=self._on_cursor,
                 user_data=key,
             )

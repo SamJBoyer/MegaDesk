@@ -4,6 +4,7 @@ Central registry of MegaDesk cross-module contracts:
 
 1. **Python package `megadesk-contracts`** — installable shared library (`FeSpec` / `BeSpec`, `MegaDesk.nodes` discovery, Supervisor Redis client, Dear PyGui frame pump).
 2. **Redis docs** (`redis/`) — expected Redis package layouts and IPC conventions (DB 0 ephemeral / DB 1 persistent for Supervisor).
+3. **Test harness** (`megadesk_contracts/testing/`) — drives a real canvas in-process so integration tests can cross GUI and stream seams. See [`Docs/integration_testing.md`](../Docs/integration_testing.md).
 
 Implementation helpers live in module-local `redis_packets.py` files; when those diverge, treat this folder as the intended contract and reconcile the code.
 
@@ -25,6 +26,7 @@ from megadesk_contracts import FeSpec, BeSpec, Mode, frame_pump, SupervisorClien
 | Path | Contents |
 |------|----------|
 | [`megadesk_contracts/`](megadesk_contracts/) | Installable Python package (`megadesk-contracts`) |
+| [`megadesk_contracts/testing/`](megadesk_contracts/testing/) | `CanvasHarness`, `NodeDriver`, `GitFloor`, `FakeGh`, `FakeAgent` — imports nothing from any node |
 | [`redis/README.md`](redis/README.md) | Connection defaults, DB split, encoding rules, package index |
 | [`redis/mission-control-pipeline.md`](redis/mission-control-pipeline.md) | `WORKORDER` → `AGENTHANDLER:<GUID>` → `FINISHED:<REPO>` |
 | [`redis/supervisor.md`](redis/supervisor.md) | Supervisor streams (DB 0), `RUNNINGNODES` / singleton / alive (DB 1) |

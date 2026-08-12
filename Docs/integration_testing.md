@@ -3,9 +3,12 @@
 Plan for giving agents a way to exercise MegaDesk end-to-end through the real GUI, so
 that bugs at module interfaces get caught mechanically instead of by hand.
 
-**Status:** proposal. No code written yet. The mechanism below was verified empirically
-against the live canvas (DPG 2.3.1, Python 3.13.5); the two blockers in
-[Blockers](#blockers-found-while-verifying) are real bugs found during that verification.
+**Status:** implemented. The harness lives in
+[`MegaDesk-contracts/megadesk_contracts/testing/`](../MegaDesk-contracts/megadesk_contracts/testing/)
+and the suite in [`tests/`](../tests/); both blockers in
+[Blockers](#blockers-found-while-verifying) are fixed. See
+[Running the suite](#10-running-the-suite) for how to run it and
+[What landed](#11-what-landed) for what changed against this plan.
 
 **Scope of the first slice:** the node-to-node workflow
 `TicketDispatcher → MissionControl → MergeManager`.
@@ -71,6 +74,14 @@ bare SSH session or a standard hosted CI runner without a virtual display.
 Both are in `frame_pump`, both must be fixed before any GUI test can pass, because the
 harness drops nodes onto an empty board — precisely the trigger condition.
 
+**Both are now fixed, and both are covered.** Reintroducing either one fails 22 of the
+38 tests, including every GUI scenario. Reverting 3.1 alone reports
+`pump registered at frame 30 produced 0 ticks`; making `reset()` a no-op leaves every
+test after the first with a dead pump. Regression coverage:
+[`tests/test_frame_pump.py`](../tests/test_frame_pump.py) for the mechanism,
+`test_first_node_on_an_empty_board_still_updates` in
+[`tests/test_canvas_harness.py`](../tests/test_canvas_harness.py) for the live impact.
+
 ### 3.1 Pump arms at an absolute frame that may already be past
 
 ```22:31:MegaDesk-contracts/megadesk_contracts/frame_pump.py
@@ -101,7 +112,7 @@ first node, and that node — plus every node dropped afterward — silently nev
 It is masked today only because the committed `canvas.json` has three members, so
 `open_all_megadesk_guis()` registers at frame 0 during startup.
 
-**Fix:** arm relative, `dpg.set_frame_callback(dpg.get_frame_count() + 1, _pump)`,
+**Fixed:** armed relative, `dpg.set_frame_callback(dpg.get_frame_count() + 1, _pump)`,
 matching the re-arm line.
 
 ### 3.2 Module state outlives the DPG context
@@ -111,8 +122,9 @@ is fine (frames render, values read back), but `_armed` stays `True` and `_callb
 accumulates `1 → 2 → 3`. Cycles 2 and 3 get **0 pump ticks**, and stale callbacks from
 destroyed contexts stay registered forever, silently swallowed by the bare `except`.
 
-**Fix:** add a `frame_pump.reset()` that clears `_callbacks` and `_armed`, called on
-context teardown. Without it, tests must use one process per test.
+**Fixed:** `frame_pump.reset()` clears `_callbacks` and `_armed`, and is called on
+context teardown — by `main()` after the loop and by `CanvasHarness.shutdown()`. With it,
+38 tests share one process and each gets a live pump.
 
 ---
 
@@ -190,19 +202,28 @@ dropping `mission_control` in a test cannot spawn Docker.
 
 ## 5. Harness architecture
 
-Proposed layout, mirroring the repo's convention that shared contracts live in
+As built, mirroring the repo's convention that shared contracts live in
 `MegaDesk-contracts`:
 
 ```text
 MegaDesk-contracts/megadesk_contracts/testing/
-  harness.py        # CanvasHarness: boot / pump / wait_until / drop / screenshot
-  driver.py         # NodeDriver: tag-based read, write, click
-  fakes.py          # FakeGh, FakeAgent
-  gitfloor.py       # real local git Floor fixture
+  __init__.py           # the public surface: import everything from here
+  harness.py            # CanvasHarness: boot / pump / wait_until / drop / screenshot
+  driver.py             # NodeDriver: tag-based read, write, click
+  fakes.py              # FakeGh, FakeAgent
+  gitfloor.py           # real local git Floor fixture
 tests/
-  conftest.py       # pytest fixtures wiring the above
-  test_nodeflow.py  # the scenarios in section 6
+  conftest.py           # fixtures, sys.path order, canonical field sets
+  test_frame_pump.py    # the two blockers in section 3
+  test_canvas_harness.py# the harness reaches production code
+  test_nodeflow.py      # the scenarios in section 6
+  test_wire_contract.py # the wire format, and the two redis_packets copies
 ```
+
+`megadesk_contracts.testing` imports nothing from any node — the node-specific pieces
+(the module whose `run_gh` to patch, the wire helpers to build payloads with) are
+injected by `conftest`. Otherwise a shared runtime package would depend on the nodes
+that depend on it.
 
 ### `CanvasHarness`
 
@@ -211,12 +232,18 @@ viewport, then exposes deliberate time control.
 
 | Method | Behavior |
 |---|---|
-| `boot()` | `build_canvas(model)` with `CanvasModel(path=<tmp>)`, off-screen viewport, no Supervisor |
-| `drop(node_name)` | Calls `engine.on_canvas_drop(NODE_EDITOR, f"megadesk:{name}", None)`, returns a `NodeDriver` |
+| `boot()` | `build_canvas(model)` with `CanvasModel(path=<tmp>)`, off-screen viewport, no Supervisor panel |
+| `drop(node_name, position="auto")` | Calls `engine.on_canvas_drop(NODE_EDITOR, f"megadesk:{name}", None)`, returns a `NodeDriver`. `position` defaults to a grid slot so screenshots do not stack nodes; `None` keeps what the drop computed from the mouse |
 | `pump(n)` | `engine.sync_megadesk_nodes()` + `render_dearpygui_frame()`, n times |
-| `wait_until(pred, timeout)` | Pumps until predicate true or timeout; **raises** on timeout |
-| `screenshot(path)` | `output_frame_buffer` + pump, for agent inspection and failure artifacts |
-| `shutdown()` | `frame_pump.reset()` then `destroy_context()`; never calls `model.save()` |
+| `wait_until(pred, timeout=10)` | Pumps until predicate true or timeout; **raises** `HarnessTimeout` with a screenshot path |
+| `wait_for_widget` / `wait_for_value` | `wait_until` with a message naming the widget |
+| `screenshot(name)` | `output_frame_buffer` + pump, into the per-test artifacts directory |
+| `install_pump_probe()` | Registers a tick counter on the shared pump |
+| `clear_board()` | Deletes every member, running each FE's cleanup |
+| `shutdown()` | `clear_board()`, then `frame_pump.reset()`, then `destroy_context()` |
+
+`shutdown` clears the board before destroying the context so each FE's cleanup callable
+runs and its polling thread stops. Skipping that leaks a thread per test.
 
 `wait_until` is not optional sugar. Every FE in this chain updates through a background
 thread → `_ui_queue` → frame-pump drain, so a fixed frame count is a race. During
@@ -229,15 +256,24 @@ Wraps one hosted node's `canvas_id` and resolves `megadesk::{cid}::{suffix}`.
 
 ```python
 d = harness.drop("ticket_dispatcher")
-d.set("git_url", "https://github.com/acme/widgets")
-d.fire("git_url")                 # dpg.get_item_callback(...)(...)
-harness.wait_until(lambda: d.get("status_text") != "Idle")
+d.type_into("git_url", "https://github.com/acme/widgets")   # set + fire
+harness.wait_for_widget(d, f"ticket_btn_{issue_id}")
+d.select(f"ticket_model_{issue_id}", "grok-4.5")
 d.click(f"ticket_btn_{issue_id}")
 ```
 
 `fire` and `click` go through `dpg.get_item_callback`, so a callback that gets unwired
 by a refactor fails the test — which is the point. Reaching into module globals like
 `ticket_dispatcher_app._LIVE` would keep passing and must be avoided.
+
+Callbacks are invoked with as many of `(sender, app_data, user_data)` as their signature
+accepts, matching what Dear PyGui does — FEs legitimately bind zero-argument lambdas
+next to three-argument methods.
+
+Other members: `get` / `set` / `label` / `user_data`, `shown` and `enabled` (read the
+configured flag, not `is_item_visible`, which also depends on scroll position),
+`exists`, `close()` for the host node's **x**, and `suffixes(pattern)` to discover
+dynamically keyed row widgets — which is also what a "missing widget" failure prints.
 
 ### Fixtures
 
@@ -251,28 +287,39 @@ testing for real rather than stubbing six git argv patterns:
 
 ```text
 <tmp>/origin.git              bare repo, serves as `origin`
+<tmp>/Floor/<repo>/.bare      bare clone of origin
+<tmp>/Floor/<repo>/wt/dev     worktree on branch `dev`
 <tmp>/Floor/<repo>/wt/agents  worktree on branch `agents`
 <tmp>/Floor/<repo>/wt/tickets/<ticket>   worktree on branch `ticket/<name>`
 ```
 
 A local bare `origin` matters: `attempt_merge` **always pushes on success**
 (`merge.py:124`), so without a pushable origin the success path returns `ERROR` and the
-test would assert the wrong thing. Helpers: `commit(worktree, path, text)` and
-`make_conflict()`.
+test would assert the wrong thing. Helpers: `add_ticket`, `commit(worktree, path, text)`,
+`dirty`, `make_conflict`, and read-only `head` / `origin_sha` / `is_clean` /
+`merge_in_progress` / `contains` / `subjects`.
 
-**`FakeAgent`** — the sandbox stand-in described in [section 4](#where-to-cut).
+`make_conflict` requires the ticket worktree to exist already. Branching a ticket *after*
+the agents commit would fast-forward cleanly instead of conflicting, which would quietly
+turn T6 into a second copy of T5.
+
+**`FakeAgent`** — the sandbox stand-in described in [section 4](#where-to-cut). It
+consumes through the real `mission_control` group, honors `new_wt` (creating a ticket
+worktree, or reusing the absolute `wt` a conflict WORKORDER carries), commits for real,
+and builds its FINISHED payload with MissionControl's own `finished_fields`.
 
 ### Redis isolation
 
 Tests must not run against the DB carrying real dev traffic, since assertions need a
-known stream state and dismissal tests call `XDEL`. Point tests at a dedicated DB index
-via `REDIS_URL` and flush it in fixture setup.
+known stream state and dismissal tests call `XDEL`. Tests point at **DB 15** via
+`REDIS_URL`, set in `conftest` before any node is imported, and flush it around every
+test. The `redis_client` fixture refuses to flush any other index.
 
-This is currently blocked on one node: **TicketDispatcher ignores `REDIS_URL`** and
-hardcodes `localhost:6379` (`ticket_dispatcher_app.py:113`), so it cannot be redirected.
-MergeManager and MissionControl already honor it, and
-[`MegaDesk-contracts/redis/README.md`](../MegaDesk-contracts/redis/README.md) already
-documents all three as using it — so this is also an existing doc/code mismatch.
+**TicketDispatcher now honors `REDIS_URL`** (it hardcoded `localhost:6379`, so it could
+not be redirected — also a doc/code mismatch against
+[`MegaDesk-contracts/redis/README.md`](../MegaDesk-contracts/redis/README.md)). Note the
+default is unchanged, so this is not enough on its own: `SupervisorClient` still
+hardcodes `localhost:6379`, which only matters when Supervisor-facing tests are added.
 
 ---
 
@@ -293,26 +340,44 @@ Ordered by seam. Each names the bug class it catches.
 
 T8 is the one that would have caught the `frame_pump` bug, and it is the only scenario
 that exercises two FEs sharing pump state — the exact condition under which 3.1 and 3.2
-manifest. A regression test asserting a node dropped at frame > 1 still receives pump
-ticks should land alongside the fix.
+manifest. The regression test asserting a node dropped at frame > 1 still receives pump
+ticks landed alongside the fix, as
+`test_first_node_on_an_empty_board_still_updates`.
 
-Failure artifacts: on any assertion failure, call `screenshot()` and attach the PNG.
-That is what lets an agent diagnose a GUI failure without a human watching.
+All eight are implemented in [`tests/test_nodeflow.py`](../tests/test_nodeflow.py), with
+these added while building them:
+
+| # | Scenario | Catches |
+|---|---|---|
+| T1b | An issue with an empty body dispatches with `instructions` = its title. | The body/title fallback silently inverting |
+| T2b | With `gh repo view` failing, the error text reaches `status_text` and no ticket row appears. | Errors swallowed instead of surfaced |
+| T3b | A second `FakeAgent` pass returns nothing and adds no second FINISHED entry. | Redelivery of acked entries |
+| T4b | A FINISHED entry missing fields is acked and never rendered. | Poison entries retried forever, or rendered half-built |
+| T5b | Dirty agents: merge is refused, `hard-reset` appears, and merging after reset succeeds. | The DIRTY branch of the row state machine |
+| T6b | `FakeAgent` consumes the conflict WORKORDER and reuses the existing worktree. | A follow-up WORKORDER its own consumer would reject |
+
+Failure artifacts: `wait_until` writes a screenshot on timeout and puts the path in the
+error, into `tests/_artifacts/<test name>/`. That is what lets an agent diagnose a GUI
+failure without a human watching — a dead pump, for instance, shows up as a dispatcher
+still reading `Idle` with a grey connection light.
 
 ---
 
-## 7. Production changes required
+## 7. Production changes made
 
-Deliberately minimal. Only the first three are prerequisites.
+Deliberately minimal — all six landed, none changes production behavior.
 
 | # | Change | Why | Risk |
 |---|---|---|---|
 | 1 | `frame_pump.register`: arm at `get_frame_count() + 1` | Blocker 3.1; also a live bug on an empty board | None — matches the existing re-arm line |
-| 2 | Add `frame_pump.reset()`, call on teardown | Blocker 3.2; enables >1 canvas per process | None — new function |
-| 3 | Split `main.py` into `build_canvas(model) -> DisplayEngine` + a `main()` that runs the loop | Today `main()` is one function with construction, Supervisor spawn and the blocking loop inline (`main.py:53-143`). Tests must not duplicate window construction or they drift and stop testing production. | Pure extraction, no behavior change |
-| 4 | TicketDispatcher: honor `REDIS_URL` | Redis isolation; fixes an existing doc/code mismatch | Low — default unchanged |
-| 5 | Tag the dispatch button, e.g. `tag=self._tag(f"ticket_btn_{ticket.id}")` (`ticket_dispatcher_app.py:363`) | It is currently untagged, so a test cannot address it by tag and would have to reach into `_LIVE`, defeating the point | None |
-| 6 | Tag MergeManager's `testme` / `vscode` / `cursor` buttons | Same reason; not needed for T1–T8 | None |
+| 2 | Added `frame_pump.reset()`, called on teardown by `main()` and the harness | Blocker 3.2; enables >1 canvas per process | None — new function |
+| 3 | Split `main.py` into `build_canvas(model, *, width, height, viewport_pos, supervisor_panel) -> DisplayEngine` + a `main()` that runs the loop | `main()` was one function with construction, Supervisor spawn and the blocking loop inline. Tests must not duplicate window construction or they drift and stop testing production. | Pure extraction; the new keywords all default to what `main()` did before |
+| 4 | TicketDispatcher: honor `REDIS_URL` (`redis.Redis.from_url`) | Redis isolation; fixes an existing doc/code mismatch | Low — default `redis://localhost:6379/0` is the previous behavior |
+| 5 | Tagged the dispatch button `ticket_btn_{ticket.id}` | It was untagged, so a test would have to reach into `_LIVE`, defeating the point | None |
+| 6 | Tagged MergeManager's `testme` / `vscode` / `cursor` buttons | Same reason | None |
+
+`vscode` and `cursor` remain untested on purpose: they `Popen(..., shell=True)` and would
+launch real editors.
 
 ---
 
@@ -329,28 +394,86 @@ Deliberately minimal. Only the first three are prerequisites.
 - `MergeManager._on_vscode` / `_on_cursor` use `Popen(..., shell=True)` on Windows and
   would launch real editors — do not fire those callbacks in tests.
 
-**Open questions**
+**Answers to the open questions**
 
-1. **Isolation strategy** — process-per-test (slow, ~5 s of DPG startup each, bulletproof)
-   or one session-scoped canvas with board reset between tests (fast, relies on `reset()`
-   in change 2 being complete)? Recommend starting session-scoped and falling back if
-   leaks appear.
-2. **Redis DB index for tests** — a spare index on the existing server, or a second
-   server on another port? An index is simpler; a separate server is safer.
-3. **Where the harness lives** — `MegaDesk-contracts/megadesk_contracts/testing/` ships
-   it to every node (consistent with contracts being the shared installable), but adds a
-   test-only surface to a runtime package. Alternative is a top-level `tests/` package
-   not shipped to nodes.
-4. **Scope of `FakeAgent`** — should it also assert `AGENTHANDLER:{guid}` hash
-   transitions (`starting → running → DEL`), or is that a later slice?
+1. **Isolation strategy** — a fresh context per test, not session-scoped. It turned out
+   cheap once `reset()` existed: 38 tests, 38 create/destroy cycles, ~30 s total. Being
+   able to boot a clean empty board per test is also what makes the empty-board pump
+   regression expressible at all.
+2. **Redis DB index for tests** — DB 15 on the existing server. The `redis_client`
+   fixture asserts the index before flushing, so a misconfigured `REDIS_URL` cannot wipe
+   dev traffic.
+3. **Where the harness lives** — `MegaDesk-contracts/megadesk_contracts/testing/`, as
+   proposed. The test-only surface stays acceptable because it is inert on import and,
+   more importantly, imports nothing from any node; node specifics are injected.
+4. **Scope of `FakeAgent`** — deferred, as the later slice. It does not touch
+   `AGENTHANDLER:{guid}`, so the `starting → running → DEL` transitions are still
+   uncovered. That is the most obvious next addition.
 
 ---
 
-## 9. Suggested order of work
+## 9. Work as landed
 
-1. Fix `frame_pump` (changes 1–2) plus a regression test for the frame > 1 case. Independently valuable — it is a live bug.
-2. Extract `build_canvas` (change 3).
-3. Land `CanvasHarness` + `NodeDriver` with one smoke test: drop a node, assert its widgets exist, close it, assert the model is empty. This is already proven to work.
-4. Add `FakeGh` and `REDIS_URL` support (change 4), then T1–T2.
-5. Add `GitFloor` and `FakeAgent`, then T3–T5.
-6. Add T6–T8, the conflict feedback loop and the full chain.
+1. Fixed `frame_pump` (changes 1–2) with regression tests for both blockers.
+2. Extracted `build_canvas` (change 3).
+3. `CanvasHarness` + `NodeDriver`, with the smoke tests in `test_canvas_harness.py`.
+4. `FakeGh` and `REDIS_URL` (change 4), plus tags (changes 5–6), then T1–T2.
+5. `GitFloor` and `FakeAgent`, then T3–T5.
+6. T6–T8, the conflict feedback loop and the full chain.
+7. `test_wire_contract.py`, prompted by the duplicate-module finding below.
+
+---
+
+## 10. Running the suite
+
+```bash
+conda activate MEGADESK
+pip install -r requirements-dev.txt
+redis-server            # any local instance; tests use DB 15
+pytest                  # from the repo root
+```
+
+Roughly 30 seconds for 38 tests. Selecting subsets:
+
+```bash
+pytest tests/test_wire_contract.py   # no GUI, no Redis, no git — instant
+pytest -m "not canvas"               # everything that needs no desktop session
+pytest tests/test_nodeflow.py -k t6  # one seam
+```
+
+`pytest.ini` sets `testpaths` and declares the `canvas` / `redis` / `git` markers. Never
+add `pytest-xdist`: one DPG context per process means canvas tests must stay serial.
+
+The suite runs against **this checkout**, not whatever the editable installs point at:
+`conftest` puts the repo's source directories at the front of `sys.path`. It also fixes
+the order, which matters — see below.
+
+---
+
+## 11. What landed beyond the plan
+
+**A module-name collision on `redis_packets`.** MergeManager and MissionControl each ship
+a *different* top-level module by that name (`py-modules` in both `pyproject.toml` files),
+so `import redis_packets` resolves to whichever editable finder was registered first —
+today MergeManager's, by alphabetical `.pth` order. MergeManager's copy is the superset,
+so both nodes happen to work.
+
+Nothing in production announces this. Putting `Nodes/MissionControl` earlier on
+`sys.path` while building the harness flipped the winner, and MergeManager's FE stopped
+being discoverable at all — `ImportError: cannot import name
+'merge_workorder_instructions'`, swallowed into a "FE discovery failed" log. The Catalog
+simply came up with one fewer node.
+
+Two consequences worth keeping in mind:
+
+- `conftest` pins the `sys.path` order and asserts which copy won, so the suite cannot
+  silently test the wrong one.
+- [`tests/test_wire_contract.py`](../tests/test_wire_contract.py) loads both copies by
+  explicit path and asserts they build and parse identical payloads. The copies are free
+  to drift today; that test is what makes the drift fail something.
+
+The real fix is one copy — the wire helpers belong in `megadesk_contracts` next to the
+`redis/` docs that already describe them, which is what
+[`MegaDesk-contracts/README.md`](../MegaDesk-contracts/README.md) means by "when those
+diverge, treat this folder as the intended contract". That is a bigger change than this
+slice, and the drift test is what makes it safe to defer.

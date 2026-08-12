@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 import dearpygui.dearpygui as dpg
-from megadesk_contracts import ensure_supervisor_running
+from megadesk_contracts import ensure_supervisor_running, frame_pump
 
 from engine.canvas_model import CanvasModel
 from engine.display_engine import (
@@ -50,24 +50,21 @@ def _apply_daytime_theme() -> None:
     dpg.bind_theme(theme)
 
 
-def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
-    log = logging.getLogger("megadesk.canvas")
-    discover_megadesk_frontends()
+def build_canvas(
+    model: CanvasModel,
+    *,
+    width: int = 1280,
+    height: int = 800,
+    viewport_pos: tuple[int, int] | None = None,
+    supervisor_panel: bool = True,
+) -> DisplayEngine:
+    """Construct the canvas UI for ``model`` and return its engine.
 
-    # Supervisor BE is canvas-owned — start before the UI so LAUNCHREQUEST works.
-    if not ensure_supervisor_running():
-        log.error(
-            "Supervisor BE failed to start "
-            "(see MegaDesk-Canvas/logs/supervisor/supervisor.log)"
-        )
-
-    model = CanvasModel()
-    model.load()
-
+    Everything from ``create_context()`` up to (but excluding) the render loop.
+    Callers own discovery, ``model.load()``, the loop, and ``destroy_context()``.
+    ``viewport_pos`` places the viewport off-screen for harnessed runs — it must
+    still be shown, since a minimized viewport renders nothing.
+    """
     engine = DisplayEngine(model)
 
     dpg.create_context()
@@ -92,8 +89,8 @@ def main() -> None:
         no_scrollbar=True,
         no_scroll_with_mouse=True,
         pos=(0, 0),
-        width=1280,
-        height=800,
+        width=width,
+        height=height,
     ):
         with dpg.group(horizontal=True):
             dpg.add_child_window(
@@ -115,27 +112,57 @@ def main() -> None:
                         dpg.add_node(tag=REF_NODE, label="", show=False)
                         dpg.bind_item_theme(REF_NODE, ref_theme)
 
-    dpg.create_viewport(title="MegaDesk Canvas", width=1280, height=800)
+    viewport_kwargs: dict[str, object] = {}
+    if viewport_pos is not None:
+        viewport_kwargs = {"x_pos": int(viewport_pos[0]), "y_pos": int(viewport_pos[1])}
+    dpg.create_viewport(
+        title="MegaDesk Canvas", width=width, height=height, **viewport_kwargs
+    )
     dpg.setup_dearpygui()
     dpg.show_viewport()
     dpg.set_primary_window(CANVAS_WINDOW, True)
 
     engine.build_sidebar()
-    build_supervisor_panel()
+    if supervisor_panel:
+        build_supervisor_panel()
     engine.on_viewport_resize()
     engine.open_all_megadesk_guis()
 
     def _on_resize(*_args: object) -> None:
         engine.on_viewport_resize()
-        reposition_supervisor_panel()
+        if supervisor_panel:
+            reposition_supervisor_panel()
 
     dpg.set_viewport_resize_callback(_on_resize)
+    return engine
+
+
+def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    log = logging.getLogger("megadesk.canvas")
+    discover_megadesk_frontends()
+
+    # Supervisor BE is canvas-owned — start before the UI so LAUNCHREQUEST works.
+    if not ensure_supervisor_running():
+        log.error(
+            "Supervisor BE failed to start "
+            "(see MegaDesk-Canvas/logs/supervisor/supervisor.log)"
+        )
+
+    model = CanvasModel()
+    model.load()
+
+    engine = build_canvas(model)
 
     while dpg.is_dearpygui_running():
         engine.sync_megadesk_nodes()
         dpg.render_dearpygui_frame()
 
     model.save()
+    frame_pump.reset()
     dpg.destroy_context()
 
 

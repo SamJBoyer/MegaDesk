@@ -93,7 +93,7 @@ def build_ui(parent: str, *, tag_prefix: str, width: int, height: int) -> None:
 
 **Contract:** fill the host content parent only — no `dpg.window`, no standalone viewport. MegaDesk owns the host `dpg.node` (label, close, position). Store a cleanup callable on the content parent with `dpg.set_item_user_data(parent, close_fn)` so the host can shut the FE down when deleting the member (the host may wrap that callable).
 
-FEs that need a per-frame drain should use `megadesk_contracts.frame_pump.register` / `unregister`.
+FEs that need a per-frame drain should use `megadesk_contracts.frame_pump.register` / `unregister`. The pump is a single module-global shared by every node on the board, so its state outlives any one FE — and outlives the DPG context. Whoever owns the context calls `frame_pump.reset()` on teardown; the canvas does this in `main()`. Integration tests drive the same pump: see [`Docs/integration_testing.md`](integration_testing.md).
 
 FE-only example pattern:
 

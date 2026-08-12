@@ -55,5 +55,8 @@ ehthumbs.db
 # MissionControl Floor worktrees (bare clones + checkouts)
 Nodes/MissionControl/Floor/
 
+# Integration-test screenshots and failure artifacts
+tests/_artifacts/
+
 # Docker / local runtime leftovers
 .docker/

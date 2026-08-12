@@ -1,5 +1,7 @@
 ﻿Read /Docs and Docs/glossary for information about specific terms. For how Nodes are discovered, hosted, and launched (FE/BE), read Docs/node_protocol.md — it is the single authority (MegaDesk-Canvas/docs/plugins.md and parent_gui_class.md redirect there).
 
+Most breakage here is at the seam between two modules, not inside one, so verify changes by running the integration suite rather than by reasoning about it: `pytest` from the repo root (needs a desktop session and a local Redis; ~30s). It boots the real canvas, presses real buttons and asserts the real Redis payloads. If you change a stream field, a widget tag, a callback wiring, or anything in `frame_pump`, that suite is the check. Read Docs/integration_testing.md before adding to it.
+
 This project follows a structure. MegaDesk is the name of the entire project and is the name of the root repo. MegaDesk-Canvas is the folder that contains the code for running the canvas that integrates the Nodes. 
 
 MegaDesk-contracts contains the code for the contracts that allow Nodes to integrate with the canvas. MegaDesk-contracts is installable. Contracts should be written in there. If a contract is modified or added make sure it is reflected in MegaDesk-contracts

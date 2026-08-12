@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import queue
 import re
 import subprocess
@@ -16,8 +17,7 @@ import redis
 from megadesk_contracts import frame_pump
 
 POLL_INTERVAL_SEC = 3.0
-REDIS_HOST = "localhost"
-REDIS_PORT = 6379
+DEFAULT_REDIS_URL = "redis://localhost:6379/0"
 REDIS_STREAM_KEY = "WORKORDER"
 DEFAULT_MODEL = "auto"
 MODEL_OPTIONS = ("auto", "grok-4.5")
@@ -101,6 +101,7 @@ class TicketDispatcher:
         self._tickets: dict[int, IssueTicket] = {}
         self._dispatched: set[int] = set()
         self._redis: Optional[redis.Redis] = None
+        self.redis_url = os.environ.get("REDIS_URL", DEFAULT_REDIS_URL)
         self._root_tag = "primary"
         self._frame_registered = False
         self._connect_redis()
@@ -110,11 +111,13 @@ class TicketDispatcher:
 
     def _connect_redis(self) -> None:
         try:
-            self._redis = redis.Redis(
-                host=REDIS_HOST, port=REDIS_PORT, decode_responses=True
+            self._redis = redis.Redis.from_url(
+                self.redis_url,
+                decode_responses=True,
+                socket_connect_timeout=2,
             )
             self._redis.ping()
-        except redis.RedisError:
+        except (redis.RedisError, OSError, ValueError):
             self._redis = None
 
     def build_ui(
@@ -364,6 +367,7 @@ class TicketDispatcher:
                 label=ticket.name,
                 width=-150,
                 height=22,
+                tag=self._tag(f"ticket_btn_{ticket.id}"),
                 user_data=ticket.id,
                 callback=self._on_ticket_pressed,
             )

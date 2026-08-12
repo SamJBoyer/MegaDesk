@@ -28,7 +28,9 @@ def register(callback: Callable[[], None]) -> None:
         if dpg.is_dearpygui_running():
             dpg.set_frame_callback(dpg.get_frame_count() + 1, _pump)
 
-    dpg.set_frame_callback(1, _pump)
+    # Relative, not the literal frame 1: an absolute arm is silently dropped when
+    # the first registration happens after frame 1 (first node on an empty board).
+    dpg.set_frame_callback(dpg.get_frame_count() + 1, _pump)
 
 
 def unregister(callback: Callable[[], None]) -> None:
@@ -36,3 +38,15 @@ def unregister(callback: Callable[[], None]) -> None:
         _callbacks.remove(callback)
     except ValueError:
         pass
+
+
+def reset() -> None:
+    """Drop all callbacks and disarm — call on DPG context teardown.
+
+    Module state outlives ``destroy_context()``, so without this a second
+    context in the same process stays armed with callbacks bound to widgets
+    that no longer exist and never gets a pump tick.
+    """
+    global _armed
+    _callbacks.clear()
+    _armed = False
