@@ -3,15 +3,20 @@
 Redis databases:
   db0 — ephemeral streams (LAUNCHREQUEST / KILLREQUEST / NODEEXIT, MissionControl traffic)
   db1 — persistent supervisor state (singleton, RUNNINGNODES, alive heartbeat)
+
+Connection standard: ``REDIS_URL`` (default ``redis://localhost:6379/0``).
+Ephemeral vs persistent is selected via the ``db`` argument on ``Redis.from_url``.
 """
 
 from __future__ import annotations
 
+import os
 import subprocess
 import sys
 import time
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlparse
 
 try:
     import redis
@@ -19,8 +24,7 @@ except ImportError:  # pragma: no cover
     redis = None  # type: ignore
 
 
-REDIS_HOST = "localhost"
-REDIS_PORT = 6379
+DEFAULT_REDIS_URL = "redis://localhost:6379/0"
 REDIS_DB_EPHEMERAL = 0
 REDIS_DB_PERSISTENT = 1
 SUPERVISOR_ALIVE_KEY = "GBD:SUPERVISOR:ALIVE"
@@ -31,6 +35,21 @@ KILLREQUEST_STREAM = "KILLREQUEST"
 RUNNINGNODES_PREFIX = "RUNNINGNODES:"
 
 
+def resolve_redis_url(redis_url: Optional[str] = None) -> str:
+    """Resolve the Redis URL: explicit arg, else ``REDIS_URL``, else default."""
+    raw = redis_url if redis_url is not None else os.environ.get("REDIS_URL")
+    text = (raw or DEFAULT_REDIS_URL).strip()
+    return text or DEFAULT_REDIS_URL
+
+
+def redis_url_host_port(redis_url: str) -> tuple[str, int]:
+    """Host and port from a Redis URL (defaults: localhost / 6379)."""
+    parsed = urlparse(redis_url)
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 6379
+    return host, port
+
+
 def running_nodes_key(unique_id: str) -> str:
     return f"{RUNNINGNODES_PREFIX}{unique_id}"
 
@@ -38,18 +57,18 @@ def running_nodes_key(unique_id: str) -> str:
 class SupervisorClient:
     def __init__(
         self,
-        host: str = REDIS_HOST,
-        port: int = REDIS_PORT,
+        redis_url: Optional[str] = None,
         **_ignored: object,
     ) -> None:
         if redis is None:
             raise RuntimeError("redis package is required for SupervisorClient")
-        # caller_identity kept as ignored kwarg for call-site compatibility.
-        self.ephemeral = redis.Redis(
-            host=host, port=port, db=REDIS_DB_EPHEMERAL, decode_responses=True
+        # caller_identity / legacy host+port kept as ignored kwargs for call-site compat.
+        self.redis_url = resolve_redis_url(redis_url)
+        self.ephemeral = redis.Redis.from_url(
+            self.redis_url, db=REDIS_DB_EPHEMERAL, decode_responses=True
         )
-        self.persistent = redis.Redis(
-            host=host, port=port, db=REDIS_DB_PERSISTENT, decode_responses=True
+        self.persistent = redis.Redis.from_url(
+            self.redis_url, db=REDIS_DB_PERSISTENT, decode_responses=True
         )
         # Back-compat alias: older call sites used ``.client`` for streams.
         self.client = self.ephemeral
@@ -128,8 +147,7 @@ def _canvas_root() -> Path:
 def ensure_supervisor_running(
     *,
     timeout: float = 12.0,
-    host: str = REDIS_HOST,
-    port: int = REDIS_PORT,
+    redis_url: Optional[str] = None,
 ) -> bool:
     """Spawn the Canvas-owned Supervisor BE if it is not already alive.
 
@@ -139,7 +157,7 @@ def ensure_supervisor_running(
     if redis is None:
         return False
 
-    client = SupervisorClient(host=host, port=port)
+    client = SupervisorClient(redis_url=redis_url)
     if client.backend_ok():
         return True
 
@@ -160,6 +178,7 @@ def ensure_supervisor_running(
             stderr=subprocess.STDOUT,
             text=True,
             creationflags=creationflags,
+            env=os.environ.copy(),
         )
     except Exception:
         return False

@@ -12,6 +12,7 @@ from megadesk_contracts.exec_spec import BeSpec, FeSpec, Mode
 from megadesk_contracts import frame_pump
 from megadesk_contracts.node_logging import configure_node_logging
 from megadesk_contracts.supervisor_client import (
+    DEFAULT_REDIS_URL,
     REDIS_DB_EPHEMERAL,
     REDIS_DB_PERSISTENT,
     SUPERVISOR_ALIVE_KEY,
@@ -19,6 +20,7 @@ from megadesk_contracts.supervisor_client import (
     SUPERVISOR_SINGLETON_KEY,
     SupervisorClient,
     ensure_supervisor_running,
+    resolve_redis_url,
 )
 
 __all__ = [
@@ -26,6 +28,7 @@ __all__ = [
     "BeSpec",
     "FeSpec",
     "Mode",
+    "DEFAULT_REDIS_URL",
     "REDIS_DB_EPHEMERAL",
     "REDIS_DB_PERSISTENT",
     "SUPERVISOR_ALIVE_KEY",
@@ -40,4 +43,5 @@ __all__ = [
     "get_backend",
     "has_backend",
     "load_exec_spec",
+    "resolve_redis_url",
 ]

@@ -23,7 +23,7 @@ TicketDispatcher publishes new-ticket `WORKORDER`s (`new_wt=true`). MergeManager
 - Python 3.12+
 - Git
 - Docker
-- A **local Redis** already running on `localhost:6379` (this project does **not** start Redis)
+- A **Redis** reachable at `REDIS_URL` (default `redis://localhost:6379/0`; this project does **not** start Redis)
 - A Cursor API key
 
 ## Setup

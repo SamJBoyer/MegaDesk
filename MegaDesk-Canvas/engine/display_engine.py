@@ -129,8 +129,9 @@ class DisplayEngine:
             client = SupervisorClient()
             if not client.redis_ok():
                 log.warning(
-                    "Skip BE launch for %s: Redis not reachable on localhost:6379",
+                    "Skip BE launch for %s: Redis not reachable at %s",
                     node_name,
+                    client.redis_url,
                 )
                 return
             if not client.backend_ok():

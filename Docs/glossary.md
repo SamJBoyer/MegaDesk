@@ -9,7 +9,7 @@ Sub-gui: a name for the front-end GUI part of a Node that is dropped on the Canv
 
 Node_protocol: the protocol by which the Canvas discovers, setups, and tears down new nodes. Canonical doc: [`Docs/node_protocol.md`](node_protocol.md).
 
-Supervisor: Canvas-owned process lifecycle manager under `MegaDesk-Canvas/supervisor/`. BE: `python -m supervisor` (bootstrap via `ensure_supervisor_running()`). FE: collapsible panel. Redis: streams on DB 0; singleton / alive / RUNNINGNODES on DB 1.
+Supervisor: Canvas-owned process lifecycle manager under `MegaDesk-Canvas/supervisor/`. BE: `python -m supervisor` (bootstrap via `ensure_supervisor_running()`). FE: collapsible panel. Redis via `REDIS_URL`: streams on DB 0; singleton / alive / RUNNINGNODES on DB 1.
 
 MissionControl: FE + BE node under `Nodes/MissionControl/`. FE is the Floor monitor panel. BE is MissionControlManager (`python -m MissionControlManager`), which consumes Redis `WORKORDER` (consumer group `mission_control`) and launches AgentHandler Docker sandboxes. Discovery key / `FeSpec.name` / `BeSpec.name`: `mission_control`.
 

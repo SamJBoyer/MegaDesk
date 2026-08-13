@@ -10,7 +10,7 @@ from typing import Optional
 
 import dearpygui.dearpygui as dpg
 import redis
-from megadesk_contracts import frame_pump
+from megadesk_contracts import DEFAULT_REDIS_URL, frame_pump
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
 from redis.exceptions import TimeoutError as RedisTimeoutError
@@ -24,7 +24,6 @@ from redis_packets import (
 )
 
 POLL_INTERVAL_SEC = 1.5
-DEFAULT_REDIS_URL = "redis://localhost:6379/0"
 WORKORDER_GROUP = "mission_control"
 WORKORDER_RECENT = 12
 AGENT_HANDLER_SCAN_COUNT = 100

@@ -14,10 +14,9 @@ from urllib.parse import urlparse
 
 import dearpygui.dearpygui as dpg
 import redis
-from megadesk_contracts import frame_pump
+from megadesk_contracts import DEFAULT_REDIS_URL, frame_pump
 
 POLL_INTERVAL_SEC = 3.0
-DEFAULT_REDIS_URL = "redis://localhost:6379/0"
 REDIS_STREAM_KEY = "WORKORDER"
 DEFAULT_MODEL = "auto"
 MODEL_OPTIONS = ("auto", "grok-4.5")

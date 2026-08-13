@@ -15,7 +15,7 @@ from typing import Optional
 
 import dearpygui.dearpygui as dpg
 import redis
-from megadesk_contracts import frame_pump
+from megadesk_contracts import DEFAULT_REDIS_URL, frame_pump
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
 from redis.exceptions import ResponseError
@@ -57,7 +57,6 @@ except ImportError:
 log = logging.getLogger("merge_manager")
 
 POLL_INTERVAL_SEC = 2.0
-DEFAULT_REDIS_URL = "redis://localhost:6379/0"
 FINISHED_GROUP = "merge_manager"
 
 # Keep live instances alive while their embed windows exist.

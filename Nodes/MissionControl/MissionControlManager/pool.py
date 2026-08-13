@@ -10,12 +10,14 @@ import sys
 import threading
 from pathlib import Path
 
+from megadesk_contracts import DEFAULT_REDIS_URL
+
 log = logging.getLogger("pool")
 
 IMAGE_NAME = os.environ.get("MISSION_CONTROL_IMAGE", "mission-control-agent:latest")
 NETWORK_NAME = os.environ.get("MISSION_CONTROL_NETWORK", "mission-control-net")
 DEFAULT_CONTAINER_REDIS_URL = "redis://host.docker.internal:6379/0"
-LOCAL_REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+LOCAL_REDIS_URL = os.environ.get("REDIS_URL", DEFAULT_REDIS_URL)
 
 
 def _docker(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:

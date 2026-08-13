@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from cursor_sdk import Agent, CursorAgentError, LocalAgentOptions
+from megadesk_contracts import DEFAULT_REDIS_URL
 from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
@@ -26,8 +27,6 @@ from redis_packets import (
 )
 
 log = logging.getLogger("agent_handler")
-
-DEFAULT_REDIS_URL = "redis://localhost:6379/0"
 
 
 def _env(name: str, default: str | None = None) -> str:

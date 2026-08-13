@@ -48,7 +48,8 @@ def main() -> int:
     )
     server.start()
     log.info(
-        "Supervisor BE running. Redis localhost:6379 db0=streams db1=persistent. Ctrl+C to stop."
+        "Supervisor BE running. Redis %s db0=streams db1=persistent. Ctrl+C to stop.",
+        handles.redis_url,
     )
 
     def _shutdown(*_args: object) -> None:

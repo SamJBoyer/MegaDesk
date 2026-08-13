@@ -9,13 +9,15 @@ MegaDesk processes communicate over a shared local Redis. Two families of packag
 
 | Setting | Convention |
 |---------|------------|
-| Host | `localhost` |
-| Port | `6379` |
-| Default URL (ephemeral) | `redis://localhost:6379/0` |
-| Env override (host tools) | `REDIS_URL` |
-| Env override (Docker → host) | `REDIS_URL_CONTAINER` / container `REDIS_URL`, typically `redis://host.docker.internal:6379/0` |
+| Env var | **`REDIS_URL`** (required standard for all clients) |
+| Default | `redis://localhost:6379/0` (`DEFAULT_REDIS_URL` in `megadesk_contracts`) |
+| Resolve helper | `resolve_redis_url()` — explicit arg → `REDIS_URL` → default |
+| DB selection | Same URL; pass `db=` to `Redis.from_url` (`REDIS_DB_EPHEMERAL=0`, `REDIS_DB_PERSISTENT=1`) |
+| Docker → host | `REDIS_URL_CONTAINER` / container `REDIS_URL`, typically `redis://host.docker.internal:6379/0` |
 
-MissionControl, TicketDispatcher, and MergeManager use **DB 0** (`redis://localhost:6379/0`) for workorders and related traffic. They **do not** start Redis. The Canvas-owned Supervisor BE may attach to an existing localhost Redis or provision Docker Redis + Redis Insight if none is reachable.
+Do **not** hardcode host/port. Prefer `redis.Redis.from_url(resolve_redis_url(), …)`.
+
+MissionControl, TicketDispatcher, MergeManager, `SupervisorClient`, and Supervisor provision all read **`REDIS_URL`**. Nodes use **DB 0** for workorders and related traffic. They **do not** start Redis. The Canvas-owned Supervisor BE may attach to an existing Redis at `REDIS_URL` or (when the URL host is loopback) provision Docker Redis + Redis Insight if none is reachable.
 
 ## Databases
 

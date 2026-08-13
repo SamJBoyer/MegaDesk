@@ -18,7 +18,10 @@ pip install -e MegaDesk-contracts
 Import as:
 
 ```python
-from megadesk_contracts import FeSpec, BeSpec, Mode, frame_pump, SupervisorClient
+from megadesk_contracts import (
+    FeSpec, BeSpec, Mode, frame_pump, SupervisorClient,
+    DEFAULT_REDIS_URL, resolve_redis_url,
+)
 ```
 
 ## Layout

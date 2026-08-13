@@ -18,7 +18,7 @@ Node backends are discovered from installed `MegaDesk.nodes` entry points via
 manifests. Launch `parameters` are present on the wire but currently always `""`.
 
 This family is independent of the MissionControl pipeline streams, but shares the same
-localhost Redis server (different DB indexes).
+Redis server via **`REDIS_URL`** (different DB indexes).
 
 There is **no** request/response ack path. Producers `XADD` and move on;
 clients observe `RUNNINGNODES:<unique_id>` (or process state) if they need
@@ -26,7 +26,7 @@ confirmation. Log **bytes** live in files; Redis carries metadata and exit event
 only.
 
 Constants live in `megadesk_contracts.supervisor_client`:
-`REDIS_DB_EPHEMERAL=0`, `REDIS_DB_PERSISTENT=1`,
+`DEFAULT_REDIS_URL`, `resolve_redis_url()`, `REDIS_DB_EPHEMERAL=0`, `REDIS_DB_PERSISTENT=1`,
 `SUPERVISOR_SINGLETON_KEY`, `SUPERVISOR_ALIVE_KEY`.
 
 ---
@@ -67,9 +67,9 @@ Canvas startup (`MegaDesk-Canvas/main.py`) calls
 `GBD:SUPERVISOR:ALIVE` on DB 1 (default timeout 12s). The BE is **not** launched
 via `LAUNCHREQUEST` and is **not** a Catalog / FeSpec drop.
 
-Redis provision (prefer existing `localhost:6379`, else Docker `gbd-redis` +
-optional Insight on `5540`) happens inside the Supervisor BE — see
-`MegaDesk-Canvas/supervisor/redis_provision.py`.
+Redis provision (prefer existing server at `REDIS_URL`, else Docker `gbd-redis` +
+optional Insight on `5540` when the URL host is loopback) happens inside the
+Supervisor BE — see `MegaDesk-Canvas/supervisor/redis_provision.py`.
 
 ---
 
@@ -245,11 +245,12 @@ this key on DB 1.
 
 | Setting | Convention |
 |---------|------------|
-| Host / port | `localhost:6379` |
-| Prefer | Attach to existing Redis |
-| Else | Docker container `gbd-redis` (`redis:7`) + optional `gbd-redis-insight` on port `5540` |
+| Connection | **`REDIS_URL`** (default `redis://localhost:6379/0`) |
+| Prefer | Attach to existing Redis at that URL |
+| Else (loopback host only) | Docker container `gbd-redis` (`redis:7`, host port from URL) + optional `gbd-redis-insight` on port `5540` |
 
-See `MegaDesk-Canvas/supervisor/redis_provision.py`.
+See `MegaDesk-Canvas/supervisor/redis_provision.py`. `SupervisorClient` and
+`ensure_supervisor_running()` also honor `REDIS_URL`.
 
 ---
 

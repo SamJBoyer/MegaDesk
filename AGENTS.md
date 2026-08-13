@@ -10,7 +10,7 @@ Nodes is the folder that contains the Nodes. Some nodes are both Front-end and b
 
 ----
 
-We use different REDIS database for different levels of persistence. DB 0 is termporary and DB 1 is persistent. 
+We use different REDIS database for different levels of persistence. DB 0 is temporary and DB 1 is persistent. All clients connect via **`REDIS_URL`** (default `redis://localhost:6379/0`; see `DEFAULT_REDIS_URL` / `resolve_redis_url()` in `megadesk_contracts`). Do not hardcode host/port.
 
 
 
@@ -19,7 +19,7 @@ We use different REDIS database for different levels of persistence. DB 0 is ter
 - **LAUNCHREQUEST** — consume `node_endpoint` (+ `parameters`, currently always `""`); discover BE via `MegaDesk.nodes` → `BeSpec`; `Popen` with `MEGADESK_*` env
 - **KILLREQUEST** — match `node_endpoint` + `unique_id`, graceful→force shutdown, `DEL` the RUNNINGNODES hash
 - **NODEEXIT** — published on natural exit (metadata only; no log bodies)
-- MissionControl `WORKORDER` / `AGENTHANDLER` / `FINISHED` also live here (`redis://localhost:6379/0`)
+- MissionControl `WORKORDER` / `AGENTHANDLER` / `FINISHED` also live here (same `REDIS_URL`, db 0)
 
 **DB 1 (persistent):**
 - **GBD:SUPERVISOR:SINGLETON** — one-BE lock

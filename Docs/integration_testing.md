@@ -315,11 +315,9 @@ known stream state and dismissal tests call `XDEL`. Tests point at **DB 15** via
 `REDIS_URL`, set in `conftest` before any node is imported, and flush it around every
 test. The `redis_client` fixture refuses to flush any other index.
 
-**TicketDispatcher now honors `REDIS_URL`** (it hardcoded `localhost:6379`, so it could
-not be redirected — also a doc/code mismatch against
-[`MegaDesk-contracts/redis/README.md`](../MegaDesk-contracts/redis/README.md)). Note the
-default is unchanged, so this is not enough on its own: `SupervisorClient` still
-hardcodes `localhost:6379`, which only matters when Supervisor-facing tests are added.
+Every production Redis client (TicketDispatcher, MergeManager, MissionControl,
+`SupervisorClient`, Supervisor provision) honors `REDIS_URL` via
+`redis.Redis.from_url` / `resolve_redis_url()`.
 
 ---
 
@@ -389,8 +387,8 @@ launch real editors.
   CI requires a self-hosted runner with a session or a virtual display.
 - One DPG context at a time per process, so canvas tests run serially, never with
   `pytest-xdist`.
-- Requires a running Redis. `SupervisorClient` also hardcodes `localhost:6379`, though
-  that only matters if Supervisor-facing tests are added later.
+- Requires a running Redis reachable at `REDIS_URL` (tests set DB 15 in `conftest`).
+  `SupervisorClient` and Supervisor provision honor the same env var.
 - `MergeManager._on_vscode` / `_on_cursor` use `Popen(..., shell=True)` on Windows and
   would launch real editors — do not fire those callbacks in tests.
 

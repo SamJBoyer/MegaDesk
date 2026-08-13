@@ -1,8 +1,10 @@
-"""Attach to localhost Redis or provision Docker Redis + Insights.
+"""Attach to Redis via REDIS_URL or provision Docker Redis + Insights.
 
 Redis databases:
   db0 — ephemeral control plane (LAUNCHREQUEST / KILLREQUEST / NODEEXIT, MissionControl streams)
   db1 — persistent supervisor state (singleton, RUNNINGNODES, alive heartbeat)
+
+Connection standard: ``REDIS_URL`` (default ``redis://localhost:6379/0``).
 """
 
 from __future__ import annotations
@@ -14,11 +16,14 @@ from dataclasses import dataclass
 from typing import Optional
 
 import redis
+from megadesk_contracts.supervisor_client import (
+    DEFAULT_REDIS_URL,
+    REDIS_DB_EPHEMERAL,
+    REDIS_DB_PERSISTENT,
+    resolve_redis_url,
+    redis_url_host_port,
+)
 
-REDIS_HOST = "localhost"
-REDIS_PORT = 6379
-REDIS_DB_EPHEMERAL = 0
-REDIS_DB_PERSISTENT = 1
 REDIS_CONTAINER = "gbd-redis"
 INSIGHTS_CONTAINER = "gbd-redis-insight"
 INSIGHTS_PORT = 5540
@@ -34,15 +39,18 @@ NODEEXIT_STREAM = "NODEEXIT"
 CONSUMER_GROUP = "supervisor"
 RUNNINGNODES_PREFIX = "RUNNINGNODES:"
 
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
 
 def running_nodes_key(unique_id: str) -> str:
     return f"{RUNNINGNODES_PREFIX}{unique_id}"
 
 
-def ping_redis(host: str = REDIS_HOST, port: int = REDIS_PORT, timeout: float = 1.0) -> bool:
+def ping_redis(redis_url: Optional[str] = None, timeout: float = 1.0) -> bool:
+    url = resolve_redis_url(redis_url)
     try:
-        client = redis.Redis(
-            host=host, port=port, db=REDIS_DB_EPHEMERAL, socket_connect_timeout=timeout
+        client = redis.Redis.from_url(
+            url, db=REDIS_DB_EPHEMERAL, socket_connect_timeout=timeout
         )
         return bool(client.ping())
     except Exception:
@@ -95,37 +103,49 @@ class RedisHandles:
 
     ephemeral: redis.Redis
     persistent: redis.Redis
+    redis_url: str = DEFAULT_REDIS_URL
 
 
-def connect_handles(
-    host: str = REDIS_HOST, port: int = REDIS_PORT
-) -> RedisHandles:
+def connect_handles(redis_url: Optional[str] = None) -> RedisHandles:
+    url = resolve_redis_url(redis_url)
     return RedisHandles(
-        ephemeral=redis.Redis(
-            host=host, port=port, db=REDIS_DB_EPHEMERAL, decode_responses=True
+        ephemeral=redis.Redis.from_url(
+            url, db=REDIS_DB_EPHEMERAL, decode_responses=True
         ),
-        persistent=redis.Redis(
-            host=host, port=port, db=REDIS_DB_PERSISTENT, decode_responses=True
+        persistent=redis.Redis.from_url(
+            url, db=REDIS_DB_PERSISTENT, decode_responses=True
         ),
+        redis_url=url,
     )
 
 
-def provision_redis() -> RedisHandles:
-    """Prefer existing localhost Redis; otherwise start Docker Redis + Insights."""
-    if ping_redis():
-        return connect_handles()
+def provision_redis(redis_url: Optional[str] = None) -> RedisHandles:
+    """Prefer existing Redis at REDIS_URL; otherwise start Docker Redis + Insights.
+
+    Docker auto-provision only runs when the URL host is loopback.
+    """
+    url = resolve_redis_url(redis_url)
+    if ping_redis(url):
+        return connect_handles(url)
+
+    host, port = redis_url_host_port(url)
+    if host not in _LOOPBACK_HOSTS:
+        raise RuntimeError(
+            f"Redis is not reachable at {url}. "
+            "Start Redis or set REDIS_URL to a reachable server."
+        )
 
     if not _docker_available():
         raise RuntimeError(
-            "Redis is not reachable on localhost:6379 and Docker is unavailable. "
-            "Start Redis locally or install/start Docker."
+            f"Redis is not reachable at {url} and Docker is unavailable. "
+            "Start Redis locally, install/start Docker, or set REDIS_URL."
         )
 
     _ensure_container(
         REDIS_CONTAINER,
         [
             "-p",
-            f"{REDIS_PORT}:6379",
+            f"{port}:6379",
             "redis:7",
         ],
     )
@@ -140,11 +160,11 @@ def provision_redis() -> RedisHandles:
 
     deadline = time.time() + 30
     while time.time() < deadline:
-        if ping_redis():
-            return connect_handles()
+        if ping_redis(url):
+            return connect_handles(url)
         time.sleep(0.5)
 
-    raise RuntimeError("Docker Redis started but localhost:6379 never became reachable")
+    raise RuntimeError(f"Docker Redis started but {url} never became reachable")
 
 
 def mark_supervisor_alive(persistent: redis.Redis, ttl: int = ALIVE_TTL_SECONDS) -> None:
@@ -162,9 +182,8 @@ def clear_supervisor_alive(persistent: Optional[redis.Redis]) -> None:
 
 def is_supervisor_alive(persistent: Optional[redis.Redis] = None) -> bool:
     try:
-        c = persistent or redis.Redis(
-            host=REDIS_HOST,
-            port=REDIS_PORT,
+        c = persistent or redis.Redis.from_url(
+            resolve_redis_url(),
             db=REDIS_DB_PERSISTENT,
             decode_responses=True,
         )
