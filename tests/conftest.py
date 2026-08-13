@@ -34,6 +34,9 @@ sys.path[:0] = [
         "Nodes/TicketDispatcher",
         "Nodes/MergeManager",
         "Nodes/MissionControl",
+        "Nodes/CodeScope",
+        "Nodes/VoiceDeck",
+        "Nodes/CloudDispatcher",
     )
 ]
 
@@ -54,9 +57,34 @@ WORKORDER_CANONICAL_FIELDS = frozenset(
 )
 FINISHED_CANONICAL_FIELDS = frozenset({"ticket_name", "ticket_id", "wt", "agent_dir"})
 
+# The voice chain's streams. Defined here rather than read off the wire module
+# so a field rename has to be made twice, deliberately, in two places.
+CODEQ_ASK_CANONICAL_FIELDS = frozenset(
+    {"session_id", "question_id", "repo", "question", "mode"}
+)
+CODEQ_ANSWER_CANONICAL_FIELDS = frozenset(
+    {"session_id", "question_id", "repo", "answer", "final", "status"}
+)
+CODESCOPE_SESSION_CANONICAL_FIELDS = frozenset(
+    {"repo", "clone_path", "agent_id", "model", "status"}
+)
+VOICE_CONTROL_CANONICAL_FIELDS = frozenset({"action", "value"})
+VOICE_EVENT_CANONICAL_FIELDS = frozenset({"kind", "text", "session_id"})
+CLOUDORDER_CANONICAL_FIELDS = frozenset(
+    {"order_id", "repo_url", "ref", "title", "instructions", "model", "auto_pr"}
+)
+CLOUDFINISHED_CANONICAL_FIELDS = frozenset(
+    {"agent_id", "order_id", "status", "pr_url"}
+)
+CLOUDRUN_CANONICAL_FIELDS = frozenset(
+    {"order_id", "repo_url", "title", "status", "pr_url", "run_id"}
+)
+
 WORKORDER_STREAM = "WORKORDER"
 WORKORDER_GROUP = "mission_control"
 FINISHED_GROUP = "merge_manager"
+CODEQ_ASK_GROUP = "code_scope"
+CLOUDORDER_GROUP = "cloud_dispatcher"
 
 # Background poll intervals, shortened so a test does not wait on production
 # cadence. Patched per test; module defaults are untouched.
@@ -108,6 +136,27 @@ def ticket_dispatcher_module() -> ModuleType:
 
 
 @pytest.fixture(scope="session")
+def code_scope_module() -> ModuleType:
+    from code_scope_frontend import app
+
+    return app
+
+
+@pytest.fixture(scope="session")
+def voice_deck_module() -> ModuleType:
+    from voice_deck_frontend import app
+
+    return app
+
+
+@pytest.fixture(scope="session")
+def cloud_dispatcher_module() -> ModuleType:
+    from cloud_dispatcher_frontend import app
+
+    return app
+
+
+@pytest.fixture(scope="session")
 def merge_manager_module() -> ModuleType:
     import merge_manager_app
 
@@ -142,6 +191,47 @@ def redis_client():
         client.close()
 
 
+# Hashes this suite owns on db 1. Everything else there belongs to whatever
+# MegaDesk the developer has running — Supervisor's singleton, its heartbeat, and
+# the RUNNINGNODES registry — so these are deleted by prefix and db 1 is never
+# flushed.
+PERSISTENT_TEST_PREFIXES = ("CODESCOPE:SESSION:", "CLOUDRUN:", "CLOUDDRAFT:")
+
+
+@pytest.fixture
+def persistent_client():
+    """A client on db 1, where the session and cloud-run hashes live.
+
+    Production pins these to db 1 the way ``SupervisorClient`` does, so a test
+    that used the db-15 stream client instead would pass while the real FE and BE
+    talked past each other.
+    """
+    import redis as redis_lib
+
+    client = redis_lib.Redis.from_url(
+        TEST_REDIS_URL,
+        db=1,
+        decode_responses=True,
+        socket_connect_timeout=2,
+    )
+    try:
+        client.ping()
+    except Exception as exc:  # noqa: BLE001
+        pytest.skip(f"Redis not reachable at {TEST_REDIS_URL}: {exc}")
+
+    def _clear() -> None:
+        for prefix in PERSISTENT_TEST_PREFIXES:
+            for key in client.scan_iter(match=f"{prefix}*", count=100):
+                client.delete(key)
+
+    _clear()
+    try:
+        yield client
+    finally:
+        _clear()
+        client.close()
+
+
 # --- canvas ----------------------------------------------------------------
 
 
@@ -159,9 +249,18 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
     """Shorten FE background poll intervals so tests do not wait on real cadence."""
     import merge_manager_app
     import ticket_dispatcher_app
+    from cloud_dispatcher_frontend import app as cloud_dispatcher_app
+    from code_scope_frontend import app as code_scope_app
+    from voice_deck_frontend import app as voice_deck_app
 
-    monkeypatch.setattr(ticket_dispatcher_app, "POLL_INTERVAL_SEC", FAST_POLL_SEC)
-    monkeypatch.setattr(merge_manager_app, "POLL_INTERVAL_SEC", FAST_POLL_SEC)
+    for module in (
+        ticket_dispatcher_app,
+        merge_manager_app,
+        code_scope_app,
+        voice_deck_app,
+        cloud_dispatcher_app,
+    ):
+        monkeypatch.setattr(module, "POLL_INTERVAL_SEC", FAST_POLL_SEC)
 
 
 @pytest.fixture
@@ -229,6 +328,121 @@ def fake_agent(redis_client, git_floor, mc_wire: ModuleType):
     return agent
 
 
+@pytest.fixture
+def origin_repo(git_floor, tmp_path: Path) -> Path:
+    """A bare repo named ``widgets.git``, so a clone of it is named ``widgets``.
+
+    CodeScope derives the clone directory from the URL's last segment, and
+    ``GitFloor``'s remote is always ``origin.git``.
+    """
+    from megadesk_contracts.testing import git
+
+    dest = tmp_path / "widgets.git"
+    git("clone", "--bare", str(git_floor.origin), str(dest), cwd=tmp_path)
+    return dest
+
+
+@pytest.fixture
+def scope_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Redirect CodeScope's clone directory out of the node package."""
+    root = tmp_path / "Scope"
+    monkeypatch.setenv("SCOPE_ROOT", str(root))
+    return root
+
+
+@pytest.fixture
+def fake_code_agent(redis_client):
+    """Canned answers about code: no ``cursor_sdk``, no agent, no network."""
+    from megadesk_contracts.testing import FakeCodeAgent
+
+    agent = FakeCodeAgent(redis=redis_client, group=CODEQ_ASK_GROUP)
+    agent.ensure_group()
+    return agent
+
+
+@pytest.fixture
+def code_scope_manager(redis_client, persistent_client, fake_code_agent):
+    """The real BE loop with a fake runner: sentence buffering and acks are real."""
+    from CodeScopeManager.manager import CodeScopeManager
+
+    manager = CodeScopeManager(
+        ephemeral=redis_client,
+        persistent=persistent_client,
+        runner_factory=fake_code_agent.runner_factory,
+        group=CODEQ_ASK_GROUP,
+        consumer="test-manager",
+    )
+    try:
+        yield manager
+    finally:
+        manager.close()
+
+
+@pytest.fixture
+def fake_cloud_runtime():
+    """``bc-`` ids and a canned PR URL instead of a Cursor-hosted VM."""
+    from megadesk_contracts.testing import FakeCloudRuntime
+
+    return FakeCloudRuntime()
+
+
+@pytest.fixture
+def cloud_dispatcher(redis_client, persistent_client, fake_cloud_runtime):
+    """The real BE loop with a fake runtime: the registry and acks are real."""
+    from CloudDispatcherManager.dispatcher import CloudDispatcher
+
+    dispatcher = CloudDispatcher(
+        ephemeral=redis_client,
+        persistent=persistent_client,
+        runtime=fake_cloud_runtime,
+        group=CLOUDORDER_GROUP,
+        consumer="test-dispatcher",
+        run_poll_interval=0.0,
+        retry_delay=0.0,
+    )
+    dispatcher.ensure_group()
+    return dispatcher
+
+
+@pytest.fixture
+def opened_urls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Catch PR links the FE would open, so no browser appears mid-test."""
+    from cloud_dispatcher_frontend import app as cloud_dispatcher_app
+
+    opened: list[str] = []
+    monkeypatch.setattr(cloud_dispatcher_app, "open_url", opened.append)
+    return opened
+
+
+@pytest.fixture
+def fake_realtime():
+    """A scripted realtime socket: no microphone, no websocket, no API key."""
+    from megadesk_contracts.testing import FakeRealtime
+
+    return FakeRealtime()
+
+
+@pytest.fixture
+def voice_session(redis_client, persistent_client, fake_realtime):
+    """The real VoiceDeck BE with its transport swapped out.
+
+    Everything around the socket stays real: the tool router, the CODEQ payloads,
+    the draft-versus-order decision, and the injection path.
+    """
+    from VoiceDeckManager.session import VoiceSession
+
+    session = VoiceSession(
+        ephemeral=redis_client,
+        persistent=persistent_client,
+        transport_factory=lambda **_kwargs: fake_realtime,
+        session_id="voice-test",
+    )
+    try:
+        yield session
+    finally:
+        session.shutdown()
+
+
 # --- helpers ---------------------------------------------------------------
 
 
@@ -238,5 +452,15 @@ def workorders(redis_client):
 
     def _read() -> list[tuple[str, dict[str, str]]]:
         return list(redis_client.xrange(WORKORDER_STREAM))
+
+    return _read
+
+
+@pytest.fixture
+def read_stream(redis_client):
+    """Read any stream as (entry_id, fields) in stream order."""
+
+    def _read(stream: str) -> list[tuple[str, dict[str, str]]]:
+        return list(redis_client.xrange(stream))
 
     return _read

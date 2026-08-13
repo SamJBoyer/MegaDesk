@@ -121,6 +121,11 @@ class NodeDriver:
     def user_data(self, suffix: str) -> Any:
         return dpg.get_item_user_data(self.require(suffix))
 
+    def items(self, suffix: str) -> list[str]:
+        """A combo's or listbox's options, in the order the user would see them."""
+        config = dpg.get_item_configuration(self.require(suffix))
+        return [str(item) for item in (config.get("items") or [])]
+
     def shown(self, suffix: str) -> bool:
         """The widget's configured ``show`` flag.
 
@@ -154,6 +159,11 @@ class NodeDriver:
         """Set an input's value and fire its callback, like typing + Enter."""
         self.set(suffix, text)
         return self.fire(suffix, app_data=text)
+
+    def check(self, suffix: str, value: bool = True) -> Any:
+        """Tick or untick a checkbox, firing its callback as a real click does."""
+        self.set(suffix, bool(value))
+        return self.fire(suffix, app_data=bool(value))
 
     def select(self, suffix: str, value: str) -> Any:
         """Pick a combo/listbox value, firing the callback only if one is bound."""

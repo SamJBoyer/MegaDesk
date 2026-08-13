@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voice-deck"
+version = "0.1.0"
+description = "MegaDesk node: speech-to-speech front end for CodeScope and CloudDispatcher"
+requires-python = ">=3.10"
+dependencies = [
+    "redis>=5.0.0",
+    "megadesk-contracts",
+    "websockets>=12.0",
+]
+
+[project.optional-dependencies]
+# Install megadesk-contracts + dearpygui into the MegaDesk env, then:
+#   pip install -e .[canvas,audio]
+canvas = [
+    "dearpygui>=1.11.1",
+]
+# sounddevice needs PortAudio, which is why audio is not a hard dependency: the
+# FE and the wire tests must import without it.
+audio = [
+    "sounddevice>=0.4.6",
+    "numpy>=1.24",
+]
+
+[project.entry-points."MegaDesk.nodes"]
+voice_deck = "voice_deck_node:get_exec_spec"
+
+[tool.setuptools]
+py-modules = ["voice_deck_node"]
+
+[tool.setuptools.packages.find]
+include = ["VoiceDeckManager*", "voice_deck_frontend*"]

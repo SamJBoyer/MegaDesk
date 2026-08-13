@@ -20,11 +20,13 @@ We use different REDIS database for different levels of persistence. DB 0 is tem
 - **KILLREQUEST** — match `node_endpoint` + `unique_id`, graceful→force shutdown, `DEL` the RUNNINGNODES hash
 - **NODEEXIT** — published on natural exit (metadata only; no log bodies)
 - MissionControl `WORKORDER` / `AGENTHANDLER` / `FINISHED` also live here (same `REDIS_URL`, db 0)
+- Voice chain: `CODEQ:ASK` / `CODEQ:ANSWER`, `VOICE:CONTROL` / `VOICE:EVENT`, `CLOUDORDER` / `CLOUDFINISHED` — defined once in `megadesk_contracts.wire`, documented in `MegaDesk-contracts/redis/voice-chain.md`. New streams go there, never in a per-node `redis_packets.py`. Audio never goes on a stream.
 
 **DB 1 (persistent):**
 - **GBD:SUPERVISOR:SINGLETON** — one-BE lock
 - **GBD:SUPERVISOR:ALIVE** — heartbeat (TTL ~5s)
 - **RUNNINGNODES:<unique_id>** — hash registry (`status`, PID, `log_path`, …)
+- **CODESCOPE:SESSION:<id>** / **CLOUDRUN:<agent_id>** / **CLOUDDRAFT:<order_id>** — voice-chain state that must outlive its stream. Tests own only these three prefixes on db 1 and never flush it.
 
 ---
 

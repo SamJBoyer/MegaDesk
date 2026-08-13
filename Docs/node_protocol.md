@@ -57,6 +57,9 @@ Examples in-repo:
 | MissionControl | `mission_control` | FE + BE |
 | MergeManager | `merge_manager` | FE only |
 | TicketDispatcher | `ticket_dispatcher` | FE only |
+| CodeScope | `code_scope` | FE + BE |
+| VoiceDeck | `voice_deck` | FE + BE |
+| CloudDispatcher | `cloud_dispatcher` | FE + BE |
 
 ---
 

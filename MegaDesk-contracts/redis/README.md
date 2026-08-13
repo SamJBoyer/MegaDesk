@@ -4,6 +4,7 @@ MegaDesk processes communicate over a shared local Redis. Two families of packag
 
 1. **MissionControl pipeline** (streams + short-lived hashes on **DB 0**) — TicketDispatcher, MissionControl, MergeManager
 2. **Supervisor** (streams on **DB 0**; RUNNINGNODES / singleton / alive on **DB 1**) — Canvas-owned Supervisor BE and launched BE nodes
+3. **Voice chain** (streams on **DB 0**; session / run / draft hashes on **DB 1**) — CodeScope, VoiceDeck, CloudDispatcher
 
 ## Connection
 
@@ -23,8 +24,8 @@ MissionControl, TicketDispatcher, MergeManager, `SupervisorClient`, and Supervis
 
 | DB | Use | Constants (`megadesk_contracts.supervisor_client`) |
 |----|-----|-----------------------------------------------------|
-| **0** (ephemeral) | Default realtime traffic: MissionControl `WORKORDER` / `AGENTHANDLER` / `FINISHED`; Supervisor streams `LAUNCHREQUEST` / `KILLREQUEST` / `NODEEXIT` | `REDIS_DB_EPHEMERAL` |
-| **1** (persistent) | `GBD:SUPERVISOR:SINGLETON`, `GBD:SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>` | `REDIS_DB_PERSISTENT` |
+| **0** (ephemeral) | Default realtime traffic: MissionControl `WORKORDER` / `AGENTHANDLER` / `FINISHED`; Supervisor streams `LAUNCHREQUEST` / `KILLREQUEST` / `NODEEXIT`; voice chain `CODEQ:*` / `VOICE:*` / `CLOUD*` | `REDIS_DB_EPHEMERAL` |
+| **1** (persistent) | `GBD:SUPERVISOR:SINGLETON`, `GBD:SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>`, `CODESCOPE:SESSION:<id>`, `CLOUDRUN:<agent_id>`, `CLOUDDRAFT:<order_id>` | `REDIS_DB_PERSISTENT` |
 
 ## Encoding
 
@@ -46,6 +47,15 @@ MissionControl, TicketDispatcher, MergeManager, `SupervisorClient`, and Supervis
 | `RUNNINGNODES` | hash | `RUNNINGNODES:<unique_id>` | 1 | [supervisor.md](supervisor.md#runningnodesunique_id) |
 | Supervisor singleton | string | `GBD:SUPERVISOR:SINGLETON` | 1 | [supervisor.md](supervisor.md#gbdsupervisorsingleton) |
 | Supervisor alive | string (TTL) | `GBD:SUPERVISOR:ALIVE` | 1 | [supervisor.md](supervisor.md#gbdsupervisoralive) |
+| `CODEQ:ASK` | stream | `CODEQ:ASK` | 0 | [voice-chain.md](voice-chain.md#codeqask) |
+| `CODEQ:ANSWER` | stream | `CODEQ:ANSWER` | 0 | [voice-chain.md](voice-chain.md#codeqanswer) |
+| `VOICE:CONTROL` | stream | `VOICE:CONTROL` | 0 | [voice-chain.md](voice-chain.md#voicecontrol) |
+| `VOICE:EVENT` | stream | `VOICE:EVENT` | 0 | [voice-chain.md](voice-chain.md#voiceevent) |
+| `CLOUDORDER` | stream | `CLOUDORDER` | 0 | [voice-chain.md](voice-chain.md#cloudorder) |
+| `CLOUDFINISHED` | stream | `CLOUDFINISHED` | 0 | [voice-chain.md](voice-chain.md#cloudfinished) |
+| CodeScope session | hash | `CODESCOPE:SESSION:<id>` | 1 | [voice-chain.md](voice-chain.md#hashes-db-1) |
+| Cloud run | hash | `CLOUDRUN:<agent_id>` | 1 | [voice-chain.md](voice-chain.md#hashes-db-1) |
+| Cloud draft | hash | `CLOUDDRAFT:<order_id>` | 1 | [voice-chain.md](voice-chain.md#hashes-db-1) |
 
 ## Code references
 
@@ -53,6 +63,12 @@ Canonical field builders/parsers (duplicated intentionally today):
 
 - `Nodes/MissionControl/redis_packets.py`
 - `Nodes/MergeManager/redis_packets.py`
+
+Single-definition wire modules (where new packages belong):
+
+- `MegaDesk-contracts/megadesk_contracts/wire/code_scope.py`
+- `MegaDesk-contracts/megadesk_contracts/wire/voice.py`
+- `MegaDesk-contracts/megadesk_contracts/wire/cloud.py`
 
 Supervisor keys/streams (Canvas-owned BE):
 

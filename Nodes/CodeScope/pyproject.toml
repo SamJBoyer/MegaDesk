@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "code-scope"
+version = "0.1.0"
+description = "MegaDesk node: ask questions about a cloned repository (FE) via a warm local Cursor agent (BE)"
+requires-python = ">=3.10"
+dependencies = [
+    "cursor-sdk>=0.1.0",
+    "redis>=5.0.0",
+    "megadesk-contracts",
+]
+
+[project.optional-dependencies]
+# Install megadesk-contracts + dearpygui into the MegaDesk env, then:
+#   pip install -e .[canvas]
+canvas = [
+    "dearpygui>=1.11.1",
+]
+
+[project.entry-points."MegaDesk.nodes"]
+code_scope = "code_scope_node:get_exec_spec"
+
+[tool.setuptools]
+py-modules = ["code_scope_node"]
+
+[tool.setuptools.packages.find]
+include = ["CodeScopeManager*", "code_scope_frontend*"]

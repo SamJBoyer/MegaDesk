@@ -18,6 +18,9 @@ Individual modules:
   - MissionControl: FE + BE node — Redis WORKORDER poller that launches Docker agent sandboxes, plus Floor monitor panel.
   - MergeManager: FE-only Dear PyGui tool that merges finished worktrees into the agents branch.
   - TicketDispatcher: FE-only Dear PyGui tool that lists `agent-ready` GitHub issues and publishes WORKORDERs.
+  - CodeScope: FE + BE node — clones a repo into `Scope/` and answers questions about it with a warm local Cursor agent. The agent's own search and file-read tools are the retrieval layer, so there is no index, no embeddings, and no RAG pipeline.
+  - VoiceDeck: FE + BE node — a speech-to-speech loop (OpenAI Realtime) that calls into CodeScope and CloudDispatcher by tool call. Audio stays inside the BE; only transcripts and control messages cross Redis. Needs `[audio]` (PortAudio) and `OPENAI_API_KEY`.
+  - CloudDispatcher: FE + BE node — sends Cursor **cloud** agents to open documentation PRs, and surfaces their runs and links. Voice can only create drafts here; opening a PR takes a click.
 
 Shared contract: installable `megadesk-contracts` package in `MegaDesk-contracts/` (`FeSpec` / `BeSpec`, entry-point discovery, Supervisor client). Redis IPC docs live alongside it (DB 0 ephemeral / DB 1 Supervisor persistent).
 

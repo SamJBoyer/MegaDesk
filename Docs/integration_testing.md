@@ -475,3 +475,89 @@ The real fix is one copy — the wire helpers belong in `megadesk_contracts` nex
 [`MegaDesk-contracts/README.md`](../MegaDesk-contracts/README.md) means by "when those
 diverge, treat this folder as the intended contract". That is a bigger change than this
 slice, and the drift test is what makes it safe to defer.
+
+---
+
+## 12. Second slice: the voice chain
+
+`CodeScope → VoiceDeck → CloudDispatcher`. Same method as sections 4–6, three new
+external things to keep out of the loop: a microphone, a Cursor VM, and a model that
+charges by the minute. Their wire contracts live in `megadesk_contracts.wire` from the
+start, so the duplicate-`redis_packets` problem in section 11 cannot repeat here.
+
+### Where to cut, and why there
+
+| Fake | Replaces | Left real |
+|---|---|---|
+| `FakeCodeAgent` | `cursor_sdk` and the model behind CodeScope | The clone on disk, the `CODEQ:ASK` group, the session hash, every `CODEQ:ANSWER` payload |
+| `FakeRealtime` | The OpenAI Realtime socket and both audio devices | The tool router, the Redis events, the out-of-band answer injection |
+| `FakeCloudRuntime` | Cursor's VM, the branch, the pull request | The `CLOUDORDER` group, the run registry on db 1, `CLOUDFINISHED`, the retry rules |
+
+`FakeCodeAgent` has two faces on purpose, because there are two seams that fail
+independently: `run_once()` consumes asks and publishes answers as a whole stand-in BE
+(for FE tests), while `runner_factory` feeds canned chunks to the *real*
+`CodeScopeManager` so its sentence buffering, `agent_id` persistence and error answers
+run for real.
+
+One cut sits higher than the network: `CursorCloudRuntime._sdk` is patched in
+`test_the_cloud_runtime_asks_for_a_pr_and_never_runs_locally`, because the bug worth
+guarding against there is a missing keyword argument — the SDK runs an agent *locally*
+when neither `local=` nor `cloud=` is passed — not a bad response.
+
+### Persistent state, and why db 1 is never flushed
+
+These nodes keep state that has to outlive a stream: `CODESCOPE:SESSION:<id>`,
+`CLOUDRUN:<agent_id>`, `CLOUDDRAFT:<order_id>`. Production pins those to **db 1** the way
+`SupervisorClient` does, so a test that used the db-15 client instead would pass while
+the real FE and BE talked past each other.
+
+db 1 also holds whatever MegaDesk the developer has running — Supervisor's singleton, its
+heartbeat, `RUNNINGNODES` — so the `persistent_client` fixture deletes only the three
+prefixes above and never calls `FLUSHDB`.
+
+### Fixtures added
+
+| Fixture | Gives you |
+|---|---|
+| `persistent_client` | db 1, cleaned by prefix around each test |
+| `origin_repo` | A bare `widgets.git`, so a clone of it is named `widgets` |
+| `scope_root` | `SCOPE_ROOT` pointed at a temp dir, keeping clones out of the node package |
+| `fake_code_agent`, `code_scope_manager` | The two CodeScope faces described above |
+| `fake_realtime`, `voice_session` | The real `VoiceSession` with its transport swapped out |
+| `fake_cloud_runtime`, `cloud_dispatcher` | The real dispatcher loop with a fake runtime |
+| `opened_urls` | PR links the FE would open, so no browser appears mid-test |
+
+### Files
+
+```text
+tests/test_voice_contract.py      # field names only: no GUI, no Redis, no audio
+tests/test_codescope_flow.py      # FE ↔ stream, then BE ↔ agent
+tests/test_voicedeck_flow.py      # control plane, tool router, answer relay, FE
+tests/test_clouddispatch_flow.py  # launching, both failure modes, drafts, PR links
+```
+
+### Two timing rules these tests pin
+
+**Answers must not be read from `$` on every poll.** `VoiceSession` resolves "now" to a
+real stream id once, at `start()`, because re-resolving per poll means an answer arriving
+between two polls is dropped — a silent one-in-fifty hang.
+`test_an_answer_that_lands_between_polls_is_not_missed` is the guard.
+
+**Control messages from before the BE woke up are ignored**, deliberately: a microphone
+that switches itself on from stream history is the worst failure available to this node.
+`test_a_start_command_from_before_the_backend_woke_up_is_ignored` pins that, and the
+tests that *do* drive controls arm the cursor first, as the BE does at boot.
+
+### What is still uncovered
+
+- No test opens a socket to OpenAI or launches a real cloud agent. The vendor renaming a
+  realtime event, or Cursor renaming a status, surfaces at runtime — `normalize_status`
+  treats anything unrecognized as still running so that failure is a delay, not a run
+  closed while it is still writing to a branch.
+- `sounddevice` playback and capture are untested. The transport's **event mapping** is
+  covered without a socket or a device (`test_voicedeck_flow.py`, "the real transport's
+  event mapping"), since a renamed vendor event is the likely break; the audio threads
+  themselves are verified only by running them.
+- `python -m VoiceDeckManager devices` and `python -m CloudDispatcherManager models` exist
+  because of that gap: they are the two things to run by hand when voice is silent or a
+  key is wrong.

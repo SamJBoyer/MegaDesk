@@ -5,6 +5,17 @@ poll loop. ``FakeAgent`` replaces the sandbox boundary — Floor cloning, Docker
 and ``cursor_sdk`` — while keeping everything on both sides of it real: the
 WORKORDER consumer group, the wire payloads, the git worktrees, and the
 FINISHED stream MergeManager reads.
+
+The three newer fakes cut the same way for the voice chain, each at the lowest
+boundary that still removes a network or a device:
+
+* ``FakeCodeAgent`` — CODEQ:ASK in, canned CODEQ:ANSWER chunks out. No
+  ``cursor_sdk``, and usable either as a whole stand-in BE or as the chunk source
+  injected into the real one.
+* ``FakeRealtime`` — a scripted OpenAI Realtime socket. No audio device, no
+  websocket, so the real tool router runs against real event shapes.
+* ``FakeCloudRuntime`` — ``bc-`` agent ids and a canned PR URL instead of a
+  Cursor-hosted VM, including both failure modes the dispatcher must separate.
 """
 
 from __future__ import annotations
@@ -12,9 +23,24 @@ from __future__ import annotations
 import contextlib
 import json
 import re
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
+
+from megadesk_contracts.agent_errors import AgentRunError, AgentStartupError
+from megadesk_contracts.cloud_runtime import CloudLaunch, CloudStatus
+from megadesk_contracts.realtime import (
+    EVENT_ASSISTANT_TEXT,
+    EVENT_ERROR,
+    EVENT_STATE,
+    EVENT_TOOL_CALL,
+    EVENT_TRANSCRIPT_FINAL,
+    EVENT_TRANSCRIPT_PARTIAL,
+    RealtimeEvent,
+)
+from megadesk_contracts.wire import cloud as cloud_wire
+from megadesk_contracts.wire import code_scope as code_scope_wire
 
 
 @dataclass
@@ -230,3 +256,394 @@ class FakeAgent:
         if existing.is_dir():
             return existing
         return Path(self.floor.add_ticket(ticket))
+
+
+# --- CodeScope -------------------------------------------------------------
+
+DEFAULT_CANNED_ANSWER = (
+    "The shared frame pump is a module global, so it outlives the Dear PyGui "
+    "context. Whoever owns the context calls reset on teardown."
+)
+
+
+def split_sentences(text: str) -> list[str]:
+    """Split answer text the way a streaming reader would consume it.
+
+    The real runner yields whatever the agent emits, which is neither one chunk
+    nor one word. Sentences are the unit VoiceDeck speaks, so faking at that
+    granularity exercises the multi-entry answer path rather than pretending a
+    whole answer arrives at once.
+
+    Separators stay attached to the chunk before them, so concatenating the
+    chunks reproduces the input exactly — as a real token stream does. A fake
+    that dropped them would hide a consumer that forgets to space its joins.
+    """
+    raw = str(text)
+    pieces = re.split(r"(?<=[.!?])(\s+)", raw)
+    chunks: list[str] = []
+    for index in range(0, len(pieces), 2):
+        separator = pieces[index + 1] if index + 1 < len(pieces) else ""
+        chunk = pieces[index] + separator
+        if chunk.strip():
+            chunks.append(chunk)
+    return chunks or [raw]
+
+
+@dataclass
+class CodeAnswer:
+    """One CODEQ:ASK the fake consumed, and everything it published for it."""
+
+    ask_id: str
+    session_id: str
+    question_id: str
+    repo: str
+    question: str
+    mode: str
+    chunks: list[str]
+    answer: str
+    status: str
+    answer_ids: list[str]
+
+
+class FakeRunner:
+    """What ``CodeScopeManager`` sees instead of a local Cursor agent."""
+
+    def __init__(
+        self,
+        owner: "FakeCodeAgent",
+        *,
+        cwd: Any = None,
+        model: str = "auto",
+        agent_id: str = "",
+        **_ignored: Any,
+    ) -> None:
+        self.owner = owner
+        self.cwd = cwd
+        self.model = model
+        self.agent_id = agent_id or owner.agent_id
+        self.closed = False
+
+    def answer(self, question: str, *, mode: str = code_scope_wire.MODE_ANSWER):
+        self.owner.questions.append(question)
+        self.owner.modes.append(mode)
+        if self.owner.startup_error:
+            raise AgentStartupError(self.owner.startup_error)
+        if self.owner.run_error:
+            raise AgentRunError(self.owner.run_error)
+        # A generator would defer the raises above until first iteration, which
+        # is not where the manager expects to catch them.
+        return iter(self.owner.chunks(question))
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class FakeCodeAgent:
+    """Answers questions about code without ``cursor_sdk`` or a real clone.
+
+    Two faces, because there are two seams worth cutting independently:
+
+    * ``run_once()`` reads CODEQ:ASK through the real consumer group and
+      publishes CODEQ:ANSWER with the production wire helpers, so an FE test
+      needs no BE process at all.
+    * ``runner_factory`` hands the real ``CodeScopeManager`` something that
+      streams canned chunks, so the manager's own loop — sentence buffering,
+      session status, ``agent_id`` persistence, error answers — runs for real.
+    """
+
+    def __init__(
+        self,
+        *,
+        redis: Any,
+        wire: Any = code_scope_wire,
+        group: str = code_scope_wire.ASK_GROUP,
+        consumer: str = "fake-code-agent",
+        default_answer: str = DEFAULT_CANNED_ANSWER,
+        agent_id: str = "fake-agent-001",
+    ) -> None:
+        self.redis = redis
+        self.wire = wire
+        self.group = group
+        self.consumer = consumer
+        self.default_answer = default_answer
+        self.agent_id = agent_id
+        self.answers: dict[str, str] = {}
+        self.error = ""
+        self.startup_error = ""
+        self.run_error = ""
+        self.runs: list[CodeAnswer] = []
+        self.questions: list[str] = []
+        self.modes: list[str] = []
+        self.runners: list[FakeRunner] = []
+
+    # --- runner face ---
+
+    def runner_factory(self, **kwargs: Any) -> FakeRunner:
+        runner = FakeRunner(self, **kwargs)
+        self.runners.append(runner)
+        return runner
+
+    # --- canned answers ---
+
+    def add_answer(self, contains: str, answer: str) -> None:
+        """Answer questions containing ``contains`` (case-insensitive) with ``answer``."""
+        self.answers[contains.strip().lower()] = answer
+
+    def answer_for(self, question: str) -> str:
+        text = str(question).strip().lower()
+        for needle, answer in self.answers.items():
+            if needle in text:
+                return answer
+        return self.default_answer
+
+    def chunks(self, question: str) -> list[str]:
+        return split_sentences(self.answer_for(question))
+
+    # --- consumer group ---
+
+    def ensure_group(self) -> None:
+        from redis.exceptions import ResponseError
+
+        try:
+            self.redis.xgroup_create(
+                self.wire.ASK_STREAM, self.group, id="0", mkstream=True
+            )
+        except ResponseError as exc:
+            if "BUSYGROUP" not in str(exc):
+                raise
+
+    def pending(self) -> int:
+        info = self.redis.xpending(self.wire.ASK_STREAM, self.group)
+        if isinstance(info, dict):
+            return int(info.get("pending") or 0)
+        return int(info[0]) if info else 0
+
+    # --- work ---
+
+    def run_once(self, *, count: int = 32) -> list[CodeAnswer]:
+        """Drain pending then new CODEQ:ASK entries, one pass."""
+        self.ensure_group()
+        produced: list[CodeAnswer] = []
+        for stream_id in ("0", ">"):
+            results = self.redis.xreadgroup(
+                groupname=self.group,
+                consumername=self.consumer,
+                streams={self.wire.ASK_STREAM: stream_id},
+                count=count,
+            )
+            for _stream, messages in results or []:
+                for entry_id, fields in messages:
+                    produced.append(self.handle(entry_id, fields))
+        self.runs.extend(produced)
+        return produced
+
+    def handle(self, entry_id: str, fields: dict[str, Any]) -> CodeAnswer:
+        ask = self.wire.parse_ask(fields)
+        self.questions.append(ask["question"])
+        self.modes.append(ask["mode"])
+
+        if self.error:
+            chunks = [self.error]
+            status = self.wire.STATUS_ERROR
+        else:
+            chunks = self.chunks(ask["question"])
+            status = self.wire.STATUS_OK
+
+        answer_ids: list[str] = []
+        for index, chunk in enumerate(chunks):
+            payload = self.wire.answer_fields(
+                session_id=ask["session_id"],
+                question_id=ask["question_id"],
+                repo=ask["repo"],
+                answer=chunk,
+                final=index == len(chunks) - 1,
+                status=status,
+            )
+            answer_ids.append(str(self.redis.xadd(self.wire.ANSWER_STREAM, payload)))
+
+        self.redis.xack(self.wire.ASK_STREAM, self.group, entry_id)
+
+        return CodeAnswer(
+            ask_id=str(entry_id),
+            session_id=ask["session_id"],
+            question_id=ask["question_id"],
+            repo=ask["repo"],
+            question=ask["question"],
+            mode=ask["mode"],
+            chunks=chunks,
+            answer="".join(chunks),
+            status=status,
+            answer_ids=answer_ids,
+        )
+
+
+# --- VoiceDeck -------------------------------------------------------------
+
+
+class FakeRealtime:
+    """Scripted stand-in for the OpenAI Realtime socket: no audio, no network.
+
+    Everything the BE does *around* the socket stays real — the tool router, the
+    Redis events, and the out-of-band answer injection that keeps a 30-second
+    codebase question from stalling a sub-second voice loop. Injected text is
+    echoed back as an ``assistant_text`` event by default, which is what the real
+    model does when handed a conversation item plus ``response.create``.
+    """
+
+    def __init__(
+        self,
+        *,
+        script: Optional[list[RealtimeEvent]] = None,
+        echo_injected: bool = True,
+    ) -> None:
+        self.pending: deque[RealtimeEvent] = deque(script or [])
+        self.echo_injected = echo_injected
+        self.tool_results: list[tuple[str, dict[str, Any]]] = []
+        self.injected: list[str] = []
+        self.connected = False
+        self.closed = False
+        self.muted = False
+        self.mute_calls: list[bool] = []
+        self._call_seq = 0
+
+    # --- scripting ---
+
+    def push(self, event: RealtimeEvent) -> RealtimeEvent:
+        self.pending.append(event)
+        return event
+
+    def say(self, text: str, *, partial: bool = False) -> RealtimeEvent:
+        """Script a user turn."""
+        kind = EVENT_TRANSCRIPT_PARTIAL if partial else EVENT_TRANSCRIPT_FINAL
+        return self.push(RealtimeEvent(kind=kind, text=text))
+
+    def call_tool(
+        self, name: str, arguments: Optional[dict[str, Any]] = None, *, call_id: str = ""
+    ) -> str:
+        """Script a function call, returning the call id to match its result."""
+        self._call_seq += 1
+        cid = call_id or f"call_{self._call_seq}"
+        self.push(
+            RealtimeEvent(
+                kind=EVENT_TOOL_CALL,
+                name=name,
+                arguments=dict(arguments or {}),
+                call_id=cid,
+            )
+        )
+        return cid
+
+    # --- transport surface the BE uses ---
+
+    def connect(self) -> None:
+        self.connected = True
+
+    def close(self) -> None:
+        self.connected = False
+        self.closed = True
+
+    def events(self) -> Iterator[RealtimeEvent]:
+        """Yield scripted events until the script runs dry, then stop.
+
+        Non-blocking on purpose: production blocks on a socket, but a test that
+        blocks forever is a hang rather than a failure. Events appended while
+        iterating (a tool result that provokes another turn) are still delivered.
+        """
+        while self.pending:
+            yield self.pending.popleft()
+
+    def set_muted(self, muted: bool) -> None:
+        self.muted = bool(muted)
+        self.mute_calls.append(bool(muted))
+
+    def send_tool_result(self, call_id: str, payload: dict[str, Any]) -> None:
+        self.tool_results.append((str(call_id), dict(payload)))
+
+    def inject_assistant_text(self, text: str) -> None:
+        self.injected.append(text)
+        if self.echo_injected:
+            self.push(RealtimeEvent(kind=EVENT_ASSISTANT_TEXT, text=text))
+
+    # --- inspection ---
+
+    def result_for(self, call_id: str) -> Optional[dict[str, Any]]:
+        for cid, payload in self.tool_results:
+            if cid == str(call_id):
+                return payload
+        return None
+
+
+# --- CloudDispatcher -------------------------------------------------------
+
+
+class FakeCloudRuntime:
+    """``bc-`` ids and a canned PR URL instead of a Cursor-hosted VM.
+
+    Models both failure modes the dispatcher has to keep apart: ``startup_error``
+    raises before an agent id exists, while ``run_error`` produces a real agent
+    that finishes badly.
+    """
+
+    def __init__(
+        self,
+        *,
+        pr_url_template: str = "https://github.com/acme/widgets/pull/{n}",
+        startup_error: str = "",
+        run_error: str = "",
+        retryable: bool = False,
+        polls_before_finish: int = 1,
+    ) -> None:
+        self.pr_url_template = pr_url_template
+        self.startup_error = startup_error
+        self.run_error = run_error
+        self.retryable = retryable
+        self.polls_before_finish = max(0, int(polls_before_finish))
+        self.launches: list[dict[str, Any]] = []
+        self.cancelled: list[str] = []
+        self._polls: dict[str, int] = {}
+        self._seq = 0
+
+    def launch(
+        self,
+        *,
+        repo_url: str,
+        instructions: str,
+        title: str,
+        model: str,
+        auto_pr: bool = True,
+        ref: str = "",
+    ) -> CloudLaunch:
+        if self.startup_error:
+            raise AgentStartupError(self.startup_error, retryable=self.retryable)
+        self._seq += 1
+        agent_id = f"{cloud_wire.CLOUD_AGENT_ID_PREFIX}fake{self._seq:03d}"
+        self.launches.append(
+            {
+                "agent_id": agent_id,
+                "repo_url": repo_url,
+                "instructions": instructions,
+                "title": title,
+                "model": model,
+                "auto_pr": bool(auto_pr),
+                "ref": ref,
+            }
+        )
+        return CloudLaunch(agent_id=agent_id, run_id=f"run_{self._seq:03d}")
+
+    def poll(self, agent_id: str) -> CloudStatus:
+        seen = self._polls.get(agent_id, 0) + 1
+        self._polls[agent_id] = seen
+        if agent_id in self.cancelled:
+            return CloudStatus(status=cloud_wire.STATUS_CANCELLED)
+        if seen <= self.polls_before_finish:
+            return CloudStatus(status=cloud_wire.STATUS_RUNNING)
+        if self.run_error:
+            return CloudStatus(status=cloud_wire.STATUS_ERROR, detail=self.run_error)
+        index = agent_id.rsplit("fake", 1)[-1].lstrip("0") or "1"
+        return CloudStatus(
+            status=cloud_wire.STATUS_FINISHED,
+            pr_url=self.pr_url_template.format(n=index),
+        )
+
+    def cancel(self, agent_id: str) -> None:
+        self.cancelled.append(agent_id)
