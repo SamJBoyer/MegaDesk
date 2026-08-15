@@ -217,6 +217,8 @@ tests/
   test_frame_pump.py    # the two blockers in section 3
   test_canvas_harness.py# the harness reaches production code
   test_nodeflow.py      # the scenarios in section 6
+  test_vertical_slice.py# TicketDispatcher → Plant → MergeManager on SMOKETESTREPO
+  test_node_runtime.py  # heartbeat, kill switch, stale RUNNINGNODES
   test_wire_contract.py # the wire format, and the two redis_packets copies
 ```
 
@@ -335,6 +337,7 @@ Ordered by seam. Each names the bug class it catches.
 | T6 | Craft conflicting commits. Click merge. Assert the merge was aborted (agents clean, no `MERGE_HEAD`) **and** a new `WORKORDER` exists with `new_wt="false"`, `wt=<abs ticket path>`, `ticket_name="merge-{orig}"`. | The loop-closing seam — highest value |
 | T7 | Click `dismiss::{key}`. Assert `XACK` + `XDEL` on `FINISHED:{repo}` and the row widget is gone. | Stream cleanup vs GUI teardown |
 | T8 | Full chain in one canvas with both FEs hosted: dispatch → `FakeAgent` → MergeManager row appears → merge → assert final git state. | Cross-node behavior over the **shared** frame pump |
+| V1 | TicketDispatcher on `https://github.com/SamJBoyer/SMOKETESTREPO.git` → MissionControl FE shows a live `AGENTHANDLER` → FakeAgent finishes → MergeManager merges. | The Plant/sandbox row T8 never hosted |
 
 T8 is the one that would have caught the `frame_pump` bug, and it is the only scenario
 that exercises two FEs sharing pump state — the exact condition under which 3.1 and 3.2

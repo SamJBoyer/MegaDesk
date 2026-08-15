@@ -195,7 +195,13 @@ def redis_client():
 # MegaDesk the developer has running — Supervisor's singleton, its heartbeat, and
 # the RUNNINGNODES registry — so these are deleted by prefix and db 1 is never
 # flushed.
-PERSISTENT_TEST_PREFIXES = ("CODESCOPE:SESSION:", "CLOUDRUN:", "CLOUDDRAFT:")
+PERSISTENT_TEST_PREFIXES = (
+    "CODESCOPE:SESSION:",
+    "CLOUDRUN:",
+    "CLOUDDRAFT:",
+    "NODEHB:test-",
+    "NODE:SHUTDOWN:test-",
+)
 
 
 @pytest.fixture
@@ -251,6 +257,7 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
     import ticket_dispatcher_app
     from cloud_dispatcher_frontend import app as cloud_dispatcher_app
     from code_scope_frontend import app as code_scope_app
+    from mission_control_frontend import app as mission_control_app
     from voice_deck_frontend import app as voice_deck_app
 
     for module in (
@@ -259,6 +266,7 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
         code_scope_app,
         voice_deck_app,
         cloud_dispatcher_app,
+        mission_control_app,
     ):
         monkeypatch.setattr(module, "POLL_INTERVAL_SEC", FAST_POLL_SEC)
 
