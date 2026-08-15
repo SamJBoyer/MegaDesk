@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import os
+from pathlib import Path
 
 import dearpygui.dearpygui as dpg
-from megadesk_contracts import ensure_supervisor_running, frame_pump
+from megadesk_contracts import ENV_CANVAS_ROOT, ensure_supervisor_running, frame_pump
 
 from engine.canvas_model import CanvasModel
 from engine.display_engine import (
@@ -143,6 +145,7 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
     log = logging.getLogger("megadesk.canvas")
+    os.environ[ENV_CANVAS_ROOT] = str(Path(__file__).resolve().parent)
     discover_megadesk_frontends()
 
     # Supervisor BE is canvas-owned — start before the UI so LAUNCHREQUEST works.

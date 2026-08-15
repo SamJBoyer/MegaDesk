@@ -11,25 +11,31 @@ from pathlib import Path
 from typing import Optional, TextIO
 
 from megadesk_contracts import BeSpec
-
-# MegaDesk-Canvas — package root that owns logs/
-CANVAS_ROOT = Path(__file__).resolve().parent.parent
-LOGS_ROOT = CANVAS_ROOT / "logs"
+from megadesk_contracts.paths import resolve_canvas_root, resolve_logs_root
 
 ENV_UNIQUE_ID = "MEGADESK_UNIQUE_ID"
 ENV_NODE = "MEGADESK_NODE"
 ENV_LOG_PATH = "MEGADESK_LOG_PATH"
 
 
+def canvas_root() -> Path:
+    """Canvas that owns this Supervisor process (env / cwd, not another worktree)."""
+    return resolve_canvas_root()
+
+
+def logs_root() -> Path:
+    return resolve_logs_root()
+
+
 def instance_log_path(node_endpoint: str, unique_id: str) -> Path:
     """Absolute path for a managed BE instance log file."""
     safe_endpoint = node_endpoint.strip() or "unknown"
-    return (LOGS_ROOT / safe_endpoint / f"{unique_id}.log").resolve()
+    return (logs_root() / safe_endpoint / f"{unique_id}.log").resolve()
 
 
 def supervisor_self_log_path() -> Path:
     """Absolute path for the Supervisor BE bootstrap log."""
-    return (LOGS_ROOT / "supervisor" / "supervisor.log").resolve()
+    return (logs_root() / "supervisor" / "supervisor.log").resolve()
 
 
 @dataclass

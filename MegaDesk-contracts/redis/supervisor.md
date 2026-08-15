@@ -14,8 +14,14 @@ Supervisor uses Redis for:
 5. **Per-instance log files** under `MegaDesk-Canvas/logs/` (not Redis)
 
 Node backends are discovered from installed `MegaDesk.nodes` entry points via
-`get_exec_spec("BE")` → `BeSpec` (argv + optional cwd). There are no YAML
+`get_be_spec()` → `BeSpec` (argv + optional cwd). There are no YAML
 manifests. Launch `parameters` are present on the wire but currently always `""`.
+
+Each BE installs `megadesk_contracts.NodeRuntime`, which writes `NODEHB:<unique_id>`
+on DB 1 every 5s (`pid`, `status`, `node`) and exits if `NODE:SHUTDOWN` or
+`NODE:SHUTDOWN:<unique_id>` is `1`, or if Redis is unreachable. Supervisor polls
+OS PIDs and those heartbeats; dead hashes are deleted, not shown as exited.
+The operator panel lists **alive procs** only.
 
 This family is independent of the MissionControl pipeline streams, but shares the same
 Redis server via **`REDIS_URL`** (different DB indexes).
@@ -36,7 +42,7 @@ Constants live in `megadesk_contracts.supervisor_client`:
 | DB | Role |
 |----|------|
 | `0` (ephemeral) | `LAUNCHREQUEST`, `KILLREQUEST`, `NODEEXIT`; MissionControl pipeline traffic |
-| `1` (persistent) | `GBD:SUPERVISOR:SINGLETON`, `GBD:SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>` |
+| `1` (persistent) | `GBD:SUPERVISOR:SINGLETON`, `GBD:SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>`, `NODEHB:<unique_id>`, `NODE:SHUTDOWN` |
 
 Launch contract for BE nodes:
 
@@ -53,9 +59,11 @@ subprocess.Popen(
 Each launch gets a global `unique_id` (UUID4). Multiple instances of the same
 `node_endpoint` may run concurrently.
 
-Log path convention: `MegaDesk-Canvas/logs/<node_endpoint>/<unique_id>.log`
-(absolute path stored on the `RUNNINGNODES` hash as `log_path`).
-Supervisor BE self-log: `MegaDesk-Canvas/logs/supervisor/supervisor.log`.
+Log path convention: `<running-canvas>/logs/<node_endpoint>/<unique_id>.log`
+resolved from `MEGADESK_CANVAS_ROOT` (set by `main.py` to its own directory),
+then cwd, then the imported `supervisor` package — never the contracts
+install path, which can point at another worktree.
+Supervisor BE self-log: `<running-canvas>/logs/supervisor/supervisor.log`.
 
 ---
 
@@ -163,10 +171,9 @@ XADD KILLREQUEST * node_endpoint mission_control unique_id 3f2a9c1e-…
 | `exit_code` | Process exit code as string; empty while `running` |
 | `exited_at` | ISO-8601 UTC timestamp; empty while `running` |
 
-Natural process death does **not** delete the hash. The Supervisor reaper sets
-`status=exited`, `exit_code`, and `exited_at`, publishes `NODEEXIT`, and drops
-the in-memory handle. The hash remains until an operator `KILLREQUEST` (Stop)
-clears it. Intentional kill always `DEL`s the hash.
+Natural process death publishes `NODEEXIT` and **deletes** the hash. Dead
+procs are not tracked. A Supervisor restart also sweeps Redis for hashes whose
+OS PID and heartbeat are both gone.
 
 ### Example
 

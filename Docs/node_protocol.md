@@ -6,8 +6,8 @@ A **node** is a modular tool inside MegaDesk. Nodes can expose a front-end (FE),
 
 | Half | What it is | Who uses it |
 |------|------------|-------------|
-| **FE** | Always Dear PyGui. Integrated into the MegaDesk canvas shell. | MegaDesk canvas (`MegaDesk-Canvas/`) via `get_exec_spec("FE")` → `FeSpec` |
-| **BE** | Long-lived process (argv + optional cwd). Managed as a subprocess. | Canvas-owned Supervisor BE via `get_exec_spec("BE")` → `BeSpec` |
+| **FE** | Always Dear PyGui. Integrated into the MegaDesk canvas shell. | MegaDesk canvas (`MegaDesk-Canvas/`) via `get_fe_spec()` → `FeSpec` |
+| **BE** | Long-lived process (argv + optional cwd). Managed as a subprocess. | Canvas-owned Supervisor BE via `get_be_spec()` → `BeSpec` |
 
 Shared contract lives in the installable `megadesk-contracts` package (`MegaDesk-contracts/`): `FeSpec`, `BeSpec`, entry-point discovery, `SupervisorClient`, `frame_pump`, and logging helpers.
 
@@ -24,7 +24,7 @@ Each productivity node is its own installable Python project under `Nodes/<Name>
 ```text
 Nodes/<Name>/
   pyproject.toml          # REQUIRED — registers MegaDesk.nodes
-  <name>_node.py          # REQUIRED — get_exec_spec(mode)
+  <name>_node.py          # REQUIRED — get_fe_spec() / get_be_spec()
   …                       # app / package code for FE and/or BE
   Etc/Artwork/…           # optional icon for the Catalog palette
 ```
@@ -35,7 +35,7 @@ Nodes/<Name>/
 2. Nodes are always installed into the **MegaDesk conda env** (`pip install -e Nodes/<Name>`). Undiscoverable packages are invisible to FE and BE.
 3. Depend on `megadesk-contracts` so the node can import `FeSpec` / `BeSpec` / `Mode`.
 4. FE-only, BE-only, and FE+BE are all valid. Return `None` for the mode you do not support.
-5. `get_exec_spec` must return a ready-to-use launch description — the caller should not need extra setup beyond what the installed package already provides.
+5. `get_fe_spec` / `get_be_spec` must return a ready-to-use launch description — the caller should not need extra setup beyond what the installed package already provides. `get_exec_spec(mode)` remains as a thin wrapper.
 
 ---
 
@@ -48,7 +48,7 @@ my_tool = "my_tool_node:get_exec_spec"
 
 - The **entry-point name** (`my_tool`) is the package’s discovery key.
 - Prefer making `FeSpec.name` / `BeSpec.name` match that key so FE drop and BE `LAUNCHREQUEST` use the same nickname.
-- One entry point serves both modes; branching happens inside `get_exec_spec`.
+- One entry point serves both modes. Discovery prefers `get_fe_spec()` / `get_be_spec()` on the module; `get_exec_spec(mode)` is the compatibility wrapper.
 
 Examples in-repo:
 
@@ -63,16 +63,26 @@ Examples in-repo:
 
 ---
 
-## Required method: `get_exec_spec(mode)`
+## Required methods: `get_fe_spec()` / `get_be_spec()`
 
 Every node module pointed at by the entry point exports:
 
 ```python
-def get_exec_spec(mode: Mode) -> FeSpec | BeSpec | None:
+def get_fe_spec() -> FeSpec | None:
     ...
+
+def get_be_spec() -> BeSpec | None:
+    ...
+
+def get_exec_spec(mode: Mode) -> FeSpec | BeSpec | None:
+    if mode == "FE":
+        return get_fe_spec()
+    if mode == "BE":
+        return get_be_spec()
+    return None
 ```
 
-`Mode` is `"FE"` | `"BE"`.
+`Mode` is `"FE"` | `"BE"`. Discovery calls `get_fe_spec` / `get_be_spec` when they exist.
 
 ### `FeSpec` (mode `"FE"`)
 
@@ -86,6 +96,7 @@ Front-end description for MegaDesk canvas hosting:
 | `default_width` | `int` | Initial window width |
 | `default_height` | `int` | Initial window height |
 | `build` | callable | Builds the Dear PyGui UI into the host content parent |
+| `backends` | `tuple[str, ...]` | Supervisor `node_endpoint` names to `XADD` on `LAUNCHREQUEST` when this FE is hosted (drop **or** canvas open). Empty = no BE. |
 
 `build` signature:
 
@@ -103,16 +114,17 @@ FE-only example pattern:
 ```python
 from megadesk_contracts import FeSpec, Mode
 
-def get_exec_spec(mode: Mode):
-    if mode == "FE":
-        return FeSpec(
-            name="merge_manager",
-            description="…",
-            icon=icon_path_or_none,
-            default_width=960,
-            default_height=600,
-            build=build_ui,
-        )
+def get_fe_spec():
+    return FeSpec(
+        name="merge_manager",
+        description="…",
+        icon=icon_path_or_none,
+        default_width=960,
+        default_height=600,
+        build=build_ui,
+    )
+
+def get_be_spec():
     return None
 ```
 
@@ -139,26 +151,29 @@ subprocess.Popen(
 ```
 
 BE processes should write diagnostics to stdout/stderr (or call
-`megadesk_contracts.configure_node_logging()` at startup). Supervisor merges both streams
-into the per-instance log file and records `log_path` / exit metadata on
-`RUNNINGNODES:<unique_id>` (Redis DB 1).
+`megadesk_contracts.configure_node_logging()` at startup) and wrap `main` in
+`NodeRuntime.from_env(...)` so they heartbeat their real `os.getpid()` every 5s
+and exit when `NODE:SHUTDOWN` is `1` or Redis is unreachable. Supervisor merges
+both streams into the per-instance log file under the **running** canvas
+(`MEGADESK_CANVAS_ROOT` / cwd), not the worktree that last installed contracts.
 
 BE-only example pattern:
 
 ```python
 from megadesk_contracts import BeSpec, Mode
 
-def get_exec_spec(mode: Mode):
-    if mode == "BE":
-        return BeSpec(
-            name="mission_control",
-            argv=[sys.executable, "-u", "-m", "MissionControlManager"],
-            cwd=str(package_root),
-        )
+def get_be_spec():
+    return BeSpec(
+        name="mission_control",
+        argv=[sys.executable, "-u", "-m", "MissionControlManager"],
+        cwd=str(package_root),
+    )
+
+def get_fe_spec():
     return None
 ```
 
-FE+BE example: return `FeSpec` for `"FE"` and `BeSpec` for `"BE"` from the same function (see `Nodes/MissionControl/mission_control_node.py`).
+FE+BE example: `get_fe_spec()` returns an `FeSpec` with `backends=(name,)`; `get_be_spec()` returns the `BeSpec` (see `Nodes/MissionControl/mission_control_node.py`).
 
 ---
 
@@ -185,7 +200,7 @@ Related public helpers (same package): `SupervisorClient`, `ensure_supervisor_ru
 1. On startup, the canvas calls `ensure_supervisor_running()` so the Supervisor BE (`python -m supervisor`) is up before UI drop can request BE launches. Then it calls `discover_frontends()` (via `engine.megadesk_registry.discover_megadesk_frontends`) and fills the Catalog palette (`megadesk:<name>`). Icons come from `FeSpec.icon`. The Supervisor operator UI is built as collapsible chrome via `build_supervisor_panel` — it is not a Catalog entry.
 2. Dropping a node places a canvas member (`type: "megadesk"`, `node_name` in `canvas.json`) and hosts the FE as a native `dpg.node` inside the canvas `node_editor` via `FeSpec.build`.
 3. Nodes on the board are always the live FE (no placard / closed state). Middle-mouse pans the editor; there is no canvas zoom. Delete removes the selected node(s).
-4. If `has_backend(node_name)` is true after drop: only if Redis is reachable **and** Supervisor is already alive, the canvas `XADD`s `LAUNCHREQUEST` with `node_endpoint` = node name (and `parameters=""`). Otherwise the BE launch is skipped.
+4. After drop **and** when a saved canvas is opened, the canvas reads `FeSpec.backends` and `XADD`s one `LAUNCHREQUEST` per endpoint (skipped if that BE is already alive, Redis is down, or Supervisor is not up).
 
 Canvas-side install (also summarized in `MegaDesk-Canvas/readme.md`):
 
@@ -199,7 +214,7 @@ pip install -e Nodes/MissionControl[canvas]     # FE + BE example
 python main.py   # from MegaDesk-Canvas/ — starts Supervisor BE on launch
 ```
 
-To reinstall every node from scratch, run `scripts/refresh_nodes.sh` in git bash — it uninstalls and editable-reinstalls each `Nodes/<Name>/` into `MEGADESK`, then verifies discovery.
+To reinstall every node from scratch, run `python scripts/refresh_nodes.py` from the MEGADESK env — it uninstalls and editable-reinstalls each `Nodes/<Name>/`, then verifies discovery. Before changing the Supervisor or a BE, run `python scripts/down_nodes.py`.
 
 ### Hosted shell (`MegaDeskMember`)
 
@@ -265,7 +280,7 @@ Typical Redis path after an FE drop that also has a BE:
 ## Minimal checklist for a new node
 
 1. Create `Nodes/<Name>/` with `pyproject.toml` depending on `megadesk-contracts`.
-2. Add `<name>_node.py` with `get_exec_spec(mode)` returning `FeSpec` and/or `BeSpec`.
+2. Add `<name>_node.py` with `get_fe_spec()` / `get_be_spec()` returning `FeSpec` and/or `BeSpec`.
 3. Register `[project.entry-points."MegaDesk.nodes"]`.
 4. `pip install -e Nodes/<Name>` (add `[canvas]` / Dear PyGui if the node has an FE), or run `scripts/refresh_nodes.sh`, which picks the new node up automatically.
 5. Restart MegaDesk so entry points are re-scanned (Supervisor BE starts with the canvas).

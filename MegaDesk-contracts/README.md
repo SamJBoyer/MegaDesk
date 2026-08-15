@@ -30,6 +30,8 @@ from megadesk_contracts import (
 | Path | Contents |
 |------|----------|
 | [`megadesk_contracts/`](megadesk_contracts/) | Installable Python package (`megadesk-contracts`) |
+| [`megadesk_contracts/node_runtime.py`](megadesk_contracts/node_runtime.py) | `NodeRuntime` — 5s heartbeat + Redis kill switch for every Python BE |
+| [`megadesk_contracts/paths.py`](megadesk_contracts/paths.py) | `resolve_canvas_root()` — logs follow the running canvas, not another worktree |
 | [`megadesk_contracts/wire/`](megadesk_contracts/wire/) | `code_scope`, `voice`, `cloud` — canonical stream field sets with build / parse helpers |
 | [`megadesk_contracts/repo.py`](megadesk_contracts/repo.py) | `ensure_clone` / `refresh_clone` for disposable read-only clones |
 | [`megadesk_contracts/agent_errors.py`](megadesk_contracts/agent_errors.py) | `AgentStartupError` (never ran, maybe retry) vs `AgentRunError` (ran and failed) |
