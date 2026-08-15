@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # Ground truth: return the MEGADESK conda env to a known-good Node install state.
+# Windows: prefer `python scripts/refresh_nodes.py` from the MEGADESK env.
 set -euo pipefail
 
-ENV_NAME="MEGADESK"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if command -v python >/dev/null 2>&1; then
+    exec python "$SCRIPT_DIR/refresh_nodes.py"
+fi
+
+ENV_NAME="MEGADESK"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 resolve_conda_base() {

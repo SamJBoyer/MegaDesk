@@ -1,5 +1,21 @@
 ﻿Read /Docs and Docs/glossary for information about specific terms. For how Nodes are discovered, hosted, and launched (FE/BE), read Docs/node_protocol.md — it is the single authority (MegaDesk-Canvas/docs/plugins.md and parent_gui_class.md redirect there).
 
+Always use the **MEGADESK** conda environment (`conda activate MEGADESK`). Do not run MegaDesk, pytest, or pip against any other interpreter.
+
+After changing any node package (`pyproject.toml`, entry points, or installed modules), reinstall from this worktree so the env cannot keep a stale install:
+
+```bash
+conda activate MEGADESK
+python scripts/refresh_nodes.py
+```
+
+Before changing the Supervisor or any node that has a BE, stop the running Supervisor and every node BE so a leftover process cannot shadow the new code:
+
+```bash
+conda activate MEGADESK
+python scripts/down_nodes.py
+```
+
 Most breakage here is at the seam between two modules, not inside one, so verify changes by running the integration suite rather than by reasoning about it: `pytest` from the repo root (needs a desktop session and a local Redis; ~30s). It boots the real canvas, presses real buttons and asserts the real Redis payloads. If you change a stream field, a widget tag, a callback wiring, or anything in `frame_pump`, that suite is the check. Read Docs/integration_testing.md before adding to it.
 
 This project follows a structure. MegaDesk is the name of the entire project and is the name of the root repo. MegaDesk-Canvas is the folder that contains the code for running the canvas that integrates the Nodes. 
@@ -25,8 +41,10 @@ We use different REDIS database for different levels of persistence. DB 0 is tem
 **DB 1 (persistent):**
 - **GBD:SUPERVISOR:SINGLETON** — one-BE lock
 - **GBD:SUPERVISOR:ALIVE** — heartbeat (TTL ~5s)
-- **RUNNINGNODES:<unique_id>** — hash registry (`status`, PID, `log_path`, …)
-- **CODESCOPE:SESSION:<id>** / **CLOUDRUN:<agent_id>** / **CLOUDDRAFT:<order_id>** — voice-chain state that must outlive its stream. Tests own only these three prefixes on db 1 and never flush it.
+- **RUNNINGNODES:<unique_id>** — hash registry (`status`, PID, `log_path`, …) for **alive** nodes only
+- **NODEHB:<unique_id>** — node heartbeat (`pid`, `status`, TTL ~15s)
+- **NODE:SHUTDOWN** / **NODE:SHUTDOWN:<unique_id>** — kill switch (`1` stops the BE; Redis down also stops it)
+- **CODESCOPE:SESSION:<id>** / **CLOUDRUN:<agent_id>** / **CLOUDDRAFT:<order_id>** — voice-chain state that must outlive its stream. Tests own those three prefixes plus `NODEHB:test-` / `NODE:SHUTDOWN:test-` on db 1 and never flush it.
 
 ---
 
