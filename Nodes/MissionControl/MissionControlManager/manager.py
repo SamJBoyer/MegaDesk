@@ -308,7 +308,9 @@ class MissionControlManager:
             self.redis_url,
         )
 
-        while self._running:
+        from megadesk_contracts import node_should_stop
+
+        while self._running and not node_should_stop():
             try:
                 self.poll_once(redis)
             except SystemExit:

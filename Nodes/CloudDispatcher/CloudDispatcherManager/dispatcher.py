@@ -341,7 +341,9 @@ class CloudDispatcher:
             self.group,
             self.consumer,
         )
-        while True:
+        from megadesk_contracts import node_should_stop
+
+        while not node_should_stop():
             try:
                 self.poll_once()
                 time.sleep(self.poll_interval)

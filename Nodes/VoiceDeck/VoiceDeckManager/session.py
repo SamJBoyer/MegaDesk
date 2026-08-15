@@ -530,7 +530,9 @@ class VoiceSession:
         for thread in self._threads:
             thread.start()
         try:
-            while not self._stop.is_set():
+            from megadesk_contracts import node_should_stop
+
+            while not self._stop.is_set() and not node_should_stop():
                 self.pump_controls(block_ms=IDLE_BLOCK_MS)
         except KeyboardInterrupt:
             log.info("Interrupted; shutting down")

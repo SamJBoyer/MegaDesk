@@ -76,11 +76,10 @@ class SupervisorPanel:
         endpoint = entry.get("node_endpoint") or "?"
         uid = entry.get("unique_id") or "?"
         pid = entry.get("PID") or "?"
-        status = (entry.get("status") or "running").strip() or "running"
         short = uid if len(uid) <= 8 else uid[:8]
-        if status == "exited":
-            code = entry.get("exit_code") or "?"
-            return f"{endpoint}  {short}…  exited={code}"
+        hb_pid = (entry.get("node_pid") or "").strip()
+        if hb_pid and hb_pid != pid:
+            return f"{endpoint}  {short}…  pid={hb_pid}"
         return f"{endpoint}  {short}…  pid={pid}"
 
     @staticmethod
@@ -102,7 +101,7 @@ class SupervisorPanel:
     def _refresh_process_log(self) -> None:
         entry = self._selected_running_entry()
         if not entry:
-            self._set_process_log("Select a running/exited instance to view its log.")
+            self._set_process_log("Select an alive instance to view its log.")
             return
         self._set_process_log(self._tail_file(entry.get("log_path") or ""))
 
@@ -131,9 +130,7 @@ class SupervisorPanel:
             self._backend_ok = self.client.backend_ok() if self._redis_ok else False
             self._backends = sorted(discover_backends())
             self._running = self.client.list_running() if self._redis_ok else []
-            live = sum(1 for e in self._running if (e.get("status") or "running") != "exited")
-            exited = len(self._running) - live
-            self._status = f"live={live} exited={exited}"
+            self._status = f"alive={len(self._running)}"
         except Exception as exc:  # noqa: BLE001 — UI must stay up if Redis is down
             self._redis_ok = False
             self._backend_ok = False
@@ -205,7 +202,7 @@ class SupervisorPanel:
             )
 
             dpg.add_separator()
-            dpg.add_text("Running / exited", color=COLOR_DIM)
+            dpg.add_text("Alive procs", color=COLOR_DIM)
             dpg.add_listbox(
                 items=["(none running)"],
                 tag=self._tag("running"),
@@ -218,7 +215,7 @@ class SupervisorPanel:
             dpg.add_text("Process log", color=COLOR_DIM)
             dpg.add_input_text(
                 tag=self._tag("process_log"),
-                default_value="Select a running/exited instance to view its log.",
+                default_value="Select an alive instance to view its log.",
                 multiline=True,
                 readonly=True,
                 width=-1,

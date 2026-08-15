@@ -11,6 +11,10 @@ from typing import Optional
 import redis
 
 from megadesk_contracts import BeSpec, discover_backends, get_backend
+from megadesk_contracts.node_runtime import (
+    is_reported_node_alive,
+    request_shutdown,
+)
 
 from supervisor.process_registry import ProcessRegistry, launch_spec
 from supervisor.redis_provision import NODEEXIT_STREAM, running_nodes_key
@@ -43,6 +47,12 @@ class ExecutionEngine:
         self._backends: dict[str, BeSpec] = {}
         self._lock = threading.RLock()
         self.discover_backends()
+        try:
+            n = self.reconcile_stale()
+            if n:
+                log.info("Cleared %d stale RUNNINGNODES hash(es) at start", n)
+        except Exception:
+            log.exception("Stale RUNNINGNODES sweep failed at start")
 
     def discover_backends(self) -> dict[str, BeSpec]:
         """Refresh the in-memory map of name → BeSpec from megadesk_contracts."""
@@ -142,6 +152,7 @@ class ExecutionEngine:
                 f"expected {entry.node_endpoint!r}, got {node_endpoint!r}"
             )
 
+        request_shutdown(self.persistent, unique_id)
         self.registry.stop(unique_id)
         self.persistent.delete(running_nodes_key(unique_id))
         log.info("Killed %s unique_id=%s", entry.node_endpoint, unique_id)
@@ -162,7 +173,11 @@ class ExecutionEngine:
             pass
 
     def reap_exits(self) -> int:
-        """Mark dead managed processes as exited on Redis; return count reaped."""
+        """Drop dead managed processes from Redis; return count reaped.
+
+        Dead procs are not kept. NODEEXIT is published, then the RUNNINGNODES
+        hash is deleted so the panel never lists a corpse.
+        """
         reaped = 0
         for entry in list(self.registry.items()):
             code = entry.process.poll()
@@ -176,15 +191,6 @@ class ExecutionEngine:
             key = running_nodes_key(unique_id)
             try:
                 if self.persistent.exists(key):
-                    self.persistent.hset(
-                        key,
-                        mapping={
-                            "status": "exited",
-                            "exit_code": exit_code,
-                            "exited_at": exited_at,
-                            "log_path": entry.log_path,
-                        },
-                    )
                     self.ephemeral.xadd(
                         NODEEXIT_STREAM,
                         {
@@ -195,6 +201,7 @@ class ExecutionEngine:
                             "exited_at": exited_at,
                         },
                     )
+                    self.persistent.delete(key)
                 reaped += 1
                 log.info(
                     "Reaped %s unique_id=%s exit_code=%s log=%s",
@@ -209,4 +216,42 @@ class ExecutionEngine:
                     entry.node_endpoint,
                     unique_id,
                 )
+        reaped += self.reconcile_stale()
         return reaped
+
+    def reconcile_stale(self) -> int:
+        """Delete RUNNINGNODES hashes whose OS pid and heartbeat are both dead.
+
+        After a Supervisor restart the in-memory registry is empty, but DB 1
+        still holds hashes from the previous process. Those are the "alive
+        nodes that are actually dead" the panel used to show.
+        """
+        dropped = 0
+        try:
+            keys = list(self.persistent.scan_iter(match="RUNNINGNODES:*", count=100))
+        except Exception:
+            return 0
+        in_memory = set(self.registry.all_ids())
+        for key in keys:
+            try:
+                data = self.persistent.hgetall(key)
+            except Exception:
+                continue
+            if not data:
+                continue
+            uid = (data.get("unique_id") or "").strip()
+            if uid and uid in in_memory:
+                continue
+            if is_reported_node_alive(data, self.persistent):
+                continue
+            try:
+                self.persistent.delete(key)
+                dropped += 1
+                log.info(
+                    "Dropped stale RUNNINGNODES unique_id=%s pid=%s",
+                    uid or key,
+                    data.get("PID"),
+                )
+            except Exception:
+                log.exception("Failed to drop stale RUNNINGNODES %s", key)
+        return dropped

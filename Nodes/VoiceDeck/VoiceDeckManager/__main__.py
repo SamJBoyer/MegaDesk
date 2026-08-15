@@ -38,7 +38,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     try:
-        from megadesk_contracts import configure_node_logging
+        from megadesk_contracts import NodeRuntime, configure_node_logging
 
         configure_node_logging("voice_deck")
     except Exception:
@@ -46,8 +46,15 @@ def main(argv: list[str] | None = None) -> None:
             level=os.environ.get("LOG_LEVEL", "INFO"),
             format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
         )
+        NodeRuntime = None  # type: ignore[assignment]
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.command is None:
+        args.func = cmd_run
+    if NodeRuntime is not None and getattr(args, "func", None) is cmd_run:
+        with NodeRuntime.from_env("voice_deck"):
+            args.func(args)
+        return
     if args.command is None:
         cmd_run(args)
         return

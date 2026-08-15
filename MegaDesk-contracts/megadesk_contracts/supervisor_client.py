@@ -106,11 +106,20 @@ class SupervisorClient:
         )
 
     def list_running(self) -> list[dict[str, str]]:
+        """Alive instances only — dead PIDs and stale hashes are omitted."""
+        from megadesk_contracts.node_runtime import heartbeat_key, is_reported_node_alive
+
         out: list[dict[str, str]] = []
         for key in self.persistent.scan_iter(match=f"{RUNNINGNODES_PREFIX}*", count=100):
             data = self.persistent.hgetall(key)
-            if data:
-                out.append(data)
+            if not data or not is_reported_node_alive(data, self.persistent):
+                continue
+            uid = (data.get("unique_id") or "").strip()
+            if uid:
+                hb = self.persistent.hgetall(heartbeat_key(uid)) or {}
+                if hb.get("pid"):
+                    data["node_pid"] = hb["pid"]
+            out.append(data)
         out.sort(key=lambda d: (d.get("node_endpoint", ""), d.get("unique_id", "")))
         return out
 
@@ -119,29 +128,24 @@ class SupervisorClient:
         return data or None
 
     def kill_all_running(self) -> int:
+        from megadesk_contracts.node_runtime import request_shutdown
+
         running = self.list_running()
         for entry in running:
             endpoint = entry.get("node_endpoint") or ""
             uid = entry.get("unique_id") or ""
+            if uid:
+                request_shutdown(self.persistent, uid)
             if endpoint and uid:
                 self.kill_node(endpoint, uid)
         return len(running)
 
 
 def _canvas_root() -> Path:
-    """Locate MegaDesk-Canvas root (cwd when running main.py, or installed package)."""
-    here = Path(__file__).resolve()
-    # megadesk_contracts lives beside MegaDesk-Canvas in the monorepo.
-    sibling = here.parents[2] / "MegaDesk-Canvas"
-    if (sibling / "supervisor").is_dir():
-        return sibling
-    # Fallback: current working directory when launched via ``python main.py``.
-    cwd = Path.cwd()
-    if (cwd / "supervisor").is_dir():
-        return cwd
-    if cwd.name == "MegaDesk-Canvas":
-        return cwd
-    return sibling
+    """Locate the canvas that owns this process — never another worktree's install."""
+    from megadesk_contracts.paths import resolve_canvas_root
+
+    return resolve_canvas_root()
 
 
 def ensure_supervisor_running(
@@ -165,10 +169,14 @@ def ensure_supervisor_running(
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
 
+    from megadesk_contracts.paths import ENV_CANVAS_ROOT
+
     root = _canvas_root()
     log_path = (root / "logs" / "supervisor" / "supervisor.log").resolve()
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_fh = open(log_path, "a", encoding="utf-8", errors="replace", buffering=1)
+    env = os.environ.copy()
+    env[ENV_CANVAS_ROOT] = str(root)
 
     try:
         subprocess.Popen(
@@ -178,7 +186,7 @@ def ensure_supervisor_running(
             stderr=subprocess.STDOUT,
             text=True,
             creationflags=creationflags,
-            env=os.environ.copy(),
+            env=env,
         )
     except Exception:
         return False
