@@ -55,6 +55,12 @@ ehthumbs.db
 # MissionControl Floor worktrees (bare clones + checkouts)
 Nodes/MissionControl/Floor/
 
+# CodeScope disposable clones (never share with a writing agent)
+Nodes/CodeScope/Scope/
+
+# Local clone of the public smoke-test repo (not part of MegaDesk)
+SMOKETESTREPO/
+
 # Integration-test screenshots and failure artifacts
 tests/_artifacts/
 
