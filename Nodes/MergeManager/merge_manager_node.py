@@ -13,15 +13,23 @@ _ICON = str(
 )
 
 
+def get_fe_spec() -> FeSpec | None:
+    icon = _ICON if Path(_ICON).is_file() else None
+    return FeSpec(
+        name="merge_manager",
+        description="Resolve FINISHED worktrees into the agents branch.",
+        icon=icon,
+        default_width=640,
+        default_height=220,
+        build=build_ui,
+    )
+
+
+def get_be_spec() -> BeSpec | None:
+    return None
+
+
 def get_exec_spec(mode: Mode) -> FeSpec | BeSpec | None:
     if mode == "FE":
-        icon = _ICON if Path(_ICON).is_file() else None
-        return FeSpec(
-            name="merge_manager",
-            description="Resolve FINISHED worktrees into the agents branch.",
-            icon=icon,
-            default_width=640,
-            default_height=220,
-            build=build_ui,
-        )
+        return get_fe_spec()
     return None

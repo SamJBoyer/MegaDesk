@@ -16,23 +16,32 @@ NODE_NAME = "code_scope"
 _ICON = str(_CODE_SCOPE_ROOT / "Etc" / "Artwork" / "icon.png")
 
 
+def get_fe_spec() -> FeSpec | None:
+    from code_scope_frontend.app import build_ui
+
+    icon = _ICON if Path(_ICON).is_file() else None
+    return FeSpec(
+        name=NODE_NAME,
+        description="Ask questions about a cloned repository.",
+        icon=icon,
+        default_width=520,
+        default_height=240,
+        build=build_ui,
+        backends=(NODE_NAME,),
+    )
+
+
+def get_be_spec() -> BeSpec | None:
+    return BeSpec(
+        name=NODE_NAME,
+        argv=[sys.executable, "-u", "-m", "CodeScopeManager"],
+        cwd=str(_CODE_SCOPE_ROOT),
+    )
+
+
 def get_exec_spec(mode: Mode) -> FeSpec | BeSpec | None:
     if mode == "FE":
-        from code_scope_frontend.app import build_ui
-
-        icon = _ICON if Path(_ICON).is_file() else None
-        return FeSpec(
-            name=NODE_NAME,
-            description="Ask questions about a cloned repository.",
-            icon=icon,
-            default_width=520,
-            default_height=240,
-            build=build_ui,
-        )
+        return get_fe_spec()
     if mode == "BE":
-        return BeSpec(
-            name=NODE_NAME,
-            argv=[sys.executable, "-u", "-m", "CodeScopeManager"],
-            cwd=str(_CODE_SCOPE_ROOT),
-        )
+        return get_be_spec()
     return None

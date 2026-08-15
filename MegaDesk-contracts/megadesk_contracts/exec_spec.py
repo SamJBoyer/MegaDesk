@@ -19,6 +19,10 @@ class FeSpec:
     MegaDesk owns the shell (header, close, position, size). The FE only adds
     widgets under ``parent``. Store cleanup on the parent with
     ``dpg.set_item_user_data(parent, cleanup_fn)``.
+
+    ``backends`` is the set of Supervisor ``node_endpoint`` names the canvas
+    ``XADD``s to ``LAUNCHREQUEST`` when this FE is hosted (drop or canvas open).
+    Empty means this FE does not start a BE.
     """
 
     name: str
@@ -27,6 +31,7 @@ class FeSpec:
     default_width: int
     default_height: int
     build: Callable[..., None]
+    backends: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

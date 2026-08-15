@@ -18,7 +18,7 @@ from engine.megadesk_member import (
 )
 from engine.megadesk_registry import (
     all_fe_specs,
-    fe_has_backend,
+    get_fe_spec,
     palette_key,
     parse_palette_key,
 )
@@ -120,8 +120,10 @@ class DisplayEngine:
         node.open_on_canvas(parent=NODE_EDITOR)
 
     def _maybe_launch_backend(self, node_name: str) -> None:
-        """XADD LAUNCHREQUEST when the dropped MegaDesk node exposes a BE."""
-        if not fe_has_backend(node_name):
+        """XADD LAUNCHREQUEST for each BE listed on the hosted FeSpec."""
+        spec = get_fe_spec(node_name)
+        endpoints = tuple(spec.backends) if spec is not None else ()
+        if not endpoints:
             return
         try:
             from megadesk_contracts import SupervisorClient
@@ -141,8 +143,16 @@ class DisplayEngine:
                     node_name,
                 )
                 return
-            entry_id = client.launch_node(node_name, parameters="")
-            log.info("LAUNCHREQUEST %s -> %s", node_name, entry_id)
+            already = {
+                (e.get("node_endpoint") or "")
+                for e in client.list_running()
+            }
+            for endpoint in endpoints:
+                if endpoint in already:
+                    log.info("BE %s already alive; skip LAUNCHREQUEST", endpoint)
+                    continue
+                entry_id = client.launch_node(endpoint, parameters="")
+                log.info("LAUNCHREQUEST %s -> %s", endpoint, entry_id)
         except Exception:
             log.exception("BE launch failed for MegaDesk node %s", node_name)
 
@@ -152,9 +162,10 @@ class DisplayEngine:
         node.open_on_canvas(parent=NODE_EDITOR)
 
     def open_all_megadesk_guis(self) -> None:
-        """Spawn a live node for each loaded member at its saved position."""
+        """Host each saved FE and start the BEs its FeSpec lists."""
         for node in self.model.members.values():
             self.open_megadesk_gui(node)
+            self._maybe_launch_backend(node.name)
 
     def sync_megadesk_nodes(self) -> None:
         """Sync node positions into the model; process close-button deletes."""

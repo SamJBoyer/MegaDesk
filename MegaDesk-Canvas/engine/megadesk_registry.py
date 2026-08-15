@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from megadesk_contracts import FeSpec, discover_frontends, has_backend
+from megadesk_contracts import FeSpec, discover_frontends
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,8 @@ def get_fe_spec(name: str) -> FeSpec | None:
 
 
 def fe_has_backend(name: str) -> bool:
-    return has_backend(name)
+    spec = _FRONTENDS.get(name)
+    return bool(spec and spec.backends)
 
 
 PALETTE_PREFIX = "megadesk:"
