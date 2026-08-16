@@ -28,8 +28,8 @@
       "nickname": "ticket_dispatcher",
       "node_name": "ticket_dispatcher",
       "position": [
-        554.0,
-        53.0
+        600.0,
+        -157.0
       ],
       "scale": [
         1.0,
@@ -72,8 +72,8 @@
       "nickname": "voice_deck",
       "node_name": "voice_deck",
       "position": [
-        386.0,
-        339.0
+        -100.0,
+        305.0
       ],
       "scale": [
         1.0,
@@ -116,8 +116,8 @@
       "nickname": "code_scope",
       "node_name": "code_scope",
       "position": [
-        480.0,
-        315.0
+        -104.0,
+        -10.0
       ],
       "scale": [
         1.0,
