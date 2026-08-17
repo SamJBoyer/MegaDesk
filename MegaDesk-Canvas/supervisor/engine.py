@@ -186,6 +186,9 @@ class ExecutionEngine:
             unique_id = entry.unique_id
             exited_at = _utc_now_iso()
             exit_code = str(code)
+            entry.append_log_note(
+                f"--- exit unique_id={unique_id} exit_code={exit_code} at {exited_at} ---"
+            )
             entry.close_log()
             self.registry.pop(unique_id)
             key = running_nodes_key(unique_id)

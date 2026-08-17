@@ -1,6 +1,6 @@
 # MegaDesk node protocol
 
-Canonical reference for how Nodes are discovered, launched, hosted on the canvas, and torn down. Glossary: [`Docs/glossary.md`](glossary.md). Persistence shape of the board: [`MegaDesk-Canvas/docs/root.md`](../MegaDesk-Canvas/docs/root.md). Redis Supervisor streams: [`MegaDesk-contracts/redis/supervisor.md`](../MegaDesk-contracts/redis/supervisor.md).
+Canonical reference for how Nodes are discovered, launched, hosted on the canvas, and torn down. Glossary: [`Docs/glossary.md`](glossary.md). Redis Supervisor streams: [`MegaDesk-contracts/redis/supervisor.md`](../MegaDesk-contracts/redis/supervisor.md). Canvas-package layout and DPG chrome: [`MegaDesk-Canvas/docs/canvas.md`](../MegaDesk-Canvas/docs/canvas.md).
 
 A **node** is a modular tool inside MegaDesk. Nodes can expose a front-end (FE), a back-end (BE), or both. Discovery and launch are driven by packaging entry points.
 
@@ -152,7 +152,7 @@ Launch contract (Supervisor owns capture):
 subprocess.Popen(
   BeSpec.argv,
   cwd=BeSpec.cwd,
-  stdout=log_file,          # MegaDesk-Canvas/logs/<name>/<unique_id>.log
+  stdout=log_file,          # Logs/{session}/{name}.md
   stderr=STDOUT,
   env={…, MEGADESK_UNIQUE_ID, MEGADESK_NODE, MEGADESK_LOG_PATH, MEGADESK_PARAMETERS},
 )
@@ -162,8 +162,8 @@ BE processes should write diagnostics to stdout/stderr (or call
 `megadesk_contracts.configure_node_logging()` at startup) and wrap `main` in
 `NodeRuntime.from_env(...)` so they heartbeat their real `os.getpid()` every 5s
 and exit when `NODE:SHUTDOWN` is `1` or Redis is unreachable. Supervisor merges
-both streams into the per-instance log file under the **running** canvas
-(`MEGADESK_CANVAS_ROOT` / cwd), not the worktree that last installed contracts.
+both streams into one `{node}.md` per node under the worktree `Logs/{session}/`
+(see *Logging standard* below), not the worktree that last installed contracts.
 
 BE-only example pattern:
 
@@ -275,7 +275,7 @@ Members are serialized into a graph `.json` (default `Graphs/default.json`; the 
 ## How the BE uses nodes (Supervisor)
 
 1. The Supervisor BE refreshes backends with `discover_backends()`.
-2. On `LAUNCHREQUEST` (Redis DB 0), it assigns a `unique_id`, resolves `get_backend(node_endpoint)`, redirects stdout/stderr to a log file under `MegaDesk-Canvas/logs/`, injects `MEGADESK_*` env, and writes `RUNNINGNODES:<unique_id>` on DB 1 (`status=running`, PID, `log_path`, …).
+2. On `LAUNCHREQUEST` (Redis DB 0), it assigns a `unique_id`, resolves `get_backend(node_endpoint)`, redirects stdout/stderr to `Logs/{session}/{endpoint}.md`, injects `MEGADESK_*` env, and writes `RUNNINGNODES:<unique_id>` on DB 1 (`status=running`, PID, `log_path`, …).
 3. A reaper marks natural exits as `status=exited`, publishes `NODEEXIT` (DB 0), and keeps the hash until Stop. `KILLREQUEST` tears down (if needed) and `DEL`s the hash. See `MegaDesk-contracts/redis/supervisor.md`.
 
 Callers outside the canvas can use `megadesk_contracts.SupervisorClient` (`launch_node`, `kill_node`, `list_running`, `get_running`, `kill_all_running`, `redis_ok`, `backend_ok`).
@@ -284,10 +284,26 @@ Callers outside the canvas can use `megadesk_contracts.SupervisorClient` (`launc
 
 ## Logging standard
 
+Session transcripts live at the **worktree** `Logs/` (sibling of `Docs/` and `Nodes/`), not under `MegaDesk-Canvas/`. A session is one **Supervisor generation**, not a canvas open: `ensure_supervisor_running()` creates a new timestamp folder only when it actually spawns a Supervisor. If Supervisor is already alive, canvas reopen appends to the same session. Files are born in their session folder and are never moved (BEs hold those files open).
+
+```text
+Logs/
+  CURRENT                      # JSON pointer (session, started_at, supervisor_pid)
+  README.md
+  2026-08-17T20-55-03Z/
+    supervisor.md
+    canvas.md
+    mission_control.md
+```
+
+Read `Logs/CURRENT`, then that folder. Older timestamp folders are previous generations.
+
 | Half | Where diagnostics go |
 |------|----------------------|
-| **BE** | stdout/stderr → Supervisor file `MegaDesk-Canvas/logs/<endpoint>/<unique_id>.log`; prefer `megadesk_contracts.configure_node_logging()` |
-| **FE** | Module logger (`logging.getLogger(…)`). Canvas host reports uncaught `FeSpec.build` / BE-launch failures instead of swallowing them silently. |
+| **BE** | stdout/stderr → Supervisor file `Logs/{session}/{endpoint}.md` (one file per node per session, append; launch/exit banners carry `unique_id`); prefer `megadesk_contracts.configure_node_logging()` |
+| **FE / canvas** | Module logger. Canvas also appends `canvas.md` in the current session. Host reports uncaught `FeSpec.build` / BE-launch failures instead of swallowing them silently. |
+
+Helpers: `begin_log_session` / `attach_log_session` / `session_log_path` in `megadesk_contracts`. Env: `MEGADESK_LOGS_ROOT` (`Logs/` home), `MEGADESK_LOGS_DIR` (live session folder).
 
 Do **not** put log line bodies on Redis streams.
 

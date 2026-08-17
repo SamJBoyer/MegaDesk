@@ -168,29 +168,51 @@ def ensure_supervisor_running(
 
     Canvas launches ``python -m supervisor`` on startup. Redis db1 holds the
     singleton flag so a second BE cannot start while one is alive.
+
+    A new log session is created only when this function actually spawns a
+    Supervisor. If one is already alive, the existing ``Logs/CURRENT`` session
+    is reused — canvas open does not rotate logs.
     """
     if redis is None:
         return False
 
+    from megadesk_contracts.log_session import (
+        attach_log_session,
+        begin_log_session,
+        session_log_path,
+        update_current_session,
+    )
+    from megadesk_contracts.paths import ENV_CANVAS_ROOT, ENV_LOGS_DIR, ENV_LOGS_ROOT
+
     client = SupervisorClient(redis_url=redis_url)
     if client.backend_ok():
+        try:
+            attach_log_session()
+        except Exception:
+            pass
         return True
 
     creationflags = 0
     if sys.platform == "win32":
         creationflags = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
 
-    from megadesk_contracts.paths import ENV_CANVAS_ROOT
-
     root = _canvas_root()
-    log_path = (root / "logs" / "supervisor" / "supervisor.log").resolve()
+    session_dir = begin_log_session()
+    log_path = session_log_path("supervisor")
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_fh = open(log_path, "a", encoding="utf-8", errors="replace", buffering=1)
     env = os.environ.copy()
     env[ENV_CANVAS_ROOT] = str(root)
+    env[ENV_LOGS_DIR] = str(session_dir)
+    env[ENV_LOGS_ROOT] = str(session_dir.parent)
 
     try:
-        subprocess.Popen(
+        from datetime import datetime, timezone
+
+        started = datetime.now(timezone.utc).isoformat()
+        log_fh.write(f"--- supervisor spawn at {started} canvas={root} session={session_dir} ---\n")
+        log_fh.flush()
+        proc = subprocess.Popen(
             [sys.executable, "-u", "-m", "supervisor"],
             cwd=str(root),
             stdout=log_fh,
@@ -199,6 +221,12 @@ def ensure_supervisor_running(
             creationflags=creationflags,
             env=env,
         )
+        try:
+            update_current_session(supervisor_pid=proc.pid)
+        except Exception:
+            pass
+        log_fh.write(f"--- supervisor pid={proc.pid} ---\n")
+        log_fh.flush()
     except Exception:
         return False
     finally:

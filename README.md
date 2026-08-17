@@ -1,12 +1,10 @@
-MegaDesk is my personal custom idea-to-product software development platform. I really like Lucidchart and naturally find myself using boards and sticky notes to develop my ideas.
-As I continuously refined my thoughts, I hoped the digital whiteboards would transform from loose sprawls of ideas into valuable context, testable needs, and actionable items agents could use.
-Sadly, Lucid's MCP tool is pretty bad which makes it so the visual language of the board gets really manangled when passing to a local machine. Very frustrating. Also, Lucid integrations are expensive and locked behind a paywall. After seeing this I was like, well, how hard could it be to make my own digital whiteboard, so my hope is to create a Lucidchart-like brain-board combined with some great back-end agent management to have an all-in-one idea-to-software development environment.
+MegaDesk is my personal custom idea-to-product software development platform. It it contains a program 
+called MegaDesk-Canvas, which is a canvas-like command center where the user designs various custom nodes
+to infinitely stream-line their process. 
 
-- metadata engineering: Good documentation should help you write good prompts. However, LLMs understand natural language and not a bunch of stickies on a whiteboard, even if those are structured in a way a human would find coherent. The board should have features that compress visual documentation into clean prompts with <xml> tags, consistent spelling and terminology, etc. The goal is to extract every ounce of value from the idea.
-- endless canvas: I don't like to be cluttered, but I do want to have my entire project visible on 1 board. I think it looks pretty and also helps me reason. I want a Lucidchart-style endless canvas.
+Features: 
 - custom GUIs: I want the board where I do ideation and the board where I operate my agent factory to be the same. The goal is easy and fluid integration from the idea to execution. The canvas hosts custom interactive GUIs that manage agents, track tokens, log open issues, and other factory tools.
-- sandboxing: I know what I'm doing so I don't run agents on my local computer because you better believe they're running with admin. All agents MUST be run in the cloud or on a sandbox. Managing this will be a significant undertaking.
-- persistence: It would be very annoying if fat-fingering the X button on my canvas nukes the entire factory. Therefore, we will use a persistence scheme where tasks that need persistence are managed by a dedicated process lifecycle manager.
+- persistence: It would be very annoying if fat-fingering the X button on my canvas nukes the entire factory. Therefore, we will use a persistence scheme where tasks that need persistence are managed by a dedicated process lifecycle manager called the supervisor. Closing MegaDesk-Canvas won't close the back-end nodes on purpose 
 - REDIS IPC: Different processes will communicate with each other using REDIS.
 
 

@@ -6,12 +6,20 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import sys
 import time
 
 from megadesk_contracts import configure_node_logging
+from megadesk_contracts.log_session import (
+    attach_log_session,
+    begin_log_session,
+    session_log_path,
+    update_current_session,
+)
+from megadesk_contracts.paths import ENV_LOGS_DIR
 
 from supervisor.engine import ExecutionEngine
 from supervisor.redis_provision import (
@@ -23,9 +31,26 @@ from supervisor.redis_provision import (
 from supervisor.stream_server import SupervisorServer
 
 
+def _tee_supervisor_file_log() -> None:
+    """When started from a console, also write to supervisor.md."""
+    path = session_log_path("supervisor")
+    handler = logging.FileHandler(path, encoding="utf-8", errors="replace")
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    )
+    logging.getLogger().addHandler(handler)
+
+
 def main() -> int:
     log = configure_node_logging("gbd.supervisor")
     owner = str(os.getpid())
+    spawned_with_session = bool((os.environ.get(ENV_LOGS_DIR) or "").strip())
+    if spawned_with_session:
+        attach_log_session()
+        update_current_session(supervisor_pid=os.getpid())
+    else:
+        begin_log_session(supervisor_pid=os.getpid())
+        _tee_supervisor_file_log()
 
     try:
         handles = provision_redis()

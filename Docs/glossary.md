@@ -11,4 +11,6 @@ Supervisor: Life-cycle manager that launches/terminates nodes and creates pipes 
 Graph: a file that stores which nodes go onto the Canvas, their positions, and the parameters they will 
 start with on boot. 
 
+Logs: Worktree-root session transcripts owned by the Supervisor (`Logs/CURRENT` points at the live folder). One `{node}.md` per node per Supervisor generation. Canvas does not rotate these. 
+
 </Terms>

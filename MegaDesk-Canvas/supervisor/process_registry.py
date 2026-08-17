@@ -6,11 +6,13 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, TextIO
 
 from megadesk_contracts import BeSpec
+from megadesk_contracts.log_session import attach_log_session, session_log_path
 from megadesk_contracts.parameters import ENV_PARAMETERS
 from megadesk_contracts.paths import resolve_canvas_root, resolve_logs_root
 
@@ -28,15 +30,16 @@ def logs_root() -> Path:
     return resolve_logs_root()
 
 
-def instance_log_path(node_endpoint: str, unique_id: str) -> Path:
-    """Absolute path for a managed BE instance log file."""
-    safe_endpoint = node_endpoint.strip() or "unknown"
-    return (logs_root() / safe_endpoint / f"{unique_id}.log").resolve()
+def instance_log_path(node_endpoint: str, unique_id: str = "") -> Path:
+    """Absolute path for a managed BE's session transcript (one file per node)."""
+    attach_log_session()
+    return session_log_path(node_endpoint)
 
 
 def supervisor_self_log_path() -> Path:
     """Absolute path for the Supervisor BE bootstrap log."""
-    return (logs_root() / "supervisor" / "supervisor.log").resolve()
+    attach_log_session()
+    return session_log_path("supervisor")
 
 
 @dataclass
@@ -75,15 +78,33 @@ class ManagedProcess:
 
     def append_log_note(self, text: str) -> None:
         """Best-effort note into the instance log (e.g. supervisor stop)."""
+        line = text if text.endswith("\n") else text + "\n"
+        fh = self.log_handle
+        if fh is not None:
+            try:
+                fh.write(line)
+                fh.flush()
+                return
+            except Exception:
+                pass
         if not self.log_path:
             return
         try:
-            with open(self.log_path, "a", encoding="utf-8", errors="replace") as fh:
-                fh.write(text)
-                if not text.endswith("\n"):
-                    fh.write("\n")
+            with open(self.log_path, "a", encoding="utf-8", errors="replace") as opened:
+                opened.write(line)
         except Exception:
             pass
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _write_exit_banner(entry: "ManagedProcess") -> None:
+    code = entry.process.poll()
+    entry.append_log_note(
+        f"--- exit unique_id={entry.unique_id} exit_code={code} at {_utc_now_iso()} ---"
+    )
 
 
 def _taskkill(pid: int, force: bool) -> None:
@@ -154,10 +175,12 @@ class ProcessRegistry:
                 proc.wait(timeout=2)
             except Exception:
                 pass
+            _write_exit_banner(entry)
             entry.close_log()
             return
 
         if proc.poll() is not None:
+            _write_exit_banner(entry)
             entry.close_log()
             return
         try:
@@ -167,6 +190,7 @@ class ProcessRegistry:
         deadline = time.time() + grace_seconds
         while time.time() < deadline:
             if proc.poll() is not None:
+                _write_exit_banner(entry)
                 entry.close_log()
                 return
             time.sleep(0.1)
@@ -178,6 +202,7 @@ class ProcessRegistry:
             proc.wait(timeout=2)
         except Exception:
             pass
+        _write_exit_banner(entry)
         entry.close_log()
 
 
@@ -222,6 +247,14 @@ def launch_spec(
         except Exception:
             pass
         raise
+
+    try:
+        log_handle.write(
+            f"--- launch unique_id={unique_id} pid={proc.pid} at {_utc_now_iso()} ---\n"
+        )
+        log_handle.flush()
+    except Exception:
+        pass
 
     return ManagedProcess(
         unique_id=unique_id,

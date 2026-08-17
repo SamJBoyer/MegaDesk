@@ -1,8 +1,9 @@
-"""Resolve the MegaDesk-Canvas root of the *running* process.
+"""Resolve the MegaDesk-Canvas root and worktree ``Logs/`` of the *running* process.
 
-Logs and Supervisor cwd must follow the canvas that launched this process, not
-the worktree that last ``pip install -e``'d ``megadesk-contracts``. An editable
-install from another worktree is the usual way logs leak across checkouts.
+Supervisor cwd follows the canvas that launched this process, not the worktree
+that last ``pip install -e``'d ``megadesk-contracts``. Session transcripts live
+at the worktree ``Logs/`` (``resolve_logs_root``), never another checkout's
+install path.
 """
 
 from __future__ import annotations
@@ -11,6 +12,8 @@ import os
 from pathlib import Path
 
 ENV_CANVAS_ROOT = "MEGADESK_CANVAS_ROOT"
+ENV_LOGS_ROOT = "MEGADESK_LOGS_ROOT"
+ENV_LOGS_DIR = "MEGADESK_LOGS_DIR"
 
 
 def _looks_like_canvas(path: Path) -> bool:
@@ -18,10 +21,12 @@ def _looks_like_canvas(path: Path) -> bool:
 
 
 def resolve_canvas_root() -> Path:
-    """Directory that owns ``logs/`` and ``python -m supervisor``.
+    """Directory that owns ``python -m supervisor``.
 
     Order: ``MEGADESK_CANVAS_ROOT``, then cwd if it is a canvas, then the
     imported ``supervisor`` package, then the contracts-sibling fallback.
+    Session transcripts live under the worktree ``Logs/`` (see
+    ``resolve_logs_root``), not inside this directory.
     """
     env = (os.environ.get(ENV_CANVAS_ROOT) or "").strip()
     if env:
@@ -46,5 +51,17 @@ def resolve_canvas_root() -> Path:
     return sibling.resolve()
 
 
+def resolve_worktree_root() -> Path:
+    """Worktree that owns ``Logs/``, ``Nodes/``, and ``MegaDesk-Canvas/``."""
+    return resolve_canvas_root().parent
+
+
 def resolve_logs_root() -> Path:
-    return resolve_canvas_root() / "logs"
+    """``Logs/`` home (CURRENT + session folders), not a live session directory.
+
+    Order: ``MEGADESK_LOGS_ROOT``, then ``<worktree>/Logs``.
+    """
+    env = (os.environ.get(ENV_LOGS_ROOT) or "").strip()
+    if env:
+        return Path(env).expanduser().resolve()
+    return (resolve_worktree_root() / "Logs").resolve()

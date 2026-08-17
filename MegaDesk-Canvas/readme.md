@@ -4,7 +4,8 @@ MegaDesk canvas — Dear PyGui whiteboard host for MegaDesk FE tools.
 `megadesk_contracts.ensure_supervisor_running()` (`python -m supervisor` from
 this package). The operator UI is collapsible chrome
 (`supervisor.panel.build_supervisor_panel`), not a Catalog / `MegaDesk.nodes`
-entry. Managed BE logs land under `logs/<endpoint>/<unique_id>.log`.
+entry. Managed BE logs land under worktree `Logs/{session}/{endpoint}.md`
+(read `Logs/CURRENT`).
 
 Install and run from this directory (after installing contracts):
 
@@ -17,6 +18,7 @@ python main.py
 
 See [`Docs/node_protocol.md`](../Docs/node_protocol.md) for the node protocol
 (`MegaDesk.nodes` / `FeSpec` / `BeSpec` / graph hosting).
+Package layout and DPG chrome: [`docs/canvas.md`](docs/canvas.md).
 Shared importable APIs live in the `megadesk-contracts` package (`MegaDesk-contracts/`).
 Supervisor Redis packages: [`MegaDesk-contracts/redis/supervisor.md`](../MegaDesk-contracts/redis/supervisor.md).
 Graphs live under `Graphs/` (default `default.json`); the graph bar loads any `.json`.

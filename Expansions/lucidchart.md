@@ -1,0 +1,7 @@
+I really like Lucidchart and naturally find myself using boards and sticky notes to develop my ideas.
+As I continuously refined my thoughts, I hoped the digital whiteboards would transform from loose sprawls of ideas into valuable context, testable needs, and actionable items agents could use.
+Sadly, Lucid's MCP tool is pretty bad which makes it so the visual language of the board gets really manangled when passing to a local machine. Very frustrating. Also, Lucid integrations are expensive and locked behind a paywall. After seeing this I was like, well, how hard could it be to make my own digital whiteboard, so my hope is to create a Lucidchart-like brain-board combined with some great back-end agent management to have an all-in-one idea-to-software development environment.
+
+- metadata engineering: Good documentation should help you write good prompts. However, LLMs understand natural language and not a bunch of stickies on a whiteboard, even if those are structured in a way a human would find coherent. The board should have features that compress visual documentation into clean prompts with <xml> tags, consistent spelling and terminology, etc. The goal is to extract every ounce of value from the idea.
+
+- endless canvas: I don't like to be cluttered, but I do want to have my entire project visible on 1 board. I think it looks pretty and also helps me reason. I want a Lucidchart-style endless canvas.

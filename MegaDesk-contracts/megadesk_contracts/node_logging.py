@@ -14,9 +14,10 @@ ENV_LOG_PATH = "MEGADESK_LOG_PATH"
 def configure_node_logging(name: Optional[str] = None) -> logging.Logger:
     """Configure stderr logging for a node process.
 
-    When launched by Supervisor, stdout/stderr are redirected to the instance
-    log file and ``MEGADESK_*`` env vars identify the instance. Calling this
-    from a BE ``__main__`` makes structured logs land in that file.
+    When launched by Supervisor, stdout/stderr are redirected to the session
+    transcript (``Logs/{session}/{node}.md``) and ``MEGADESK_*`` env vars
+    identify the instance. Calling this from a BE ``__main__`` makes structured
+    logs land in that file.
 
     Returns a logger named after ``MEGADESK_NODE`` or ``name``.
     """

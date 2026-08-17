@@ -49,6 +49,13 @@ os.environ["REDIS_URL"] = TEST_REDIS_URL
 
 ARTIFACTS_ROOT = ROOT / "tests" / "_artifacts"
 
+
+@pytest.fixture(autouse=True)
+def _isolate_megadesk_logs(tmp_path, monkeypatch):
+    """Keep Supervisor session transcripts out of the worktree ``Logs/``."""
+    monkeypatch.setenv("MEGADESK_LOGS_ROOT", str(tmp_path / "Logs"))
+    monkeypatch.delenv("MEGADESK_LOGS_DIR", raising=False)
+
 # Canonical wire format. Parsers accept aliases (REPO, ticket, workpath) but
 # every writer emits these names only, so tests assert on these exactly —
 # otherwise a writer drifting to an alias would still pass.

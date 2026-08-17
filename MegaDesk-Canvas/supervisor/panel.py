@@ -8,6 +8,7 @@ from typing import Optional
 
 import dearpygui.dearpygui as dpg
 from megadesk_contracts import SupervisorClient, discover_backends, ensure_supervisor_running, frame_pump
+from megadesk_contracts.log_session import session_log_path
 
 COLOR_GREEN = (46, 204, 113, 255)
 COLOR_RED = (231, 76, 60, 255)
@@ -148,9 +149,11 @@ class SupervisorPanel:
         if ok:
             self._append_log("Backend running")
         else:
-            self._append_log(
-                "Backend failed to start — see MegaDesk-Canvas/logs/supervisor/supervisor.log"
-            )
+            try:
+                hint = str(session_log_path("supervisor"))
+            except Exception:
+                hint = "Logs/CURRENT → supervisor.md"
+            self._append_log(f"Backend failed to start — see {hint}")
         return ok
 
     def build_ui(

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import dearpygui.dearpygui as dpg
 from megadesk_contracts import ENV_CANVAS_ROOT, ensure_supervisor_running, frame_pump
+from megadesk_contracts.log_session import attach_log_session, session_log_path
 
 from engine.display_engine import (
     GRAPH_WINDOW,
@@ -150,6 +151,21 @@ def build_canvas(
     return engine
 
 
+def _attach_canvas_log_file(log: logging.Logger) -> None:
+    """Append canvas diagnostics to the current Supervisor session's canvas.md."""
+    try:
+        attach_log_session()
+        path = session_log_path("canvas")
+        handler = logging.FileHandler(path, encoding="utf-8", errors="replace")
+        handler.setFormatter(
+            logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+        )
+        logging.getLogger().addHandler(handler)
+        log.info("Canvas log %s", path)
+    except Exception:
+        log.exception("Could not attach canvas.md")
+
+
 def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
@@ -160,11 +176,10 @@ def main() -> None:
     discover_megadesk_frontends()
 
     # Supervisor BE is canvas-owned — start before the UI so LAUNCHREQUEST works.
+    # Log session is Supervisor-generation scoped; reopen does not rotate files.
     if not ensure_supervisor_running():
-        log.error(
-            "Supervisor BE failed to start "
-            "(see MegaDesk-Canvas/logs/supervisor/supervisor.log)"
-        )
+        log.error("Supervisor BE failed to start (see Logs/CURRENT → supervisor.md)")
+    _attach_canvas_log_file(log)
 
     model = GraphModel()
     try:

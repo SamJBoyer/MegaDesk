@@ -26,9 +26,9 @@ Logs
 
 How to trigger? Because files can't be moved if the backend is still connected. 
 
+
 </logging>
-<supervisor>
 
 
 
-</supervisor>
+

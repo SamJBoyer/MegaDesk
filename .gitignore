@@ -52,6 +52,10 @@ ehthumbs.db
 *.tmp
 *.bak
 
+# Supervisor session transcripts (keep the README so the folder is findable)
+Logs/*
+!Logs/README.md
+
 # MissionControl Floor worktrees (bare clones + checkouts)
 Nodes/MissionControl/Floor/
 

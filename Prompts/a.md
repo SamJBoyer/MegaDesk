@@ -1,2 +1,0 @@
-Context: I have this problem where agents or consistently making big integration mistakes inside this project. I belive a problem 
-is that I don't have much concrete testing infrastructure. The issue is that many of the bugs I've seen occur at the interface between different modules. To properly test them, we would need to go in the workflow between different pieces. However, to do this we need to use our GUI. How can the agent pilot my GUI so it can do broader tests? 

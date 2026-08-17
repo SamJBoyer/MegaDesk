@@ -41,7 +41,19 @@ from megadesk_contracts.parameters import (
     parameters_from_env,
     parameters_to_json,
 )
-from megadesk_contracts.paths import ENV_CANVAS_ROOT, resolve_canvas_root, resolve_logs_root
+from megadesk_contracts.log_session import (
+    attach_log_session,
+    begin_log_session,
+    session_log_path,
+)
+from megadesk_contracts.paths import (
+    ENV_CANVAS_ROOT,
+    ENV_LOGS_DIR,
+    ENV_LOGS_ROOT,
+    resolve_canvas_root,
+    resolve_logs_root,
+    resolve_worktree_root,
+)
 from megadesk_contracts.realtime import RealtimeEvent, RealtimeTransport
 from megadesk_contracts.repo import (
     CloneError,
@@ -86,6 +98,8 @@ __all__ = [
     "SUPERVISOR_SINGLETON_KEY",
     "SupervisorClient",
     "backends_for_frontend",
+    "attach_log_session",
+    "begin_log_session",
     "clear_shutdown",
     "clone_path",
     "coerce_parameters",
@@ -114,10 +128,14 @@ __all__ = [
     "request_shutdown",
     "resolve_canvas_root",
     "resolve_logs_root",
+    "resolve_worktree_root",
     "resolve_redis_url",
+    "session_log_path",
     "shutdown_key",
     "wire",
     "ENV_CANVAS_ROOT",
+    "ENV_LOGS_DIR",
+    "ENV_LOGS_ROOT",
     "ENV_PARAMETERS",
     "PARAMETERS_FILENAME",
     "HEARTBEAT_INTERVAL_SEC",

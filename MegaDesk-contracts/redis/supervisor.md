@@ -11,7 +11,7 @@ Supervisor uses Redis for:
 2. **RUNNINGNODES** instance registry hashes (**DB 1** persistent)
 3. **Singleton** lock so only one Supervisor BE can run (**DB 1**)
 4. **Alive** heartbeat key (**DB 1**)
-5. **Per-instance log files** under `MegaDesk-Canvas/logs/` (not Redis)
+5. **Per-node session files** under worktree `Logs/{session}/` (not Redis)
 
 Node backends are discovered from installed `MegaDesk.nodes` entry points via
 `get_be_spec()` → `BeSpec` (argv + optional cwd). There are no YAML
@@ -59,13 +59,15 @@ subprocess.Popen(
 ```
 
 Each launch gets a global `unique_id` (UUID4). Multiple instances of the same
-`node_endpoint` may run concurrently.
+`node_endpoint` may run concurrently; they append to the same session file.
 
-Log path convention: `<running-canvas>/logs/<node_endpoint>/<unique_id>.log`
-resolved from `MEGADESK_CANVAS_ROOT` (set by `main.py` to its own directory),
-then cwd, then the imported `supervisor` package — never the contracts
-install path, which can point at another worktree.
-Supervisor BE self-log: `<running-canvas>/logs/supervisor/supervisor.log`.
+Log path convention: `<worktree>/Logs/<session>/<node_endpoint>.md`
+resolved from `MEGADESK_LOGS_DIR` (the live session folder), else
+`Logs/CURRENT`, with `Logs/` itself from `MEGADESK_LOGS_ROOT` or the parent of
+`MEGADESK_CANVAS_ROOT`. Session identity is a Supervisor generation — canvas
+open does not rotate or move files.
+Supervisor BE self-log: `<worktree>/Logs/<session>/supervisor.md`.
+Canvas process: `<worktree>/Logs/<session>/canvas.md`.
 
 ---
 
@@ -105,7 +107,7 @@ Supervisor BE — see `MegaDesk-Canvas/supervisor/redis_provision.py`.
 
 1. Assign `unique_id` (UUID4)
 2. Resolve `node_endpoint` via `discover_backends()` / `get_backend`
-3. Open `logs/<node_endpoint>/<unique_id>.log`; `Popen` with stdout/stderr redirected and `MEGADESK_*` env
+3. Open `Logs/{session}/{node_endpoint}.md` (append); `Popen` with stdout/stderr redirected and `MEGADESK_*` env
 4. `HSET RUNNINGNODES:<unique_id>` (DB 1) with identity, PID, `status=running`, `log_path`, `launched_at`
 
 ### Example
@@ -182,7 +184,7 @@ OS PID and heartbeat are both gone.
 ```text
 HSET RUNNINGNODES:3f2a9c1e-… node_endpoint mission_control unique_id 3f2a9c1e-…
   parameters "" PID 12345 status running
-  log_path C:/…/MegaDesk-Canvas/logs/mission_control/3f2a9c1e-….log
+  log_path C:/…/Logs/2026-08-17T20-55-03Z/mission_control.md
   launched_at 2026-08-06T20:00:00+00:00 exit_code "" exited_at ""
 ```
 
@@ -214,7 +216,7 @@ Metadata only — **never** log line bodies.
 
 ```text
 XADD NODEEXIT * unique_id 3f2a9c1e-… node_endpoint mission_control
-  exit_code 1 log_path C:/…/MegaDesk-Canvas/logs/mission_control/3f2a9c1e-….log
+  exit_code 1 log_path C:/…/Logs/2026-08-17T20-55-03Z/mission_control.md
   exited_at 2026-08-06T20:01:00+00:00
 ```
 
