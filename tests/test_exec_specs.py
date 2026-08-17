@@ -30,6 +30,8 @@ def test_fe_only_nodes_do_not_launch_a_backend() -> None:
     from ticket_dispatcher_node import get_fe_spec as td_fe
 
     assert td_fe().backends == ()
+    assert td_fe().parameters == ("GIT_URL",)
+    assert td_fe().read_parameters is not None
     assert td_be() is None
     assert mm_fe().backends == ()
     assert mm_be() is None

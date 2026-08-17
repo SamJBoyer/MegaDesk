@@ -1,37 +1,37 @@
-"""Canvas-hosted MegaDesk FE as a native Dear PyGui node."""
+"""Graph-hosted MegaDesk FE as a native Dear PyGui node."""
 
 from __future__ import annotations
 
 import logging
 import traceback
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 from uuid import uuid4
 
 import dearpygui.dearpygui as dpg
 
-from megadesk_contracts import FeSpec
+from megadesk_contracts import FeSpec, normalize_parameters
 
 log = logging.getLogger("megadesk.canvas")
 
 TYPE_DISCRIMINATOR = "megadesk"
 
-NODE_EDITOR = "canvas_editor"
+NODE_EDITOR = "graph_editor"
 MIN_CONTENT_W = 160
 MIN_CONTENT_H = 120
 
 
-def hosted_node_tag(canvas_id: str) -> str:
+def hosted_node_tag(member_id: str) -> str:
     """Deterministic DPG tag for a member's node."""
-    return f"megadesk::{canvas_id}"
+    return f"megadesk::{member_id}"
 
 
-def hosted_content_tag(canvas_id: str) -> str:
+def hosted_content_tag(member_id: str) -> str:
     """Content parent inside the node where FeSpec.build places widgets."""
-    return f"{hosted_node_tag(canvas_id)}::content"
+    return f"{hosted_node_tag(member_id)}::content"
 
 
-def canvas_id_from_hosted_tag(tag: str | int) -> Optional[str]:
-    """Parse canvas_id from a hosted node tag, or None if not ours."""
+def member_id_from_hosted_tag(tag: str | int) -> Optional[str]:
+    """Parse member_id from a hosted node tag, or None if not ours."""
     s = str(tag)
     prefix = "megadesk::"
     if not s.startswith(prefix):
@@ -71,7 +71,7 @@ def destroy_hosted_node(tag: str) -> None:
 
 
 class MegaDeskMember:
-    """Canvas member backed by an FeSpec build() callable.
+    """Graph member backed by an FeSpec build() callable.
 
     Hosted as a native ``dpg.node`` inside ``NODE_EDITOR``. The FE fills a
     content parent inside a static node attribute via ``FeSpec.build``.
@@ -81,11 +81,9 @@ class MegaDeskMember:
         self,
         spec: FeSpec,
         *,
-        canvas_id: Optional[str] = None,
+        member_id: Optional[str] = None,
         position: Optional[tuple[float, float]] = None,
-        scale: Any = 1.0,
-        parents: Optional[list[str]] = None,
-        children: Optional[list[str]] = None,
+        parameters: Optional[Mapping[str, str]] = None,
         data: Optional[dict[str, Any]] = None,
     ) -> None:
         self.spec = spec
@@ -93,20 +91,11 @@ class MegaDeskMember:
         self.nickname = spec.name
         self.global_guid = TYPE_DISCRIMINATOR
         self.description = spec.description
-        self.canvas_id: str = canvas_id or str(uuid4())
+        self.member_id: str = member_id or str(uuid4())
         self.position: list[float] = list(position or (0.0, 0.0))
-        if isinstance(scale, (list, tuple)) and len(scale) >= 2:
-            self.scale_x = float(scale[0])
-            self.scale_y = float(scale[1])
-        else:
-            try:
-                s = float(scale)
-            except (TypeError, ValueError):
-                s = 1.0
-            self.scale_x = s
-            self.scale_y = s
-        self.parents: list[str] = list(parents or [])
-        self.children: list[str] = list(children or [])
+        self.parameters: dict[str, str] = normalize_parameters(
+            parameters, spec.parameters or None
+        )
         self.data: dict[str, Any] = dict(data or {})
         self.width: float = float(self.data.get("width", spec.default_width))
         self.height: float = float(self.data.get("height", spec.default_height))
@@ -125,31 +114,46 @@ class MegaDeskMember:
         self.data["width"] = self.width
         self.data["height"] = self.height
         self.data["node_name"] = self.name
-        self.data["gui_open"] = True
         return {
-            "canvas_id": self.canvas_id,
+            "member_id": self.member_id,
             "type": TYPE_DISCRIMINATOR,
             "nickname": self.nickname,
             "node_name": self.name,
             "position": [float(self.position[0]), float(self.position[1])],
-            "scale": [1.0, 1.0],
-            "parents": list(self.parents),
-            "children": list(self.children),
+            "parameters": dict(self.parameters),
             "data": dict(self.data),
         }
 
     @classmethod
     def from_member_dict(cls, member: dict[str, Any], spec: FeSpec) -> "MegaDeskMember":
-        data = dict(member.get("data") or {})
         return cls(
             spec,
-            canvas_id=member.get("canvas_id"),
+            member_id=member.get("member_id"),
             position=tuple(member.get("position", (0.0, 0.0))),
-            scale=member.get("scale", 1.0),
-            parents=member.get("parents"),
-            children=member.get("children"),
-            data=data,
+            parameters=member.get("parameters"),
+            data=dict(member.get("data") or {}),
         )
+
+    def set_parameters(self, values: Mapping[str, str]) -> dict[str, str]:
+        """Replace this member's saved parameters, keeping declared names only."""
+        self.parameters = normalize_parameters(values, self.spec.parameters or None)
+        return dict(self.parameters)
+
+    def read_live_parameters(self) -> dict[str, str]:
+        """Current parameter values as the hosted FE reports them.
+
+        Returns ``{}`` for nodes that declare no parameters or expose no reader —
+        capturing then leaves whatever the graph already had.
+        """
+        reader = self.spec.read_parameters
+        if reader is None or not self.spec.parameters:
+            return {}
+        try:
+            values = reader(self.hosted_tag())
+        except Exception:
+            log.exception("read_parameters failed for node=%s", self.name)
+            return {}
+        return normalize_parameters(values, self.spec.parameters)
 
     def sync_position_from_node(self) -> None:
         """Read editor-grid position from the live node into ``member.position``."""
@@ -172,10 +176,10 @@ class MegaDeskMember:
         self.destroy_node()
 
     def hosted_tag(self) -> str:
-        return hosted_node_tag(self.canvas_id)
+        return hosted_node_tag(self.member_id)
 
     def content_tag(self) -> str:
-        return hosted_content_tag(self.canvas_id)
+        return hosted_content_tag(self.member_id)
 
     def destroy_node(self) -> None:
         """Tear down the hosted node and run FE cleanup."""
@@ -187,7 +191,7 @@ class MegaDeskMember:
         """Delete this member's node; caller should also remove from the model."""
         self.destroy_node()
 
-    def open_on_canvas(self, *, parent: str = NODE_EDITOR) -> None:
+    def open_on_graph(self, *, parent: str = NODE_EDITOR) -> None:
         """Create the live FE node at ``self.position`` (no-op if already hosted)."""
         tag = self.hosted_tag()
         content = self.content_tag()
@@ -211,8 +215,6 @@ class MegaDeskMember:
             height = int(self.spec.default_height)
         self.width = float(width)
         self.height = float(height)
-        self.scale_x = 1.0
-        self.scale_y = 1.0
 
         label = self.nickname or self.name
         pos = [float(self.position[0]), float(self.position[1])]
@@ -248,9 +250,9 @@ class MegaDeskMember:
             )
         except Exception as exc:
             log.exception(
-                "FeSpec.build failed for node=%s canvas_id=%s: %s",
+                "FeSpec.build failed for node=%s member_id=%s: %s",
                 self.name,
-                self.canvas_id,
+                self.member_id,
                 exc,
             )
             if dpg.does_item_exist(content):

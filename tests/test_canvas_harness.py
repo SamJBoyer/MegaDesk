@@ -18,12 +18,16 @@ pytestmark = pytest.mark.canvas
 
 
 def test_boot_builds_the_engine_chrome(harness) -> None:
-    from engine.display_engine import CANVAS_WINDOW, NODE_EDITOR, SIDEBAR_TAG
+    assert harness.model.members == {}
+    from engine.display_engine import GRAPH_WINDOW, NODE_EDITOR, SIDEBAR_TAG
+    from engine.graph_bar import GRAPH_BAR_TAG, SELECT_TAG, CAPTURE_TAG
 
-    assert dpg.does_item_exist(CANVAS_WINDOW)
+    assert dpg.does_item_exist(GRAPH_WINDOW)
     assert dpg.does_item_exist(SIDEBAR_TAG)
     assert dpg.does_item_exist(NODE_EDITOR)
-    assert harness.model.members == {}
+    assert dpg.does_item_exist(GRAPH_BAR_TAG)
+    assert dpg.does_item_exist(SELECT_TAG)
+    assert dpg.does_item_exist(CAPTURE_TAG)
 
 
 def test_catalog_offers_the_installed_frontends(harness) -> None:
@@ -36,16 +40,21 @@ def test_catalog_offers_the_installed_frontends(harness) -> None:
 def test_drop_hosts_the_fe_and_persists_the_member(harness, tmp_path) -> None:
     driver = harness.drop("ticket_dispatcher")
 
-    assert driver.canvas_id in harness.model.members
+    assert driver.member_id in harness.model.members
     assert driver.is_hosted()
     # Tags the FE derives from the tag_prefix the host handed to FeSpec.build.
     for suffix in ("git_url", "status_text", "ticket_scroll"):
         assert driver.exists(suffix), f"missing {suffix}: {driver.suffixes()}"
 
-    saved = json.loads((tmp_path / "canvas.json").read_text(encoding="utf-8"))
-    member = saved["members"][driver.canvas_id]
+    saved = json.loads((tmp_path / "graph.json").read_text(encoding="utf-8"))
+    member = saved["members"][driver.member_id]
     assert member["type"] == "megadesk"
     assert member["node_name"] == "ticket_dispatcher"
+    assert "parameters" in member
+    assert "scale" not in member
+    assert "parents" not in member
+    assert "children" not in member
+    assert "canvas_id" not in member
 
 
 def test_widgets_are_writable_and_callbacks_are_real(harness) -> None:
@@ -72,7 +81,7 @@ def test_close_button_removes_the_member_from_the_model(harness) -> None:
 
     driver.close()
 
-    assert driver.canvas_id not in harness.model.members
+    assert driver.member_id not in harness.model.members
     assert not driver.is_hosted()
 
 

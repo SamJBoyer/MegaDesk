@@ -1,7 +1,7 @@
-"""Tag-based driver for one canvas-hosted FE.
+"""Tag-based driver for one graph-hosted FE.
 
 Every FE derives its widget tags from the ``tag_prefix`` the canvas host hands to
-``FeSpec.build``, which is ``megadesk::{canvas_id}``. That makes each widget
+``FeSpec.build``, which is ``megadesk::{member_id}``. That makes each widget
 addressable without reaching into the FE's module globals — a callback that gets
 unwired by a refactor then fails the test instead of silently passing.
 """
@@ -55,20 +55,20 @@ def invoke_callback(
 class NodeDriver:
     """Read, write and click widgets of a single hosted node by tag suffix."""
 
-    def __init__(self, harness: Any, canvas_id: str, node_name: str) -> None:
+    def __init__(self, harness: Any, member_id: str, node_name: str) -> None:
         self.harness = harness
-        self.canvas_id = canvas_id
+        self.member_id = member_id
         self.node_name = node_name
 
     def __repr__(self) -> str:
-        return f"NodeDriver({self.node_name!r}, canvas_id={self.canvas_id!r})"
+        return f"NodeDriver({self.node_name!r}, member_id={self.member_id!r})"
 
     # --- addressing ---
 
     @property
     def tag_prefix(self) -> str:
         """The prefix the canvas passes to ``FeSpec.build``."""
-        return f"megadesk::{self.canvas_id}"
+        return f"megadesk::{self.member_id}"
 
     @property
     def content_tag(self) -> str:

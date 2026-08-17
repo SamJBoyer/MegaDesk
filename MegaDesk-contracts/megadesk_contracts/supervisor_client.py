@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Mapping, Optional
 from urllib.parse import urlparse
 
 try:
@@ -85,13 +85,24 @@ class SupervisorClient:
         except Exception:
             return False
 
-    def launch_node(self, node_endpoint: str, parameters: str = "") -> str:
-        """Fire-and-forget XADD to LAUNCHREQUEST (db0). Returns stream entry id."""
+    def launch_node(
+        self,
+        node_endpoint: str,
+        parameters: "str | Mapping[str, str]" = "",
+    ) -> str:
+        """Fire-and-forget XADD to LAUNCHREQUEST (db0). Returns stream entry id.
+
+        ``parameters`` may be the graph values a node declared, in which case
+        they cross the stream as a JSON object.
+        """
+        from megadesk_contracts.parameters import parameters_to_json
+
+        payload = parameters if isinstance(parameters, str) else parameters_to_json(parameters)
         return self.ephemeral.xadd(
             LAUNCHREQUEST_STREAM,
             {
                 "node_endpoint": node_endpoint,
-                "parameters": parameters,
+                "parameters": payload,
             },
         )
 

@@ -14,6 +14,7 @@ from megadesk_contracts.discovery import (
     get_backend,
     has_backend,
     load_exec_spec,
+    load_fe_spec,
 )
 from megadesk_contracts.exec_spec import BeSpec, FeSpec, Mode
 from megadesk_contracts import frame_pump, wire
@@ -30,6 +31,15 @@ from megadesk_contracts.node_runtime import (
     pid_is_alive,
     request_shutdown,
     shutdown_key,
+)
+from megadesk_contracts.parameters import (
+    ENV_PARAMETERS,
+    PARAMETERS_FILENAME,
+    coerce_parameters,
+    load_parameter_names,
+    normalize_parameters,
+    parameters_from_env,
+    parameters_to_json,
 )
 from megadesk_contracts.paths import ENV_CANVAS_ROOT, resolve_canvas_root, resolve_logs_root
 from megadesk_contracts.realtime import RealtimeEvent, RealtimeTransport
@@ -78,6 +88,7 @@ __all__ = [
     "backends_for_frontend",
     "clear_shutdown",
     "clone_path",
+    "coerce_parameters",
     "configure_node_logging",
     "default_scope_root",
     "discover_backends",
@@ -91,7 +102,12 @@ __all__ = [
     "is_clone",
     "is_reported_node_alive",
     "load_exec_spec",
+    "load_fe_spec",
+    "load_parameter_names",
     "node_should_stop",
+    "normalize_parameters",
+    "parameters_from_env",
+    "parameters_to_json",
     "pid_is_alive",
     "refresh_clone",
     "repo_name_from_url",
@@ -102,6 +118,8 @@ __all__ = [
     "shutdown_key",
     "wire",
     "ENV_CANVAS_ROOT",
+    "ENV_PARAMETERS",
+    "PARAMETERS_FILENAME",
     "HEARTBEAT_INTERVAL_SEC",
     "NODE_HEARTBEAT_PREFIX",
     "NODE_SHUTDOWN_KEY",

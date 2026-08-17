@@ -1,0 +1,54 @@
+{
+  "members": {
+    "4976bbe8-9b08-46bf-8554-254a49b3c125": {
+      "member_id": "4976bbe8-9b08-46bf-8554-254a49b3c125",
+      "type": "megadesk",
+      "nickname": "merge_manager",
+      "node_name": "merge_manager",
+      "position": [
+        830.0,
+        298.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 640.0,
+        "height": 220.0,
+        "node_name": "merge_manager"
+      }
+    },
+    "f60829b6-d591-4a8c-ab72-7bf494eb7928": {
+      "member_id": "f60829b6-d591-4a8c-ab72-7bf494eb7928",
+      "type": "megadesk",
+      "nickname": "ticket_dispatcher",
+      "node_name": "ticket_dispatcher",
+      "position": [
+        423.0,
+        -188.0
+      ],
+      "parameters": {
+        "GIT_URL": "https://github.com/SamJBoyer/SMOKETESTREPO.git"
+      },
+      "data": {
+        "width": 480.0,
+        "height": 160.0,
+        "node_name": "ticket_dispatcher"
+      }
+    },
+    "48e5ab77-69b4-421a-a48e-ed464a7603f1": {
+      "member_id": "48e5ab77-69b4-421a-a48e-ed464a7603f1",
+      "type": "megadesk",
+      "nickname": "mission_control",
+      "node_name": "mission_control",
+      "position": [
+        927.0,
+        -188.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 520.0,
+        "height": 400.0,
+        "node_name": "mission_control"
+      }
+    }
+  }
+}

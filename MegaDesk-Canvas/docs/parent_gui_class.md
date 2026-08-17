@@ -1,9 +1,9 @@
-# MegaDesk FE canvas member
+# MegaDesk FE graph member
 
 Canonical documentation for `MegaDeskMember`, FE shell ownership, and
-`canvas.json` member fields lives in:
+graph `.json` member fields lives in:
 
 **[`Docs/node_protocol.md`](../../Docs/node_protocol.md)**
-(sections *Hosted shell* and *Canvas member persistence*).
+(sections *Hosted shell* and *Graph member persistence*).
 
 Persistence overview: [`root.md`](root.md).

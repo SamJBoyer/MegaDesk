@@ -3,39 +3,44 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from pathlib import Path
+from typing import Callable, Optional
 
 import dearpygui.dearpygui as dpg
 
-from engine.canvas_model import CanvasModel
+from megadesk_contracts import FeSpec
+
+from engine.graph_model import GraphModel, available_graphs
 from engine.icons import ICON_PX, get_icon_texture_for_path
 from engine.megadesk_member import (
     NODE_EDITOR,
     MegaDeskMember,
-    canvas_id_from_hosted_tag,
     destroy_hosted_node,
     hosted_node_tag,
+    member_id_from_hosted_tag,
 )
 from engine.megadesk_registry import (
     all_fe_specs,
-    get_fe_spec,
     palette_key,
     parse_palette_key,
 )
 
 log = logging.getLogger("megadesk.canvas")
 
-CANVAS_WINDOW = "canvas_window"
+GRAPH_WINDOW = "graph_window"
 SIDEBAR_TAG = "catalog_sidebar"
-REF_NODE = "canvas_ref_node"
+REF_NODE = "graph_ref_node"
 PAYLOAD_TYPE = "MEGADESK_NODE"
 NODE_PADDING = (8, 8)
 SUPERVISOR_PANEL_TAG = "supervisor_panel_window"
 
 
 class DisplayEngine:
-    def __init__(self, model: CanvasModel) -> None:
+    def __init__(self, model: GraphModel) -> None:
         self.model = model
+        # Set by the graph bar so it can re-read the model after a load / save.
+        self.on_graph_changed: Optional[Callable[[], None]] = None
+        self.graph_bar = None
 
     # --- drop position (Canvas2 REF_NODE technique) ---
 
@@ -75,13 +80,13 @@ class DisplayEngine:
         for tag in selected:
             if tag == REF_NODE:
                 continue
-            cid = canvas_id_from_hosted_tag(tag)
-            if cid and cid in self.model.members:
-                to_delete.append(cid)
+            member_id = member_id_from_hosted_tag(tag)
+            if member_id and member_id in self.model.members:
+                to_delete.append(member_id)
 
-        for cid in to_delete:
-            self.model.delete_node(cid)
-            destroy_hosted_node(hosted_node_tag(cid))
+        for member_id in to_delete:
+            self.model.delete_node(member_id)
+            destroy_hosted_node(hosted_node_tag(member_id))
 
         try:
             dpg.clear_selected_nodes(NODE_EDITOR)
@@ -107,24 +112,31 @@ class DisplayEngine:
 
     # --- Catalog drop ---
 
-    def on_canvas_drop(self, sender, app_data, user_data=None) -> None:
+    def on_graph_drop(self, sender, app_data, user_data=None) -> None:
         key = app_data
         megadesk_name = parse_palette_key(str(key)) if key else None
         if megadesk_name is None:
             return
         pos = self.editor_drop_pos()
-        node = self.model.add_megadesk_node(
+        member = self.model.add_megadesk_node(
             megadesk_name, position=(float(pos[0]), float(pos[1]))
         )
-        self._maybe_launch_backend(megadesk_name)
-        node.open_on_canvas(parent=NODE_EDITOR)
+        self._maybe_launch_backend(member.spec)
+        member.open_on_graph(parent=NODE_EDITOR)
+        self._notify_graph_changed()
 
-    def _maybe_launch_backend(self, node_name: str) -> None:
-        """XADD LAUNCHREQUEST for each BE listed on the hosted FeSpec."""
-        spec = get_fe_spec(node_name)
+    def _maybe_launch_backend(self, spec: Optional[FeSpec]) -> None:
+        """XADD LAUNCHREQUEST for each BE the hosted FeSpec lists.
+
+        The spec is the member's own — built around its graph parameters — so
+        ``backend_parameters`` is whatever subset that node wants its BE to
+        start with.
+        """
         endpoints = tuple(spec.backends) if spec is not None else ()
-        if not endpoints:
+        if not endpoints or spec is None:
             return
+        node_name = spec.name
+        parameters = dict(spec.backend_parameters or {})
         try:
             from megadesk_contracts import SupervisorClient
 
@@ -151,39 +163,103 @@ class DisplayEngine:
                 if endpoint in already:
                     log.info("BE %s already alive; skip LAUNCHREQUEST", endpoint)
                     continue
-                entry_id = client.launch_node(endpoint, parameters="")
+                entry_id = client.launch_node(endpoint, parameters=parameters)
                 log.info("LAUNCHREQUEST %s -> %s", endpoint, entry_id)
         except Exception:
             log.exception("BE launch failed for MegaDesk node %s", node_name)
 
     # --- MegaDesk node hosting ---
 
-    def open_megadesk_gui(self, node: MegaDeskMember) -> None:
-        node.open_on_canvas(parent=NODE_EDITOR)
+    def host_member(self, member: MegaDeskMember) -> None:
+        member.open_on_graph(parent=NODE_EDITOR)
 
-    def open_all_megadesk_guis(self) -> None:
-        """Host each saved FE and start the BEs its FeSpec lists."""
-        for node in self.model.members.values():
-            self.open_megadesk_gui(node)
-            self._maybe_launch_backend(node.name)
+    def host_all_members(self) -> None:
+        """Host each of the graph's FEs and start the BEs their FeSpecs list."""
+        for member in self.model.members.values():
+            self.host_member(member)
+            self._maybe_launch_backend(member.spec)
 
-    def sync_megadesk_nodes(self) -> None:
+    def sync_members(self) -> None:
         """Sync node positions into the model; process close-button deletes."""
         pending_delete: list[str] = []
-        for node in list(self.model.members.values()):
-            if node.consume_pending_delete():
-                pending_delete.append(node.canvas_id)
+        for member in list(self.model.members.values()):
+            if member.consume_pending_delete():
+                pending_delete.append(member.member_id)
                 continue
-            if node.is_hosted():
-                node.sync_position_from_node()
-            elif dpg.does_item_exist(node.hosted_tag()):
+            if member.is_hosted():
+                member.sync_position_from_node()
+            elif dpg.does_item_exist(member.hosted_tag()):
                 # Stale binding — re-attach or destroy.
-                node._node_tag = node.hosted_tag()
-                node.sync_position_from_node()
+                member._node_tag = member.hosted_tag()
+                member.sync_position_from_node()
 
-        for cid in pending_delete:
-            self.model.delete_node(cid)
-            destroy_hosted_node(hosted_node_tag(cid))
+        for member_id in pending_delete:
+            self.model.delete_node(member_id)
+            destroy_hosted_node(hosted_node_tag(member_id))
+        if pending_delete:
+            self._notify_graph_changed()
+
+    # --- graph file operations (driven by the graph bar) ---
+
+    def _notify_graph_changed(self) -> None:
+        if self.on_graph_changed is None:
+            return
+        try:
+            self.on_graph_changed()
+        except Exception:
+            log.exception("Graph bar refresh failed")
+
+    def graph_path(self) -> Path:
+        return self.model.path
+
+    def graph_choices(self) -> list[Path]:
+        """Graphs offered in the bar: the graphs directory plus the open file."""
+        choices = available_graphs()
+        current = self.model.path
+        if current not in choices:
+            choices.append(current)
+        return choices
+
+    def load_graph(self, path: Path) -> None:
+        """Open another graph: validate, swap the board, relaunch its BEs.
+
+        ``GraphError`` propagates so the bar can show why a file was refused;
+        the open graph is still intact when it does.
+        """
+        self.model.load_from(path)
+        self.host_all_members()
+        self._notify_graph_changed()
+
+    def save_graph(self) -> None:
+        self.sync_members()
+        self.model.save()
+        self._notify_graph_changed()
+
+    def save_graph_as(self, path: Path) -> None:
+        self.sync_members()
+        self.model.save_as(path)
+        self._notify_graph_changed()
+
+    def delete_graph(self) -> None:
+        """Delete the open graph's file, then fall back to another one.
+
+        With nothing left to fall back to the board is cleared, and the model
+        keeps pointing at the deleted path so a later Save recreates it.
+        """
+        self.model.delete_file()
+        remaining = [p for p in available_graphs() if p != self.model.path]
+        if remaining:
+            self.load_graph(remaining[0])
+            return
+        self.model.close_all()
+        self._notify_graph_changed()
+
+    def capture_parameters(self) -> dict[str, dict[str, str]]:
+        """Push what the sub-GUIs currently show into the graph, and save it."""
+        captured = self.model.capture_parameters()
+        self.model.save()
+        self._notify_graph_changed()
+        return captured
 
     # --- Catalog sidebar ---
 
@@ -198,7 +274,7 @@ class DisplayEngine:
 
         dpg.add_text("Catalog", parent=parent, color=(40, 45, 55, 255))
         dpg.add_text(
-            "Drag an icon onto the canvas",
+            "Drag an icon onto the graph",
             parent=parent,
             wrap=220,
             color=(90, 95, 105, 255),
@@ -260,6 +336,6 @@ class DisplayEngine:
     def on_viewport_resize(self) -> None:
         vp_w = dpg.get_viewport_client_width() or 1280
         vp_h = dpg.get_viewport_client_height() or 800
-        if dpg.does_item_exist(CANVAS_WINDOW):
-            dpg.set_item_width(CANVAS_WINDOW, vp_w)
-            dpg.set_item_height(CANVAS_WINDOW, vp_h)
+        if dpg.does_item_exist(GRAPH_WINDOW):
+            dpg.set_item_width(GRAPH_WINDOW, vp_w)
+            dpg.set_item_height(GRAPH_WINDOW, vp_h)

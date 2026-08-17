@@ -25,6 +25,7 @@ Each productivity node is its own installable Python project under `Nodes/<Name>
 Nodes/<Name>/
   pyproject.toml          # REQUIRED — registers MegaDesk.nodes
   <name>_node.py          # REQUIRED — get_fe_spec() / get_be_spec()
+  parameters.yaml         # optional — declared graph parameter names
   …                       # app / package code for FE and/or BE
   Etc/Artwork/…           # optional icon for the Catalog palette
 ```
@@ -68,35 +69,42 @@ Examples in-repo:
 Every node module pointed at by the entry point exports:
 
 ```python
-def get_fe_spec() -> FeSpec | None:
+def get_fe_spec(parameters: Mapping[str, str] | None = None) -> FeSpec | None:
     ...
 
 def get_be_spec() -> BeSpec | None:
     ...
 
-def get_exec_spec(mode: Mode) -> FeSpec | BeSpec | None:
+def get_exec_spec(
+    mode: Mode, parameters: Mapping[str, str] | None = None
+) -> FeSpec | BeSpec | None:
     if mode == "FE":
-        return get_fe_spec()
+        return get_fe_spec(parameters)
     if mode == "BE":
         return get_be_spec()
     return None
 ```
 
-`Mode` is `"FE"` | `"BE"`. Discovery calls `get_fe_spec` / `get_be_spec` when they exist.
+`Mode` is `"FE"` | `"BE"`. Discovery calls `get_fe_spec` / `get_be_spec` when they exist. Nodes that do not take parameters may keep a zero-argument `get_fe_spec()`; the caller only passes `parameters=` when the function accepts it.
+
+`parameters` are the string kvps a **graph** saved for this member (see *Graph parameters* below). `get_fe_spec` folds them into the returned spec — `build` closes over them, `backend_parameters` is the subset (or rewrite) to drop onto `LAUNCHREQUEST`. The host still calls `build(parent, *, tag_prefix, width, height)` with no parameters kwarg.
 
 ### `FeSpec` (mode `"FE"`)
 
-Front-end description for MegaDesk canvas hosting:
+Front-end description for MegaDesk graph hosting:
 
 | Field | Type | Role |
 |-------|------|------|
-| `name` | `str` | Node nickname (palette / canvas / Redis launch) |
+| `name` | `str` | Node nickname (palette / graph / Redis launch) |
 | `description` | `str` | Short blurb for Catalog |
 | `icon` | `str \| None` | Path to an icon image, or `None` (Catalog uses a black square if empty/invalid) |
 | `default_width` | `int` | Initial window width |
 | `default_height` | `int` | Initial window height |
 | `build` | callable | Builds the Dear PyGui UI into the host content parent |
-| `backends` | `tuple[str, ...]` | Supervisor `node_endpoint` names to `XADD` on `LAUNCHREQUEST` when this FE is hosted (drop **or** canvas open). Empty = no BE. |
+| `backends` | `tuple[str, ...]` | Supervisor `node_endpoint` names to `XADD` on `LAUNCHREQUEST` when this FE is hosted (drop **or** graph open). Empty = no BE. |
+| `parameters` | `tuple[str, ...]` | Names this node recognizes, usually from its `parameters.yaml`. Empty = none. |
+| `backend_parameters` | `Mapping[str, str]` | Packet dropped onto `LAUNCHREQUEST` `parameters` (subset or rewrite of the graph values). Empty = `""` on the wire. |
+| `read_parameters` | `callable \| None` | `(tag_prefix) -> mapping` so the graph bar can Capture live sub-GUI values |
 
 `build` signature:
 
@@ -146,7 +154,7 @@ subprocess.Popen(
   cwd=BeSpec.cwd,
   stdout=log_file,          # MegaDesk-Canvas/logs/<name>/<unique_id>.log
   stderr=STDOUT,
-  env={…, MEGADESK_UNIQUE_ID, MEGADESK_NODE, MEGADESK_LOG_PATH},
+  env={…, MEGADESK_UNIQUE_ID, MEGADESK_NODE, MEGADESK_LOG_PATH, MEGADESK_PARAMETERS},
 )
 ```
 
@@ -185,7 +193,8 @@ Installed entry points are scanned via `importlib.metadata` group `MegaDesk.node
 |----------|---------|
 | `discover_frontends()` | `dict[str, FeSpec]` — every node that returns an `FeSpec` for `"FE"` |
 | `discover_backends()` | `dict[str, BeSpec]` — every node that returns a `BeSpec` for `"BE"` |
-| `load_exec_spec(name, mode)` | One entry point’s result for that mode (matches **entry-point name**) |
+| `load_exec_spec(name, mode, parameters=None)` | One entry point’s result for that mode (matches **entry-point name**) |
+| `load_fe_spec(name, parameters=None)` | One FE spec, rebuilt with graph parameters when given |
 | `get_backend(name)` | `BeSpec \| None` by nickname (also resolves via discovery keys / `BeSpec.name`) |
 | `has_backend(name)` | Whether a BE exists for that name |
 
@@ -195,12 +204,14 @@ Related public helpers (same package): `SupervisorClient`, `ensure_supervisor_ru
 
 ---
 
-## How the FE uses nodes (MegaDesk canvas)
+## How the FE uses nodes (MegaDesk graph)
 
-1. On startup, the canvas calls `ensure_supervisor_running()` so the Supervisor BE (`python -m supervisor`) is up before UI drop can request BE launches. Then it calls `discover_frontends()` (via `engine.megadesk_registry.discover_megadesk_frontends`) and fills the Catalog palette (`megadesk:<name>`). Icons come from `FeSpec.icon`. The Supervisor operator UI is built as collapsible chrome via `build_supervisor_panel` — it is not a Catalog entry.
-2. Dropping a node places a canvas member (`type: "megadesk"`, `node_name` in `canvas.json`) and hosts the FE as a native `dpg.node` inside the canvas `node_editor` via `FeSpec.build`.
-3. Nodes on the board are always the live FE (no placard / closed state). Middle-mouse pans the editor; there is no canvas zoom. Delete removes the selected node(s).
-4. After drop **and** when a saved canvas is opened, the canvas reads `FeSpec.backends` and `XADD`s one `LAUNCHREQUEST` per endpoint (skipped if that BE is already alive, Redis is down, or Supervisor is not up).
+1. On startup, MegaDesk-Canvas calls `ensure_supervisor_running()` so the Supervisor BE (`python -m supervisor`) is up before UI drop can request BE launches. Then it calls `discover_frontends()` (via `engine.megadesk_registry.discover_megadesk_frontends`) and fills the Catalog palette (`megadesk:<name>`). Icons come from `FeSpec.icon`. A **graph bar** sits above the Catalog so the operator can pick, save, save-as, Capture, or delete a graph. The Supervisor operator UI is built as collapsible chrome via `build_supervisor_panel` — it is not a Catalog entry.
+2. Dropping a node places a graph member (`type: "megadesk"`, `node_name` in the open `.json`) and hosts the FE as a native `dpg.node` inside the graph `node_editor` via `FeSpec.build`. Graph parameters for that member are passed into `get_fe_spec(parameters=…)`.
+3. Nodes on the board are always the live FE (no placard / closed state). Middle-mouse pans the editor; there is no graph zoom. Delete removes the selected node(s).
+4. After drop **and** when a saved graph is opened, the host reads `FeSpec.backends` and `XADD`s one `LAUNCHREQUEST` per endpoint with `parameters` set to `FeSpec.backend_parameters` (skipped if that BE is already alive, Redis is down, or Supervisor is not up).
+
+Any `.json` file can be opened as a graph. Files that are not a graph (`members` missing, invalid JSON, unknown member `type`) raise `GraphError`; the graph bar shows the message and leaves the open graph untouched.
 
 Canvas-side install (also summarized in `MegaDesk-Canvas/readme.md`):
 
@@ -225,21 +236,32 @@ FEs are hosted inside native Dear PyGui `dpg.node` items in a `dpg.node_editor` 
 | **Canvas** | `dpg.node` + static `node_attribute`, content parent, editor-grid position, delete |
 | **FE `build()`** | Widgets inside the host content parent only — no `dpg.window`, no standalone viewport |
 
-Closing via the node **x** (or Delete) removes the member from the board and from `canvas.json`.
+Closing via the node **x** (or Delete) removes the member from the board and from the open graph file.
 
-### Canvas member persistence
+### Graph parameters
 
-Members are serialized into `canvas.json` (typically the repo-root file). Persistence is **members-only** (`{"members": {...}}`); legacy `hierarchy` / layers keys are ignored if present. Discriminator in JSON is **`type: "megadesk"`** (in-memory the host also keeps `global_guid = "megadesk"`).
+A node that takes parameters ships `parameters.yaml` next to its entry-point module: a flat list of recognized names (`#` starts a comment). Example (`Nodes/TicketDispatcher/parameters.yaml`):
+
+```yaml
+- GIT_URL # the http of the git repo this node will connect to
+```
+
+Helpers live in `megadesk_contracts.parameters` (`load_parameter_names`, `normalize_parameters`, `parameters_to_json`, `parameters_from_env`). The graph stores a value per declared name per member. **Capture** on the graph bar reads live sub-GUI values via `FeSpec.read_parameters` and writes them into the graph. What a node does with incoming parameters is its own business — TicketDispatcher seeds the repo URL field from `GIT_URL`.
+
+A Supervisor-launched BE reads the same packet from `MEGADESK_PARAMETERS` (JSON object, or empty).
+
+### Graph member persistence
+
+Members are serialized into a graph `.json` (default `Graphs/default.json`; the bar can point at any file). Persistence is **members-only** (`{"members": {...}}`). Discriminator in JSON is **`type: "megadesk"`** (in-memory the host also keeps `global_guid = "megadesk"`). Legacy `canvas.json` fields (`scale`, `parents`, `children`, `canvas_id`, `hierarchy`) are artifacts and are not written.
 
 | Field | Role |
 | --- | --- |
-| `canvas_id` | Instance GUID |
+| `member_id` | Instance GUID |
 | `type` | Always `"megadesk"` |
 | `nickname` | Display name (from `FeSpec.name`) |
 | `node_name` | Discovery / FeSpec name |
 | `position` | Editor-grid `(x, y)` |
-| `scale` | Kept as `[1, 1]` for compatibility |
-| `parents` / `children` | Serialized empty lists (legacy member-graph shape; unused) |
+| `parameters` | String kvps for names declared in the node's `parameters.yaml` |
 | `data` | FE payload: `width`, `height`, `node_name`, … |
 
 `icon` and Catalog black-square fallback live on `FeSpec`, not on the member record.
@@ -271,8 +293,8 @@ Do **not** put log line bodies on Redis streams.
 
 Typical Redis path after an FE drop that also has a BE:
 
-1. Caller `XADD`s `LAUNCHREQUEST` with `node_endpoint` and `parameters=""` (DB 0)
-2. Supervisor BE consumes the stream and registers `RUNNINGNODES:<unique_id>` (DB 1)
+1. Caller `XADD`s `LAUNCHREQUEST` with `node_endpoint` and `parameters` (JSON object of `FeSpec.backend_parameters`, or `""` when empty) (DB 0)
+2. Supervisor BE consumes the stream, injects `MEGADESK_PARAMETERS`, and registers `RUNNINGNODES:<unique_id>` (DB 1)
 3. There is no ack channel — observe `RUNNINGNODES:*` if confirmation is needed
 
 ---

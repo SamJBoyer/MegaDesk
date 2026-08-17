@@ -41,13 +41,13 @@ Four capabilities, all confirmed working:
 
 | Capability | API | Notes |
 |---|---|---|
-| Address any widget | `megadesk::{canvas_id}::{suffix}` | Deterministic via `hosted_node_tag()`; every FE derives suffixes from `tag_prefix` |
+| Address any widget | `megadesk::{member_id}::{suffix}` | Deterministic via `hosted_node_tag()`; every FE derives suffixes from `tag_prefix` |
 | Read / write widget state | `dpg.get_value` / `dpg.set_value` | |
 | Fire the real handler | `dpg.get_item_callback(tag)` then call it | Returns the actual bound callback, so tests run production code, not a reimplementation |
 | Advance time deliberately | `dpg.render_dearpygui_frame()` in a controlled loop | Replaces `while dpg.is_dearpygui_running()` |
 | See the screen | `dpg.output_frame_buffer(path)` | Writes a PNG an agent can read back |
 
-Verified end to end: booting the real canvas with an injected temp `canvas.json`,
+Verified end to end: booting the real canvas with an injected temp `graph.json`,
 simulating a Catalog drop of `ticket_dispatcher`, typing a repo URL, firing the input
 callback, screenshotting, then firing the node's close button and asserting the member
 was removed from the model. Full cycle in about 8 seconds.
@@ -109,8 +109,8 @@ at frame 30 gives **0 ticks**, forever.
 
 **Live impact, independent of testing:** start the canvas with an empty board, drop your
 first node, and that node — plus every node dropped afterward — silently never updates.
-It is masked today only because the committed `canvas.json` has three members, so
-`open_all_megadesk_guis()` registers at frame 0 during startup.
+It is masked today only because the committed `Graphs/default.json` has members, so
+`host_all_members()` registers at frame 0 during startup.
 
 **Fixed:** armed relative, `dpg.set_frame_callback(dpg.get_frame_count() + 1, _pump)`,
 matching the re-arm line.
@@ -234,9 +234,9 @@ viewport, then exposes deliberate time control.
 
 | Method | Behavior |
 |---|---|
-| `boot()` | `build_canvas(model)` with `CanvasModel(path=<tmp>)`, off-screen viewport, no Supervisor panel |
-| `drop(node_name, position="auto")` | Calls `engine.on_canvas_drop(NODE_EDITOR, f"megadesk:{name}", None)`, returns a `NodeDriver`. `position` defaults to a grid slot so screenshots do not stack nodes; `None` keeps what the drop computed from the mouse |
-| `pump(n)` | `engine.sync_megadesk_nodes()` + `render_dearpygui_frame()`, n times |
+| `boot()` | `build_canvas(model)` with `GraphModel(path=<tmp>)`, off-screen viewport, no Supervisor panel |
+| `drop(node_name, position="auto")` | Calls `engine.on_graph_drop(NODE_EDITOR, f"megadesk:{name}", None)`, returns a `NodeDriver`. `position` defaults to a grid slot so screenshots do not stack nodes; `None` keeps what the drop computed from the mouse |
+| `pump(n)` | `engine.sync_members()` + `render_dearpygui_frame()`, n times |
 | `wait_until(pred, timeout=10)` | Pumps until predicate true or timeout; **raises** `HarnessTimeout` with a screenshot path |
 | `wait_for_widget` / `wait_for_value` | `wait_until` with a message naming the widget |
 | `screenshot(name)` | `output_frame_buffer` + pump, into the per-test artifacts directory |
@@ -254,7 +254,7 @@ as "no bug" rather than the real pump failure.
 
 ### `NodeDriver`
 
-Wraps one hosted node's `canvas_id` and resolves `megadesk::{cid}::{suffix}`.
+Wraps one hosted node's `member_id` and resolves `megadesk::{cid}::{suffix}`.
 
 ```python
 d = harness.drop("ticket_dispatcher")

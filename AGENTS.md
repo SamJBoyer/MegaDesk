@@ -32,7 +32,7 @@ We use different REDIS database for different levels of persistence. DB 0 is tem
 
 
 **DB 0 (ephemeral)** — streams / MissionControl default traffic:
-- **LAUNCHREQUEST** — consume `node_endpoint` (+ `parameters`, currently always `""`); discover BE via `MegaDesk.nodes` → `BeSpec`; `Popen` with `MEGADESK_*` env
+- **LAUNCHREQUEST** — consume `node_endpoint` + `parameters` (JSON object of graph kvps, or `""`); discover BE via `MegaDesk.nodes` → `BeSpec`; `Popen` with `MEGADESK_*` env (including `MEGADESK_PARAMETERS`)
 - **KILLREQUEST** — match `node_endpoint` + `unique_id`, graceful→force shutdown, `DEL` the RUNNINGNODES hash
 - **NODEEXIT** — published on natural exit (metadata only; no log bodies)
 - MissionControl `WORKORDER` / `AGENTHANDLER` / `FINISHED` also live here (same `REDIS_URL`, db 0)

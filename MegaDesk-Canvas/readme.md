@@ -16,6 +16,7 @@ python main.py
 ```
 
 See [`Docs/node_protocol.md`](../Docs/node_protocol.md) for the node protocol
-(`MegaDesk.nodes` / `FeSpec` / `BeSpec` / canvas hosting).
+(`MegaDesk.nodes` / `FeSpec` / `BeSpec` / graph hosting).
 Shared importable APIs live in the `megadesk-contracts` package (`MegaDesk-contracts/`).
 Supervisor Redis packages: [`MegaDesk-contracts/redis/supervisor.md`](../MegaDesk-contracts/redis/supervisor.md).
+Graphs live under `Graphs/` (default `default.json`); the graph bar loads any `.json`.

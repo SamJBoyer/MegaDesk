@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional, TextIO
 
 from megadesk_contracts import BeSpec
+from megadesk_contracts.parameters import ENV_PARAMETERS
 from megadesk_contracts.paths import resolve_canvas_root, resolve_logs_root
 
 ENV_UNIQUE_ID = "MEGADESK_UNIQUE_ID"
@@ -201,6 +202,9 @@ def launch_spec(
     env[ENV_UNIQUE_ID] = unique_id
     env[ENV_NODE] = spec.name
     env[ENV_LOG_PATH] = str(log_path)
+    # The graph values the FE asked this BE to start with; read them back with
+    # megadesk_contracts.parameters_from_env().
+    env[ENV_PARAMETERS] = parameters or ""
 
     try:
         proc = subprocess.Popen(

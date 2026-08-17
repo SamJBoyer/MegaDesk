@@ -1,0 +1,52 @@
+{
+  "members": {
+    "e1582bb2-5f65-48ad-a56a-c1aeecc75486": {
+      "member_id": "e1582bb2-5f65-48ad-a56a-c1aeecc75486",
+      "type": "megadesk",
+      "nickname": "cloud_dispatcher",
+      "node_name": "cloud_dispatcher",
+      "position": [
+        -130.0,
+        130.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 520.0,
+        "height": 260.0,
+        "node_name": "cloud_dispatcher"
+      }
+    },
+    "33c83304-0536-4ea5-8543-722fd4f0cb40": {
+      "member_id": "33c83304-0536-4ea5-8543-722fd4f0cb40",
+      "type": "megadesk",
+      "nickname": "code_scope",
+      "node_name": "code_scope",
+      "position": [
+        -130.0,
+        -190.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 520.0,
+        "height": 240.0,
+        "node_name": "code_scope"
+      }
+    },
+    "41ca06e0-d05f-475d-88bf-5891d0c41b06": {
+      "member_id": "41ca06e0-d05f-475d-88bf-5891d0c41b06",
+      "type": "megadesk",
+      "nickname": "voice_deck",
+      "node_name": "voice_deck",
+      "position": [
+        419.0,
+        -192.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 460.0,
+        "height": 200.0,
+        "node_name": "voice_deck"
+      }
+    }
+  }
+}

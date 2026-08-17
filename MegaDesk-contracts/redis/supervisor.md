@@ -15,7 +15,9 @@ Supervisor uses Redis for:
 
 Node backends are discovered from installed `MegaDesk.nodes` entry points via
 `get_be_spec()` → `BeSpec` (argv + optional cwd). There are no YAML
-manifests. Launch `parameters` are present on the wire but currently always `""`.
+manifests. Launch `parameters` are a JSON object of the graph kvps the FE asked this BE to
+start with, or `""` when the node declared none. The BE reads them back with
+`megadesk_contracts.parameters_from_env()` (`MEGADESK_PARAMETERS`).
 
 Each BE installs `megadesk_contracts.NodeRuntime`, which writes `NODEHB:<unique_id>`
 on DB 1 every 5s (`pid`, `status`, `node`) and exits if `NODE:SHUTDOWN` or
@@ -52,7 +54,7 @@ subprocess.Popen(
   cwd=BeSpec.cwd,
   stdout=log_file,
   stderr=STDOUT,
-  env={…, MEGADESK_UNIQUE_ID, MEGADESK_NODE, MEGADESK_LOG_PATH},
+  env={…, MEGADESK_UNIQUE_ID, MEGADESK_NODE, MEGADESK_LOG_PATH, MEGADESK_PARAMETERS},
 )
 ```
 
@@ -97,7 +99,7 @@ Supervisor BE — see `MegaDesk-Canvas/supervisor/redis_provision.py`.
 | Field | Required | Notes |
 |-------|----------|-------|
 | `node_endpoint` | yes | `BeSpec.name` from `MegaDesk.nodes` discovery |
-| `parameters` | yes | Currently always `""` |
+| `parameters` | yes | JSON object of graph kvps (`FeSpec.backend_parameters`), or `""` |
 
 ### On consume
 
@@ -163,7 +165,7 @@ XADD KILLREQUEST * node_endpoint mission_control unique_id 3f2a9c1e-…
 |-------|-------|
 | `node_endpoint` | `BeSpec.name` |
 | `unique_id` | Same as key suffix |
-| `parameters` | Launch parameters (currently `""`) |
+| `parameters` | Launch parameters (JSON object, or `""`) |
 | `PID` | OS process id as a string |
 | `status` | `running` or `exited` |
 | `log_path` | Absolute path to the instance log file |

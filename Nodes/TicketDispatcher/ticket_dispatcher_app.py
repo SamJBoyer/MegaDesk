@@ -9,18 +9,21 @@ import re
 import subprocess
 import threading
 from dataclasses import dataclass
-from typing import Optional
+from typing import Mapping, Optional
 from urllib.parse import urlparse
 
 import dearpygui.dearpygui as dpg
 import redis
-from megadesk_contracts import DEFAULT_REDIS_URL, frame_pump
+from megadesk_contracts import DEFAULT_REDIS_URL, coerce_parameters, frame_pump
 
 POLL_INTERVAL_SEC = 3.0
 REDIS_STREAM_KEY = "WORKORDER"
 DEFAULT_MODEL = "auto"
 MODEL_OPTIONS = ("auto", "grok-4.5")
 GH_TIMEOUT_SEC = 15
+
+# Graph parameter this node recognizes; declared in parameters.yaml.
+PARAM_GIT_URL = "GIT_URL"
 
 COLOR_GREEN = (80, 200, 80, 255)
 COLOR_RED = (220, 70, 70, 255)
@@ -91,12 +94,14 @@ def run_gh(*args: str) -> tuple[bool, str, str]:
 
 
 class TicketDispatcher:
-    def __init__(self) -> None:
+    def __init__(self, parameters: Optional[Mapping[str, str]] = None) -> None:
         self._ui_queue: queue.Queue = queue.Queue()
         self._stop = threading.Event()
         self._poll_thread: Optional[threading.Thread] = None
         self._url_lock = threading.Lock()
-        self._current_repo_url = ""
+        values = coerce_parameters(parameters)
+        # GIT_URL from the graph: the repo this instance boots pointed at.
+        self._current_repo_url = values.get(PARAM_GIT_URL, "").strip()
         self._tickets: dict[int, IssueTicket] = {}
         self._dispatched: set[int] = set()
         self._redis: Optional[redis.Redis] = None
@@ -149,6 +154,7 @@ class TicketDispatcher:
             with dpg.group(horizontal=True):
                 dpg.add_input_text(
                     tag=self._tag("git_url"),
+                    default_value=self._current_repo_url,
                     width=-20,
                     hint="https://github.com/owner/repo",
                     callback=self._on_url_changed,
@@ -451,9 +457,10 @@ def build_ui(
     tag_prefix: str,
     width: int = 480,
     height: int = 160,
+    parameters: Optional[Mapping[str, str]] = None,
 ) -> None:
-    """Module-level builder for FeSpec / MegaDesk canvas hosting."""
-    TicketDispatcher().build_ui(
+    """Module-level builder for FeSpec / MegaDesk graph hosting."""
+    TicketDispatcher(parameters).build_ui(
         parent,
         tag_prefix=tag_prefix,
         width=width,
@@ -461,9 +468,21 @@ def build_ui(
     )
 
 
+def read_parameters(tag_prefix: str) -> dict[str, str]:
+    """Current parameter values of the instance hosted under ``tag_prefix``.
+
+    Reads the widget rather than the instance's own field, so what the graph
+    captures is what the operator can see.
+    """
+    tag = f"{tag_prefix}::git_url"
+    if not dpg.does_item_exist(tag):
+        return {}
+    return {PARAM_GIT_URL: (dpg.get_value(tag) or "").strip()}
+
+
 def main() -> None:
     raise SystemExit(
-        "Ticket Dispatcher FE is canvas-only. Drop it from the MegaDesk Catalog."
+        "Ticket Dispatcher FE is graph-hosted. Drop it from the MegaDesk Catalog."
     )
 
 

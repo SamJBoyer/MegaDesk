@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 import logging
 from types import ModuleType
-from typing import Optional
+from typing import Any, Callable, Mapping, Optional
 
 from megadesk_contracts.exec_spec import BeSpec, FeSpec, Mode
 
@@ -34,12 +34,48 @@ def _module_of(loaded: object) -> Optional[ModuleType]:
     return None
 
 
-def _call_fe(mod: Optional[ModuleType], loaded: object, ep_name: str) -> FeSpec | None:
+def _takes_parameters(fn: Callable[..., Any]) -> bool:
+    """Whether ``fn`` accepts a ``parameters`` keyword.
+
+    Nodes without parameters keep a zero-argument ``get_fe_spec``, so the caller
+    must not force the keyword on them.
+    """
+    try:
+        signature = inspect.signature(fn)
+    except (TypeError, ValueError):
+        return False
+    for param in signature.parameters.values():
+        if param.kind is inspect.Parameter.VAR_KEYWORD:
+            return True
+        if param.name == "parameters" and param.kind in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        ):
+            return True
+    return False
+
+
+def _call_spec_fn(
+    fn: Callable[..., Any],
+    args: tuple[Any, ...] = (),
+    parameters: Optional[Mapping[str, str]] = None,
+) -> Any:
+    if parameters is not None and _takes_parameters(fn):
+        return fn(*args, parameters=parameters)
+    return fn(*args)
+
+
+def _call_fe(
+    mod: Optional[ModuleType],
+    loaded: object,
+    ep_name: str,
+    parameters: Optional[Mapping[str, str]] = None,
+) -> FeSpec | None:
     if mod is not None and callable(getattr(mod, "get_fe_spec", None)):
-        spec = mod.get_fe_spec()
+        spec = _call_spec_fn(mod.get_fe_spec, parameters=parameters)
         return spec if isinstance(spec, FeSpec) else None
     if callable(loaded):
-        spec = loaded("FE")
+        spec = _call_spec_fn(loaded, ("FE",), parameters=parameters)
         return spec if isinstance(spec, FeSpec) else None
     log.error("MegaDesk.nodes entry %s has no get_fe_spec", ep_name)
     return None
@@ -55,7 +91,11 @@ def _call_be(mod: Optional[ModuleType], loaded: object, ep_name: str) -> BeSpec 
     return None
 
 
-def load_exec_spec(name: str, mode: Mode) -> FeSpec | BeSpec | None:
+def load_exec_spec(
+    name: str,
+    mode: Mode,
+    parameters: Optional[Mapping[str, str]] = None,
+) -> FeSpec | BeSpec | None:
     """Load one entry point by name and return its FE or BE spec."""
     for ep in _iter_entry_points():
         if ep.name != name:
@@ -68,13 +108,38 @@ def load_exec_spec(name: str, mode: Mode) -> FeSpec | BeSpec | None:
         mod = _module_of(loaded)
         try:
             if mode == "FE":
-                return _call_fe(mod, loaded, name)
+                return _call_fe(mod, loaded, name, parameters)
             if mode == "BE":
                 return _call_be(mod, loaded, name)
         except Exception:
             log.exception("spec load (%r) failed for %s", mode, name)
             return None
         return None
+    return None
+
+
+def load_fe_spec(
+    name: str,
+    parameters: Optional[Mapping[str, str]] = None,
+) -> FeSpec | None:
+    """Resolve one FE spec by name, built with ``parameters`` folded in.
+
+    Matches the entry-point name first, then ``FeSpec.name`` — the two differ
+    often enough (a graph stores ``FeSpec.name``) that scanning is worth it.
+    """
+    entry_points = list(_iter_entry_points())
+    ordered = [ep for ep in entry_points if ep.name == name]
+    ordered += [ep for ep in entry_points if ep.name != name]
+
+    for ep in ordered:
+        try:
+            loaded = ep.load()
+            spec = _call_fe(_module_of(loaded), loaded, ep.name, parameters)
+        except Exception:
+            log.exception("FE spec load failed for %s", ep.name)
+            continue
+        if isinstance(spec, FeSpec) and name in (ep.name, spec.name):
+            return spec
     return None
 
 

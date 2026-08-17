@@ -1,4 +1,4 @@
-"""MegaDesk canvas — Dear PyGui node_editor hosting MegaDesk FE nodes."""
+"""MegaDesk canvas — Dear PyGui node_editor hosting a graph of MegaDesk FE nodes."""
 
 from __future__ import annotations
 
@@ -9,15 +9,16 @@ from pathlib import Path
 import dearpygui.dearpygui as dpg
 from megadesk_contracts import ENV_CANVAS_ROOT, ensure_supervisor_running, frame_pump
 
-from engine.canvas_model import CanvasModel
 from engine.display_engine import (
-    CANVAS_WINDOW,
+    GRAPH_WINDOW,
     NODE_EDITOR,
     PAYLOAD_TYPE,
     REF_NODE,
     SIDEBAR_TAG,
     DisplayEngine,
 )
+from engine.graph_bar import BAR_HEIGHT, GRAPH_BAR_TAG, build_graph_bar
+from engine.graph_model import GraphError, GraphModel
 from engine.megadesk_registry import discover_megadesk_frontends
 from supervisor.panel import build_supervisor_panel, reposition_supervisor_panel
 
@@ -53,12 +54,13 @@ def _apply_daytime_theme() -> None:
 
 
 def build_canvas(
-    model: CanvasModel,
+    model: GraphModel,
     *,
     width: int = 1280,
     height: int = 800,
     viewport_pos: tuple[int, int] | None = None,
     supervisor_panel: bool = True,
+    graph_bar: bool = True,
 ) -> DisplayEngine:
     """Construct the canvas UI for ``model`` and return its engine.
 
@@ -82,8 +84,8 @@ def build_canvas(
             )
 
     with dpg.window(
-        label="Canvas",
-        tag=CANVAS_WINDOW,
+        label="Graph",
+        tag=GRAPH_WINDOW,
         no_title_bar=True,
         no_move=True,
         no_resize=True,
@@ -94,6 +96,13 @@ def build_canvas(
         width=width,
         height=height,
     ):
+        if graph_bar:
+            dpg.add_child_window(
+                tag=GRAPH_BAR_TAG,
+                height=BAR_HEIGHT,
+                border=True,
+                no_scrollbar=True,
+            )
         with dpg.group(horizontal=True):
             dpg.add_child_window(
                 tag=SIDEBAR_TAG,
@@ -103,7 +112,7 @@ def build_canvas(
             )
             with dpg.child_window(width=-1, border=True, no_scrollbar=True):
                 with dpg.group(
-                    drop_callback=engine.on_canvas_drop,
+                    drop_callback=engine.on_graph_drop,
                     payload_type=PAYLOAD_TYPE,
                 ):
                     with dpg.node_editor(
@@ -122,13 +131,15 @@ def build_canvas(
     )
     dpg.setup_dearpygui()
     dpg.show_viewport()
-    dpg.set_primary_window(CANVAS_WINDOW, True)
+    dpg.set_primary_window(GRAPH_WINDOW, True)
 
     engine.build_sidebar()
+    if graph_bar:
+        build_graph_bar(engine, GRAPH_BAR_TAG)
     if supervisor_panel:
         build_supervisor_panel()
     engine.on_viewport_resize()
-    engine.open_all_megadesk_guis()
+    engine.host_all_members()
 
     def _on_resize(*_args: object) -> None:
         engine.on_viewport_resize()
@@ -155,13 +166,17 @@ def main() -> None:
             "(see MegaDesk-Canvas/logs/supervisor/supervisor.log)"
         )
 
-    model = CanvasModel()
-    model.load()
+    model = GraphModel()
+    try:
+        model.load()
+    except GraphError as exc:
+        # Start empty rather than not at all: the graph bar can pick another file.
+        log.error("Graph %s not loaded: %s", model.path, exc)
 
     engine = build_canvas(model)
 
     while dpg.is_dearpygui_running():
-        engine.sync_megadesk_nodes()
+        engine.sync_members()
         dpg.render_dearpygui_frame()
 
     model.save()

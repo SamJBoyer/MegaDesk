@@ -52,8 +52,8 @@ class PumpProbe:
 def _canvas_api() -> tuple[Any, Any, Any, Any, Any]:
     """Import the canvas construction path, or explain why it is not importable."""
     try:
-        from engine.canvas_model import CanvasModel
         from engine.display_engine import NODE_EDITOR
+        from engine.graph_model import GraphModel
         from engine.megadesk_registry import (
             discover_megadesk_frontends,
             palette_key,
@@ -65,7 +65,7 @@ def _canvas_api() -> tuple[Any, Any, Any, Any, Any]:
             "on sys.path (it holds engine/ and main.py) before booting "
             f"CanvasHarness. Original error: {exc}"
         ) from exc
-    return CanvasModel, NODE_EDITOR, discover_megadesk_frontends, palette_key, build_canvas
+    return GraphModel, NODE_EDITOR, discover_megadesk_frontends, palette_key, build_canvas
 
 
 class CanvasHarness:
@@ -73,7 +73,7 @@ class CanvasHarness:
 
     Typical use::
 
-        with CanvasHarness(canvas_path=tmp_path / "canvas.json") as harness:
+        with CanvasHarness(graph_path=tmp_path / "graph.json") as harness:
             d = harness.drop("ticket_dispatcher")
             d.type_into("git_url", "https://github.com/acme/widgets")
             harness.wait_until(lambda: d.get("status_text") != "Idle")
@@ -82,19 +82,21 @@ class CanvasHarness:
     def __init__(
         self,
         *,
-        canvas_path: Path,
+        graph_path: Path,
         width: int = 1280,
         height: int = 800,
         viewport_pos: Optional[tuple[int, int]] = OFFSCREEN_VIEWPORT_POS,
         supervisor_panel: bool = False,
+        graph_bar: bool = True,
         artifacts_dir: Optional[Path] = None,
         warmup_frames: int = 5,
     ) -> None:
-        self.canvas_path = Path(canvas_path)
+        self.graph_path = Path(graph_path)
         self.width = width
         self.height = height
         self.viewport_pos = viewport_pos
         self.supervisor_panel = supervisor_panel
+        self.graph_bar = graph_bar
         self.artifacts_dir = Path(artifacts_dir) if artifacts_dir else None
         self.warmup_frames = warmup_frames
 
@@ -106,7 +108,7 @@ class CanvasHarness:
         self._drivers: dict[str, NodeDriver] = {}
 
         (
-            self._CanvasModel,
+            self._GraphModel,
             self._node_editor,
             self._discover,
             self._palette_key,
@@ -119,7 +121,7 @@ class CanvasHarness:
         if self._booted:
             return self
         self._discover()
-        self.model = self._CanvasModel(self.canvas_path)
+        self.model = self._GraphModel(self.graph_path)
         self.model.load()
         self.engine = self._build_canvas(
             self.model,
@@ -127,8 +129,10 @@ class CanvasHarness:
             height=self.height,
             viewport_pos=self.viewport_pos,
             supervisor_panel=self.supervisor_panel,
+            graph_bar=self.graph_bar,
         )
         self._booted = True
+        self._sync_drivers()
         self.pump(self.warmup_frames)
         return self
 
@@ -170,7 +174,7 @@ class CanvasHarness:
         for _ in range(max(0, int(n))):
             if not dpg.is_dearpygui_running():
                 break
-            self.engine.sync_megadesk_nodes()
+            self.engine.sync_members()
             dpg.render_dearpygui_frame()
             self.frames += 1
             rendered += 1
@@ -250,7 +254,7 @@ class CanvasHarness:
         drop computed from the mouse.
         """
         before = set(self.model.members)
-        self.engine.on_canvas_drop(
+        self.engine.on_graph_drop(
             self._node_editor, self._palette_key(node_name), None
         )
         created = set(self.model.members) - before
@@ -259,25 +263,38 @@ class CanvasHarness:
                 f"Dropping {node_name!r} added no member to the board. "
                 "Is the node installed and discoverable via MegaDesk.nodes?"
             )
-        canvas_id = created.pop()
+        member_id = created.pop()
 
         if position == "auto":
             position = self._next_position(len(before))
         if position is not None:
-            self._place(canvas_id, position)
+            self._place(member_id, position)
 
-        driver = NodeDriver(self, canvas_id, node_name)
-        self._drivers[canvas_id] = driver
+        self._sync_drivers()
         self.pump(settle_frames)
-        return driver
+        return self._drivers[member_id]
+
+    def load_graph(self, path: Path) -> None:
+        """Open another graph through the engine's real load path."""
+        self.graph_path = Path(path)
+        self.engine.load_graph(self.graph_path)
+        self._sync_drivers()
+        self.pump(3)
+
+    def _sync_drivers(self) -> None:
+        members = getattr(self.model, "members", None) or {}
+        self._drivers = {
+            member_id: NodeDriver(self, member_id, member.name)
+            for member_id, member in members.items()
+        }
 
     def _next_position(self, index: int) -> tuple[float, float]:
         column, row = divmod(index, 3)
         return (40.0 + column * 520.0, 40.0 + row * 250.0)
 
-    def _place(self, canvas_id: str, position: Iterable[float]) -> None:
+    def _place(self, member_id: str, position: Iterable[float]) -> None:
         x, y = (float(v) for v in position)
-        member = self.model.members.get(canvas_id)
+        member = self.model.members.get(member_id)
         if member is None:
             return
         member.position = [x, y]
@@ -286,7 +303,11 @@ class CanvasHarness:
             dpg.set_item_pos(tag, [x, y])
 
     def drivers(self) -> list[NodeDriver]:
-        return [d for cid, d in self._drivers.items() if cid in (self.model.members or {})]
+        return [
+            d
+            for member_id, d in self._drivers.items()
+            if member_id in (self.model.members or {})
+        ]
 
     def driver_for(self, node_name: str) -> NodeDriver:
         for driver in self.drivers():
@@ -298,9 +319,9 @@ class CanvasHarness:
         """Remove every member, running each FE's cleanup."""
         if self.model is None:
             return
-        for canvas_id in list(self.model.members):
+        for member_id in list(self.model.members):
             try:
-                self.model.delete_node(canvas_id)
+                self.model.delete_node(member_id)
             except Exception:
                 pass
         self._drivers.clear()

@@ -273,7 +273,7 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def harness(tmp_path: Path, artifacts_dir: Path, fast_polling: None):
-    """A booted canvas on an isolated board, torn down completely afterwards.
+    """A booted canvas on an isolated graph, torn down completely afterwards.
 
     Function-scoped: each test gets a fresh DPG context, which is only safe
     because ``frame_pump.reset()`` runs on teardown.
@@ -283,7 +283,7 @@ def harness(tmp_path: Path, artifacts_dir: Path, fast_polling: None):
 
     frame_pump.reset()
     canvas = CanvasHarness(
-        canvas_path=tmp_path / "canvas.json",
+        graph_path=tmp_path / "graph.json",
         artifacts_dir=artifacts_dir,
         supervisor_panel=False,
     )
