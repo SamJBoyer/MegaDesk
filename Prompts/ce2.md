@@ -48,7 +48,7 @@ When to use a cloud agent:
 
 
 
-It's gated by the gate machie 
+It's gated by the gate machie or checkpoints 
 
 Workflow: 
 

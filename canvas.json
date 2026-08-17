@@ -6,8 +6,8 @@
       "nickname": "merge_manager",
       "node_name": "merge_manager",
       "position": [
-        923.0,
-        551.0
+        945.0,
+        440.0
       ],
       "scale": [
         1.0,
@@ -28,8 +28,8 @@
       "nickname": "ticket_dispatcher",
       "node_name": "ticket_dispatcher",
       "position": [
-        474.0,
-        -197.0
+        423.0,
+        -188.0
       ],
       "scale": [
         1.0,
@@ -50,8 +50,8 @@
       "nickname": "mission_control",
       "node_name": "mission_control",
       "position": [
-        1066.0,
-        55.0
+        927.0,
+        -188.0
       ],
       "scale": [
         1.0,
@@ -72,8 +72,8 @@
       "nickname": "cloud_dispatcher",
       "node_name": "cloud_dispatcher",
       "position": [
-        250.0,
-        697.0
+        -130.0,
+        130.0
       ],
       "scale": [
         1.0,
@@ -95,7 +95,7 @@
       "node_name": "code_scope",
       "position": [
         -130.0,
-        -90.0
+        -190.0
       ],
       "scale": [
         1.0,
@@ -116,8 +116,8 @@
       "nickname": "voice_deck",
       "node_name": "voice_deck",
       "position": [
-        525.0,
-        584.0
+        427.0,
+        141.0
       ],
       "scale": [
         1.0,

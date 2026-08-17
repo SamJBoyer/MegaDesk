@@ -67,7 +67,7 @@ In code scope the scope should be ignored so it doesn't get included in git.
 </context>
 <command>
 
-
+Implement a fix for each issue. Feel free to dispatch a subagent if approprate. For each problem solved, create a detailed git commit. 
 
 </command>
 
