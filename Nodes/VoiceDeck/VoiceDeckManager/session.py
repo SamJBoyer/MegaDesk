@@ -41,6 +41,7 @@ from VoiceDeckManager.tools import (
     TOOL_DISPATCH_DOC_AGENT,
     TOOL_END_SESSION,
     TOOL_SET_REPO,
+    is_farewell,
 )
 
 log = logging.getLogger("voice_deck.session")
@@ -77,6 +78,7 @@ class VoiceSession:
         self._ephemeral = ephemeral
         self._persistent = persistent
         self._pending: dict[str, str] = {}
+        self._last_user_text = ""
         self._answer_cursor = "$"
         self._control_cursor = "$"
         self._stop = threading.Event()
@@ -134,6 +136,7 @@ class VoiceSession:
     def stop(self) -> None:
         transport, self.transport = self.transport, None
         self._pending.clear()
+        self._last_user_text = ""
         if transport is not None:
             try:
                 transport.close()
@@ -207,6 +210,7 @@ class VoiceSession:
                 self._publish(wire.KIND_PARTIAL, text)
         elif kind == realtime.EVENT_TRANSCRIPT_FINAL:
             if text.strip():
+                self._last_user_text = text.strip()
                 self._publish(wire.KIND_FINAL, text)
                 self._set_state(wire.STATE_THINKING)
         elif kind == realtime.EVENT_ASSISTANT_TEXT:
@@ -286,7 +290,8 @@ class VoiceSession:
             "status": "searching",
             "detail": (
                 "The answer will arrive shortly as a message beginning with "
-                f"{ANSWER_PREFIX}. Say one short thing and wait for it."
+                f"{ANSWER_PREFIX}. Say one short thing, then wait silently. "
+                f"Do not call {TOOL_END_SESSION}; the session stays open."
             ),
         }
 
@@ -356,6 +361,28 @@ class VoiceSession:
         return {"status": "ok", "repo": repo}
 
     def _tool_end_session(self, arguments: dict, call_id: str) -> dict:
+        """Close only on an explicit goodbye, never as a follow-up to a search."""
+        if self._pending:
+            log.info(
+                "Ignoring end_session; %d search(es) still in flight",
+                len(self._pending),
+            )
+            return {
+                "status": "error",
+                "detail": (
+                    "A codebase search is still running. Stay on the line and "
+                    f"wait for the {ANSWER_PREFIX} message. Do not hang up."
+                ),
+            }
+        if self._last_user_text and not is_farewell(self._last_user_text):
+            log.info("Ignoring end_session; last user turn was not a farewell")
+            return {
+                "status": "error",
+                "detail": (
+                    "The user did not ask to hang up. Keep listening. "
+                    f"Call {TOOL_END_SESSION} only after an explicit goodbye."
+                ),
+            }
         self.stop()
         return {"status": "ok"}
 

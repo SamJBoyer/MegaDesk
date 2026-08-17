@@ -27,10 +27,13 @@ from megadesk_contracts.wire import code_scope as scope_wire
 from megadesk_contracts.wire import voice as wire
 from VoiceDeckManager.tools import (
     ANSWER_PREFIX,
+    INSTRUCTIONS,
     TOOL_ASK_CODEBASE,
     TOOL_DISPATCH_DOC_AGENT,
     TOOL_END_SESSION,
     TOOL_SET_REPO,
+    is_farewell,
+    tool_schemas,
 )
 
 pytestmark = pytest.mark.redis
@@ -118,6 +121,7 @@ def test_asking_returns_searching_immediately_and_publishes_the_ask(
     result = fake_realtime.result_for(call_id)
     assert result["status"] == "searching"
     assert ANSWER_PREFIX in result["detail"], "the model must be told where to look"
+    assert TOOL_END_SESSION in result["detail"], "waiting is not a hang-up"
 
     asks = read_stream(scope_wire.ASK_STREAM)
     assert len(asks) == 1
@@ -386,6 +390,58 @@ def test_ending_the_session_closes_the_transport(
     assert events_of(read_stream, wire.KIND_STATE)[-1] == wire.STATE_OFF
 
 
+def test_end_session_is_ignored_while_a_search_is_in_flight(
+    voice_session, fake_realtime, persistent_client, tmp_path
+) -> None:
+    """The logged hang-up: ask_codebase, then end_session a second later."""
+    seed_scope_session(persistent_client, repo="widgets", clone_path=tmp_path)
+    voice_session.start()
+    fake_realtime.say(QUESTION)
+    ask_id = fake_realtime.call_tool(TOOL_ASK_CODEBASE, {"question": QUESTION})
+    hangup_id = fake_realtime.call_tool(TOOL_END_SESSION, {})
+    voice_session.pump_events()
+
+    assert fake_realtime.result_for(ask_id)["status"] == "searching"
+    assert fake_realtime.result_for(hangup_id)["status"] == "error"
+    assert not fake_realtime.closed
+    assert voice_session.transport is fake_realtime
+    assert voice_session._pending, "the search must still be waiting for an answer"
+
+
+def test_end_session_is_ignored_when_the_user_did_not_say_goodbye(
+    voice_session, fake_realtime, redis_client, persistent_client, tmp_path
+) -> None:
+    """A completed search is still not a reason to drop the socket."""
+    scope_id = seed_scope_session(persistent_client, repo="widgets", clone_path=tmp_path)
+    voice_session.start()
+    fake_realtime.say(QUESTION)
+    _call_id, question_id = ask_for(voice_session, fake_realtime)
+    publish_answer(
+        redis_client, session_id=scope_id, question_id=question_id, answer=ANSWER
+    )
+    voice_session.pump_answers()
+
+    hangup_id = fake_realtime.call_tool(TOOL_END_SESSION, {})
+    voice_session.pump_events()
+
+    assert fake_realtime.result_for(hangup_id)["status"] == "error"
+    assert not fake_realtime.closed
+    assert voice_session.transport is fake_realtime
+
+
+def test_end_session_closes_after_an_explicit_goodbye(
+    voice_session, fake_realtime, redis_client, read_stream
+) -> None:
+    voice_session.start()
+    fake_realtime.say("that's all, goodbye")
+    fake_realtime.call_tool(TOOL_END_SESSION, {})
+    voice_session.pump_events()
+
+    assert fake_realtime.closed
+    assert voice_session.transport is None
+    assert events_of(read_stream, wire.KIND_STATE)[-1] == wire.STATE_OFF
+
+
 def test_transcripts_reach_the_frontend_and_audio_does_not(
     voice_session, fake_realtime, redis_client, read_stream
 ) -> None:
@@ -551,6 +607,21 @@ def test_the_session_hands_turn_taking_to_the_server() -> None:
         TOOL_SET_REPO,
         TOOL_END_SESSION,
     }
+
+
+def test_a_pause_is_not_treated_as_a_hangup() -> None:
+    """The model used to hear 'stop talking' / 'done talking' and call end_session."""
+    description = next(
+        tool["description"]
+        for tool in tool_schemas()
+        if tool["name"] == TOOL_END_SESSION
+    )
+    assert "done talking" not in description.lower()
+    assert "goodbye" in description.lower()
+    assert "Do not call end_session" in INSTRUCTIONS
+    assert is_farewell("that's all, goodbye")
+    assert is_farewell("hang up")
+    assert not is_farewell(QUESTION)
 
 
 # --- the frontend ----------------------------------------------------------

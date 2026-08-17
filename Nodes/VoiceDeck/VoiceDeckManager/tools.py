@@ -6,9 +6,15 @@ minute, and a realtime tool result is expected in well under a second, so the
 tool returns ``searching`` and the real answer arrives later as a separate
 message. The model has to be told that, or it will either invent an answer or go
 silent — both of which read as broken.
+
+``end_session`` is the other trap. Server VAD already treats a pause as the end
+of a turn, and the model will happily map that onto hanging up unless it is told
+— and the backend enforces — that only an explicit goodbye closes the socket.
 """
 
 from __future__ import annotations
+
+import re
 
 TOOL_ASK_CODEBASE = "ask_codebase"
 TOOL_DISPATCH_DOC_AGENT = "dispatch_doc_agent"
@@ -19,6 +25,22 @@ TOOL_END_SESSION = "end_session"
 # answer apart from something the user said.
 ANSWER_PREFIX = "[codebase]"
 
+_FAREWELL_RE = re.compile(
+    r"\b("
+    r"good\s*bye|bye(?:-bye)?"
+    r"|that['’]s\s+all|thats\s+all|that\s+is\s+all"
+    r"|that['’]s\s+it|thats\s+it"
+    r"|hang\s*up"
+    r"|end(?:\s+the)?\s+session"
+    r"|stop\s+listening"
+    r"|i(?:['’]m|\s+am)\s+done"
+    r"|we(?:['’]re|\s+are)\s+done"
+    r"|i(?:['’]m|\s+am)\s+finished"
+    r"|we(?:['’]re|\s+are)\s+finished"
+    r")\b",
+    re.IGNORECASE,
+)
+
 INSTRUCTIONS = f"""You are a voice assistant for a software developer, talking about \
 their code out loud.
 
@@ -28,9 +50,16 @@ yourself, so never guess at file names, function names, or behaviour: call \
 
 {TOOL_ASK_CODEBASE} returns immediately with status "searching". That is not the \
 answer. When it does, say one short thing to hold the floor — "let me look" — and \
-then stop talking. The answer arrives moments later as a message starting with \
-"{ANSWER_PREFIX}". Relay that message in your own words, briefly, as if you had \
-just read it. Never repeat the "{ANSWER_PREFIX}" marker out loud.
+then wait silently. Do not call {TOOL_END_SESSION}. The session stays open. The \
+answer arrives moments later as a message starting with "{ANSWER_PREFIX}". Relay \
+that message in your own words, briefly, as if you had just read it. Never repeat \
+the "{ANSWER_PREFIX}" marker out loud. After relaying it, keep listening for a \
+follow-up.
+
+A pause after the user speaks is the start of your turn, not the end of the \
+session. Call {TOOL_END_SESSION} only after the user explicitly says they are \
+finished — goodbye, that's all, hang up. Never call it after a question, after \
+another tool, or while waiting for a codebase answer.
 
 Before calling {TOOL_DISPATCH_DOC_AGENT}, say the title and the gist of the \
 instructions back to the user and wait for them to agree. Dispatching sends an \
@@ -39,6 +68,11 @@ guess.
 
 Keep every reply to one or two spoken sentences. No markdown, no lists, no code \
 read aloud character by character. If you do not know, say so."""
+
+
+def is_farewell(text: str) -> bool:
+    """True when the user asked to hang up, not merely finished a turn."""
+    return bool(_FAREWELL_RE.search((text or "").strip()))
 
 
 def tool_schemas() -> list[dict]:
@@ -114,7 +148,12 @@ def tool_schemas() -> list[dict]:
         {
             "type": "function",
             "name": TOOL_END_SESSION,
-            "description": "End the voice session when the user is done talking.",
+            "description": (
+                "Hang up only after the user explicitly says they are finished "
+                "(goodbye, that's all, hang up). A pause is not a goodbye. "
+                "Never call this after a question or while waiting for a "
+                "codebase answer."
+            ),
             "parameters": {"type": "object", "properties": {}},
         },
     ]
