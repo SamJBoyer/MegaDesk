@@ -25,7 +25,7 @@ Shared contract: installable `megadesk-contracts` package in `MegaDesk-contracts
 
 ## Tests
 
-`pytest` from the repo root. The suite boots the real canvas off-screen, drops nodes from the Catalog, fires the widgets' real callbacks, and asserts the Redis payloads and git state that result — so bugs at module seams get caught mechanically. It needs a desktop session (Dear PyGui renders; it is not headless) and a local Redis, and uses DB 15. See [`Docs/integration_testing.md`](Docs/integration_testing.md).
+`pytest` from the repo root. The suite boots the real canvas off-screen, drops nodes from the Catalog, fires the widgets' real callbacks, and asserts the Redis payloads and git state that result — so bugs at module seams get caught mechanically. It needs a desktop session (Dear PyGui renders; it is not headless) and a local Redis, and uses DBs 14/15. See [`Docs/integration_testing.md`](Docs/integration_testing.md).
 
 ## Environment
 

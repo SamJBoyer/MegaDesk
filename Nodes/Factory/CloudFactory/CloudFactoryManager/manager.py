@@ -3,7 +3,7 @@
 Two loops, the same two MachineFactory runs, because the two halves have very
 different clocks. Orders arrive in bursts and launch in under a second; the runs
 they start take minutes, and the BE may be restarted while they are still going.
-So the registry on db 1 is the source of truth rather than anything held in
+So the registry on the persistent DB is the source of truth rather than anything held in
 memory:
 
 * ``poll_orders`` reads the consumer group, launches, and writes
@@ -30,7 +30,9 @@ import time
 from typing import Any, Optional
 
 from megadesk_contracts import (
-    REDIS_DB_PERSISTENT,
+    resolve_ephemeral_db,
+    resolve_persistent_db,
+    redis_connect,
     AgentError,
     AgentStartupError,
     resolve_redis_url,
@@ -83,21 +85,17 @@ class CloudFactoryManager:
     @property
     def ephemeral(self) -> Any:
         if self._ephemeral is None:
-            import redis
-
-            self._ephemeral = redis.Redis.from_url(
-                self.redis_url, decode_responses=True
+            self._ephemeral = redis_connect(
+                self.redis_url, db=resolve_ephemeral_db(self.redis_url)
             )
         return self._ephemeral
 
     @property
     def persistent(self) -> Any:
-        """Runs live on db 1: they outlive both this process and the stream."""
+        """Runs live on the persistent DB: they outlive both this process and the stream."""
         if self._persistent is None:
-            import redis
-
-            self._persistent = redis.Redis.from_url(
-                self.redis_url, db=REDIS_DB_PERSISTENT, decode_responses=True
+            self._persistent = redis_connect(
+                self.redis_url, db=resolve_persistent_db(self.redis_url)
             )
         return self._persistent
 

@@ -45,9 +45,9 @@ Most breakage here is at the seam between two modules, not inside one, so verify
 </logging>
 <Redis-policy>
 
-We use different REDIS database for different levels of persistence. DB 0 is temporary and DB 1 is persistent. All clients connect via **`REDIS_URL`** (default `redis://localhost:6379/0`; see `DEFAULT_REDIS_URL` / `resolve_redis_url()` in `megadesk_contracts`). Do not hardcode host/port.
+We use a Redis **pair** per MegaDesk process. DB 0 is the live ephemeral bus and DB 1 is live persistent state. All clients connect via **`REDIS_URL`** (default `redis://localhost:6379/0`; see `DEFAULT_REDIS_URL` / `resolve_redis_url()` / `resolve_redis_pair()` in `megadesk_contracts`). Do not hardcode host/port. `REDIS_URL` names the ephemeral index; persistent is that index + 1, except URLs that name db 0 or 1 stay on the live pair.
 
-**DB 0 (ephemeral)** — streams / default node traffic:
+**DB 0 (live ephemeral)** — streams / default node traffic:
 - **LAUNCHREQUEST** — consume `node_endpoint` + `parameters` (JSON object of graph kvps, or `""`); discover BE via `MegaDesk.nodes` → `BeSpec`; `Popen` with `MEGADESK_*` env (including `MEGADESK_PARAMETERS`)
 - **KILLREQUEST** — match `node_endpoint` + `unique_id`, graceful→force shutdown, `DEL` the RUNNINGNODES hash
 - **NODEEXIT** — published on natural exit (metadata only; no log bodies)
@@ -56,13 +56,16 @@ We use different REDIS database for different levels of persistence. DB 0 is tem
 
 Every stream and hash is defined exactly once, in `megadesk_contracts.wire`, and imported by every writer. A node must never ship its own `redis_packets.py`: `WORKORDER` used to be defined twice and the copies were free to drift. Both factories additionally share one status vocabulary (`wire/factory.py`) and one Python surface (`megadesk_contracts.factory.AgentFactory`: launch / poll / cancel), so a graph controller can place an agent locally or in the cloud without the two behaving differently.
 
-**DB 1 (persistent):**
+**DB 1 (live persistent):**
 - **GBD:SUPERVISOR:SINGLETON** — one-BE lock
 - **GBD:SUPERVISOR:ALIVE** — heartbeat (TTL ~5s)
 - **RUNNINGNODES:<unique_id>** — hash registry (`status`, PID, `log_path`, …) for **alive** nodes only
 - **NODEHB:<unique_id>** — node heartbeat (`pid`, `status`, TTL ~15s)
 - **NODE:SHUTDOWN** / **NODE:SHUTDOWN:<unique_id>** — kill switch (`1` stops the BE; Redis down also stops it)
-- **CODESCOPE:SESSION:<id>** / **CLOUDRUN:<agent_id>** / **CLOUDDRAFT:<order_id>** — voice-chain state that must outlive its stream. Tests own those three prefixes plus `NODEHB:test-` / `NODE:SHUTDOWN:test-` on db 1 and never flush it.
+- **CODESCOPE:SESSION:<id>** / **CLOUDRUN:<agent_id>** / **CLOUDDRAFT:<order_id>** — voice-chain state that must outlive its stream
+- **MEGADESK:LANE:<even>** / **MEGADESK:LANEBYRUN:<run_key>** — MachineFactory lane leases (TTL). Factory-owned; agents do not free them.
+
+**Agent lanes (2/3 … 12/13)** — sandboxed agents that run MegaDesk or pytest get their own pair so they cannot take the live singleton or `FLUSHDB` 15. MachineFactory injects the leased even DB as sandbox `REDIS_URL` and keeps factory IPC on `MEGADESK_FACTORY_REDIS_URL` (the factory process's ephemeral DB). Host pytest owns **14/15** and is never handed to an agent. Live 0/1 is never flushed.
 
 </Redis-policy>
 <FE-Design>

@@ -2,7 +2,7 @@
 
 Install one ``NodeRuntime`` at BE process start (see ``from_env``). It:
 
-1. Writes ``NODEHB:<unique_id>`` on Redis DB 1 every 5s with the real
+1. Writes ``NODEHB:<unique_id>`` on the process persistent DB every 5s with the real
    ``os.getpid()`` and status, so Supervisor can tell a live node from a stale
    ``RUNNINGNODES`` hash.
 2. Polls ``NODE:SHUTDOWN`` (global) and ``NODE:SHUTDOWN:<unique_id>``. A value
@@ -34,7 +34,8 @@ except ImportError:  # pragma: no cover
     redis = None  # type: ignore
 
 from megadesk_contracts.supervisor_client import (
-    REDIS_DB_PERSISTENT,
+    resolve_persistent_db,
+    redis_connect,
     resolve_redis_url,
 )
 
@@ -196,8 +197,8 @@ class NodeRuntime:
         self.interval = interval
         self.force_exit = force_exit
         self.redis_url = resolve_redis_url(redis_url)
-        self.persistent = redis.Redis.from_url(
-            self.redis_url, db=REDIS_DB_PERSISTENT, decode_responses=True
+        self.persistent = redis_connect(
+            self.redis_url, db=resolve_persistent_db(self.redis_url)
         )
         self._stop = threading.Event()
         self._should_stop = threading.Event()
@@ -300,12 +301,11 @@ class NodeRuntime:
 
 
 def persistent_client(redis_url: Optional[str] = None):
-    """DB 1 client for kill-switch / heartbeat helpers (scripts and tests)."""
+    """Persistent-DB client for kill-switch / heartbeat helpers (scripts and tests)."""
     if redis is None:
         raise RuntimeError("redis package is required")
-    return redis.Redis.from_url(
-        resolve_redis_url(redis_url), db=REDIS_DB_PERSISTENT, decode_responses=True
-    )
+    url = resolve_redis_url(redis_url)
+    return redis_connect(url, db=resolve_persistent_db(url))
 
 
 def redis_host_reachable(redis_url: Optional[str] = None, timeout: float = 1.0) -> bool:
@@ -316,7 +316,7 @@ def redis_host_reachable(redis_url: Optional[str] = None, timeout: float = 1.0) 
     client = redis.Redis(
         host=parsed.hostname or "localhost",
         port=parsed.port or 6379,
-        db=REDIS_DB_PERSISTENT,
+        db=resolve_persistent_db(url),
         decode_responses=True,
         socket_connect_timeout=timeout,
         socket_timeout=timeout,

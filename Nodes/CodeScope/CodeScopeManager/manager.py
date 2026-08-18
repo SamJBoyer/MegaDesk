@@ -22,7 +22,9 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from megadesk_contracts import (
-    REDIS_DB_PERSISTENT,
+    resolve_ephemeral_db,
+    resolve_persistent_db,
+    redis_connect,
     AgentError,
     AgentStartupError,
     resolve_redis_url,
@@ -122,27 +124,23 @@ class CodeScopeManager:
 
     @property
     def ephemeral(self) -> Any:
-        """Streams live on the database ``REDIS_URL`` names — 0 by default.
+        """Streams live on the process ephemeral DB.
 
         Every other node does the same, so pointing ``REDIS_URL`` at a different
-        database moves the whole pipeline together. Only the session hash is
-        pinned to db 1, because it has to outlive the stream traffic.
+        pair moves the whole pipeline together. Session hashes use the persistent
+        half of that pair.
         """
         if self._ephemeral is None:
-            import redis
-
-            self._ephemeral = redis.Redis.from_url(
-                self.redis_url, decode_responses=True
+            self._ephemeral = redis_connect(
+                self.redis_url, db=resolve_ephemeral_db(self.redis_url)
             )
         return self._ephemeral
 
     @property
     def persistent(self) -> Any:
         if self._persistent is None:
-            import redis
-
-            self._persistent = redis.Redis.from_url(
-                self.redis_url, db=REDIS_DB_PERSISTENT, decode_responses=True
+            self._persistent = redis_connect(
+                self.redis_url, db=resolve_persistent_db(self.redis_url)
             )
         return self._persistent
 

@@ -1,7 +1,7 @@
 """CodeScope FE — point it at a repo, ask about the code, read the answer.
 
 The FE owns repo intake: it clones in a background thread and records the result
-on ``CODESCOPE:SESSION:<id>`` (db 1), which is how the BE learns where to bind its
+on ``CODESCOPE:SESSION:<id>`` (persistent DB), which is how the BE learns where to bind its
 agent. It never touches ``cursor_sdk`` itself, so a slow or failed agent shows up
 here as an error answer rather than a frozen canvas.
 
@@ -23,11 +23,13 @@ from urllib.parse import urlparse
 import dearpygui.dearpygui as dpg
 import redis
 from megadesk_contracts import (
-    REDIS_DB_PERSISTENT,
     ensure_clone,
     frame_pump,
     refresh_clone,
+    redis_connect,
     repo_name_from_url,
+    resolve_ephemeral_db,
+    resolve_persistent_db,
     resolve_redis_url,
 )
 from megadesk_contracts.repo import CloneError
@@ -125,14 +127,15 @@ class CodeScope:
 
     def _connect_redis(self) -> None:
         try:
-            self._redis = redis.Redis.from_url(
-                self.redis_url, decode_responses=True, socket_connect_timeout=2
+            self._redis = redis_connect(
+                self.redis_url,
+                db=resolve_ephemeral_db(self.redis_url),
+                socket_connect_timeout=2,
             )
             self._redis.ping()
-            self._persistent = redis.Redis.from_url(
+            self._persistent = redis_connect(
                 self.redis_url,
-                db=REDIS_DB_PERSISTENT,
-                decode_responses=True,
+                db=resolve_persistent_db(self.redis_url),
                 socket_connect_timeout=2,
             )
         except (redis.RedisError, OSError, ValueError):
@@ -231,7 +234,7 @@ class CodeScope:
             self._worker.join(timeout=2.0)
             self._worker = None
         # The session is minted per FE instance, so leaving the hash behind would
-        # just accumulate dead keys (and stale agent ids) on db 1.
+        # just accumulate dead keys (and stale agent ids) on the persistent DB.
         if self._persistent is not None:
             try:
                 self._persistent.delete(wire.session_key(self.session_id))

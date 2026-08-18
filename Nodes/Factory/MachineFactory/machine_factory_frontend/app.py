@@ -13,7 +13,7 @@ from typing import Optional
 
 import dearpygui.dearpygui as dpg
 import redis
-from megadesk_contracts import frame_pump, resolve_redis_url
+from megadesk_contracts import frame_pump, redis_connect, resolve_ephemeral_db, resolve_redis_url
 from megadesk_contracts.wire import machine as wire
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
@@ -96,9 +96,9 @@ class MachineFactoryFloor:
             except (RedisConnectionError, RedisTimeoutError, OSError, RedisError):
                 self._redis = None
         try:
-            client = redis.Redis.from_url(
+            client = redis_connect(
                 _redis_url(),
-                decode_responses=True,
+                db=resolve_ephemeral_db(_redis_url()),
                 socket_connect_timeout=1.5,
                 socket_timeout=2.0,
             )

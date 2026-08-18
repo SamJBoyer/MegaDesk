@@ -30,9 +30,9 @@ stream in this repo is defined exactly once.
 
 | Package | Type | Key | DB |
 |---------|------|-----|----|
-| `CODEQ:ASK` | stream | `CODEQ:ASK` (group `code_scope`) | `REDIS_URL` db, 0 by default |
+| `CODEQ:ASK` | stream | `CODEQ:ASK` (group `code_scope`) | ephemeral (`REDIS_URL`) |
 | `CODEQ:ANSWER` | stream | `CODEQ:ANSWER` (no group) | same |
-| session | hash | `CODESCOPE:SESSION:<session_id>` | 1 |
+| session | hash | `CODESCOPE:SESSION:<session_id>` | persistent (1 on the live pair) |
 
 `CODEQ:ANSWER` has no consumer group on purpose: the FE and VoiceDeck both read
 every answer, and a group would let one steal from the other.

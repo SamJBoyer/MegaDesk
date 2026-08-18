@@ -15,7 +15,7 @@ from typing import Optional
 
 import dearpygui.dearpygui as dpg
 import redis
-from megadesk_contracts import REDIS_DB_PERSISTENT, frame_pump, resolve_redis_url
+from megadesk_contracts import resolve_ephemeral_db, resolve_persistent_db, redis_connect, frame_pump, resolve_redis_url
 from megadesk_contracts.wire import code_scope as scope_wire
 from megadesk_contracts.wire import voice as wire
 
@@ -73,14 +73,15 @@ class VoiceDeck:
 
     def _connect_redis(self) -> None:
         try:
-            self._redis = redis.Redis.from_url(
-                self.redis_url, decode_responses=True, socket_connect_timeout=2
+            self._redis = redis_connect(
+                self.redis_url,
+                db=resolve_ephemeral_db(self.redis_url),
+                socket_connect_timeout=2,
             )
             self._redis.ping()
-            self._persistent = redis.Redis.from_url(
+            self._persistent = redis_connect(
                 self.redis_url,
-                db=REDIS_DB_PERSISTENT,
-                decode_responses=True,
+                db=resolve_persistent_db(self.redis_url),
                 socket_connect_timeout=2,
             )
         except (redis.RedisError, OSError, ValueError):

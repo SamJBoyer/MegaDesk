@@ -1,10 +1,16 @@
 # Redis conventions
 
-MegaDesk processes communicate over a shared local Redis. Two families of packages coexist on the same server, split across Redis databases:
+MegaDesk processes communicate over a shared local Redis. Every process occupies a
+**pair** of databases — ephemeral streams and persistent hashes — selected by
+``resolve_redis_pair()`` from ``REDIS_URL``. The live pair is always ``(0, 1)``.
+Pointing ``REDIS_URL`` at db 4 moves the whole pipeline to ``(4, 5)``; db 0 or 1
+in the URL stays on the live pair.
 
-1. **MachineFactory pipeline** (streams + short-lived hashes on **DB 0**) — TicketDispatcher, MachineFactory, MergeManager
-2. **Supervisor** (streams on **DB 0**; RUNNINGNODES / singleton / alive on **DB 1**) — Canvas-owned Supervisor BE and launched BE nodes
-3. **Voice chain** (streams on **DB 0**; session / run / draft hashes on **DB 1**) — CodeScope, VoiceDeck, CloudFactory
+Three families share that pair:
+
+1. **MachineFactory pipeline** (streams + short-lived hashes on **ephemeral**) — TicketDispatcher, MachineFactory, MergeManager
+2. **Supervisor** (streams on **ephemeral**; RUNNINGNODES / singleton / alive on **persistent**) — Canvas-owned Supervisor BE and launched BE nodes
+3. **Voice chain** (streams on **ephemeral**; session / run / draft hashes on **persistent**) — CodeScope, VoiceDeck, CloudFactory
 
 Families 1 and 3 carry the two factories, and they are the same shape on purpose:
 an order stream, one hash per live run, a finished stream. See
@@ -18,19 +24,25 @@ status vocabulary they both report in.
 | Env var | **`REDIS_URL`** (required standard for all clients) |
 | Default | `redis://localhost:6379/0` (`DEFAULT_REDIS_URL` in `megadesk_contracts`) |
 | Resolve helper | `resolve_redis_url()` — explicit arg → `REDIS_URL` → default |
-| DB selection | Same URL; pass `db=` to `Redis.from_url` (`REDIS_DB_EPHEMERAL=0`, `REDIS_DB_PERSISTENT=1`) |
-| Docker → host | `REDIS_URL_CONTAINER` / container `REDIS_URL`, typically `redis://host.docker.internal:6379/0` |
+| Pair helper | `resolve_redis_pair()` — live `(0, 1)`; otherwise even `N` → `(N, N+1)` |
+| DB selection | Same URL; pass `db=resolve_ephemeral_db(url)` / `resolve_persistent_db(url)` to `Redis.from_url` |
+| Factory IPC (sandbox) | **`MEGADESK_FACTORY_REDIS_URL`** — AgentHandler's bus; sandbox `REDIS_URL` is the agent's own pair |
+| Docker → host | `REDIS_URL_CONTAINER` / container `REDIS_URL`, typically `redis://host.docker.internal:6379/{db}` |
 
-Do **not** hardcode host/port. Prefer `redis.Redis.from_url(resolve_redis_url(), …)`.
+Do **not** hardcode host/port. Prefer `redis_connect(url, db=resolve_ephemeral_db(url))` — redis-py 8 ignores a `db=` keyword when the URL already names a database.
 
-MachineFactory, TicketDispatcher, MergeManager, `SupervisorClient`, and Supervisor provision all read **`REDIS_URL`**. Nodes use **DB 0** for workorders and related traffic. They **do not** start Redis. The Canvas-owned Supervisor BE may attach to an existing Redis at `REDIS_URL` or (when the URL host is loopback) provision Docker Redis + Redis Insight if none is reachable.
+MachineFactory, TicketDispatcher, MergeManager, `SupervisorClient`, and Supervisor provision all read **`REDIS_URL`**. They **do not** start Redis. The Canvas-owned Supervisor BE may attach to an existing Redis at `REDIS_URL` or (when the URL host is loopback) provision Docker Redis + Redis Insight if none is reachable.
 
 ## Databases
 
-| DB | Use | Constants (`megadesk_contracts.supervisor_client`) |
-|----|-----|-----------------------------------------------------|
-| **0** (ephemeral) | Default realtime traffic: MachineFactory `WORKORDER` / `AGENTHANDLER` / `FINISHED`; Supervisor streams `LAUNCHREQUEST` / `KILLREQUEST` / `NODEEXIT`; voice chain `CODEQ:*` / `VOICE:*` / `CLOUD*` | `REDIS_DB_EPHEMERAL` |
-| **1** (persistent) | `GBD:SUPERVISOR:SINGLETON`, `GBD:SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>`, `CODESCOPE:SESSION:<id>`, `CLOUDRUN:<agent_id>`, `CLOUDDRAFT:<order_id>` | `REDIS_DB_PERSISTENT` |
+Default Redis has indexes 0–15. Live MegaDesk never leaves 0/1. MachineFactory leases the even DBs 2–12 for sandboxed agents that work on MegaDesk; host pytest owns 14/15. Leases (`MEGADESK:LANE:*`) live on **live db 1** and are factory-owned with TTL — agents do not mark them free.
+
+| DB | Use | Constants |
+|----|-----|-----------|
+| **0** (live ephemeral) | Default realtime traffic: MachineFactory `WORKORDER` / `AGENTHANDLER` / `FINISHED`; Supervisor streams `LAUNCHREQUEST` / `KILLREQUEST` / `NODEEXIT`; voice chain `CODEQ:*` / `VOICE:*` / `CLOUD*` | `REDIS_DB_EPHEMERAL` |
+| **1** (live persistent) | `GBD:SUPERVISOR:SINGLETON`, `GBD:SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>`, `CODESCOPE:SESSION:<id>`, `CLOUDRUN:<agent_id>`, `CLOUDDRAFT:<order_id>`, `MEGADESK:LANE:*` | `REDIS_DB_PERSISTENT` |
+| **2/3 … 12/13** | Agent lanes (six concurrent). Sandbox `REDIS_URL` names the even half. | `AGENT_LANE_EPHEMERAL_DBS` |
+| **14/15** | Host pytest pair. Never allocated to an agent. | `HOST_PYTEST_EPHEMERAL_DB` / `HOST_PYTEST_PERSISTENT_DB` |
 
 ## Encoding
 
@@ -41,7 +53,7 @@ MachineFactory, TicketDispatcher, MergeManager, `SupervisorClient`, and Supervis
 
 ## Package index
 
-| Package | Redis type | Key / pattern | DB | Doc |
+| Package | Redis type | Key / pattern | Live DB | Doc |
 |---------|------------|---------------|----|-----|
 | `WORKORDER` | stream | `WORKORDER` | 0 | [machine-factory-pipeline.md](machine-factory-pipeline.md#workorder) |
 | `AGENTHANDLER` | hash | `AGENTHANDLER:<GUID>` | 0 | [machine-factory-pipeline.md](machine-factory-pipeline.md#agenthandlerguid) |
@@ -61,6 +73,7 @@ MachineFactory, TicketDispatcher, MergeManager, `SupervisorClient`, and Supervis
 | CodeScope session | hash | `CODESCOPE:SESSION:<id>` | 1 | [voice-chain.md](voice-chain.md#hashes-db-1) |
 | Cloud run | hash | `CLOUDRUN:<agent_id>` | 1 | [voice-chain.md](voice-chain.md#hashes-db-1) |
 | Cloud draft | hash | `CLOUDDRAFT:<order_id>` | 1 | [voice-chain.md](voice-chain.md#hashes-db-1) |
+| Agent lane lease | string (TTL) | `MEGADESK:LANE:<even>` / `MEGADESK:LANEBYRUN:<run_key>` | 1 | MachineFactory allocator; never agent-written |
 
 ## Code references
 

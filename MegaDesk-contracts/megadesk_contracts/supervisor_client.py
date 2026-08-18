@@ -1,8 +1,9 @@
 """Thin Redis stream client for Supervisor LAUNCHREQUEST / KILLREQUEST.
 
-Redis databases:
-  db0 — ephemeral streams (LAUNCHREQUEST / KILLREQUEST / NODEEXIT, Factory traffic)
-  db1 — persistent supervisor state (singleton, RUNNINGNODES, alive heartbeat)
+A MegaDesk process occupies a Redis *pair*: ephemeral streams and persistent
+hashes. The live pair is always ``(0, 1)``. ``REDIS_URL`` names the ephemeral
+index of *this* process; persistent is ephemeral + 1, except URLs that name
+db 0 or 1 stay on the live pair. See ``resolve_redis_pair``.
 
 Connection standard: ``REDIS_URL`` (default ``redis://localhost:6379/0``).
 Ephemeral vs persistent is selected via the ``db`` argument on ``Redis.from_url``.
@@ -16,7 +17,7 @@ import sys
 import time
 from pathlib import Path
 from typing import Mapping, Optional
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 try:
     import redis
@@ -27,6 +28,9 @@ except ImportError:  # pragma: no cover
 DEFAULT_REDIS_URL = "redis://localhost:6379/0"
 REDIS_DB_EPHEMERAL = 0
 REDIS_DB_PERSISTENT = 1
+HOST_PYTEST_EPHEMERAL_DB = 14
+HOST_PYTEST_PERSISTENT_DB = 15
+ENV_FACTORY_REDIS_URL = "MEGADESK_FACTORY_REDIS_URL"
 SUPERVISOR_ALIVE_KEY = "GBD:SUPERVISOR:ALIVE"
 SUPERVISOR_SINGLETON_KEY = "GBD:SUPERVISOR:SINGLETON"
 SUPERVISOR_NODE_NAME = "supervisor"
@@ -42,12 +46,85 @@ def resolve_redis_url(redis_url: Optional[str] = None) -> str:
     return text or DEFAULT_REDIS_URL
 
 
+def resolve_factory_redis_url(redis_url: Optional[str] = None) -> str:
+    """Redis URL for factory IPC (WORKORDER / AGENTHANDLER / FINISHED).
+
+    Inside a MachineFactory sandbox this is ``MEGADESK_FACTORY_REDIS_URL`` (live
+    db 0). ``REDIS_URL`` is the agent's own MegaDesk pair and must not be used
+    for that handshake. Outside a sandbox, falls back to ``REDIS_URL``.
+    """
+    if redis_url is not None:
+        return resolve_redis_url(redis_url)
+    factory = (os.environ.get(ENV_FACTORY_REDIS_URL) or "").strip()
+    if factory:
+        return factory
+    return resolve_redis_url()
+
+
 def redis_url_host_port(redis_url: str) -> tuple[str, int]:
     """Host and port from a Redis URL (defaults: localhost / 6379)."""
     parsed = urlparse(redis_url)
     host = parsed.hostname or "localhost"
     port = parsed.port or 6379
     return host, port
+
+
+def redis_url_db(redis_url: str) -> int:
+    """Database index named by a Redis URL path (default 0)."""
+    path = (urlparse(redis_url).path or "").lstrip("/")
+    if not path:
+        return 0
+    first = path.split("/", 1)[0]
+    try:
+        return int(first)
+    except ValueError:
+        return 0
+
+
+def redis_url_with_db(redis_url: str, db: int) -> str:
+    """Return ``redis_url`` with the path rewritten to ``/{db}``."""
+    parsed = urlparse(redis_url)
+    return urlunparse(parsed._replace(path=f"/{int(db)}"))
+
+
+def resolve_redis_pair(redis_url: Optional[str] = None) -> tuple[int, int]:
+    """Ephemeral and persistent DB indexes for this process.
+
+    Live URLs (db 0 or 1) stay ``(0, 1)``. Any other even index ``N`` is the
+    pair ``(N, N+1)``; an odd index snaps to ``(N-1, N)``.
+    """
+    db = redis_url_db(resolve_redis_url(redis_url))
+    if db in (REDIS_DB_EPHEMERAL, REDIS_DB_PERSISTENT):
+        return (REDIS_DB_EPHEMERAL, REDIS_DB_PERSISTENT)
+    if db % 2 == 1:
+        return (db - 1, db)
+    return (db, db + 1)
+
+
+def resolve_ephemeral_db(redis_url: Optional[str] = None) -> int:
+    return resolve_redis_pair(redis_url)[0]
+
+
+def resolve_persistent_db(redis_url: Optional[str] = None) -> int:
+    return resolve_redis_pair(redis_url)[1]
+
+
+def redis_connect(
+    redis_url: Optional[str] = None,
+    *,
+    db: int,
+    decode_responses: bool = True,
+    **kwargs: object,
+):
+    """``Redis.from_url`` with the path rewritten to ``db``.
+
+    redis-py 8 ignores the ``db=`` keyword when the URL already names a
+    database, so callers must not pass ``db=`` and a path together.
+    """
+    if redis is None:
+        raise RuntimeError("redis package is required")
+    url = redis_url_with_db(resolve_redis_url(redis_url), db)
+    return redis.Redis.from_url(url, decode_responses=decode_responses, **kwargs)
 
 
 def running_nodes_key(unique_id: str) -> str:
@@ -64,12 +141,9 @@ class SupervisorClient:
             raise RuntimeError("redis package is required for SupervisorClient")
         # caller_identity / legacy host+port kept as ignored kwargs for call-site compat.
         self.redis_url = resolve_redis_url(redis_url)
-        self.ephemeral = redis.Redis.from_url(
-            self.redis_url, db=REDIS_DB_EPHEMERAL, decode_responses=True
-        )
-        self.persistent = redis.Redis.from_url(
-            self.redis_url, db=REDIS_DB_PERSISTENT, decode_responses=True
-        )
+        ephemeral_db, persistent_db = resolve_redis_pair(self.redis_url)
+        self.ephemeral = redis_connect(self.redis_url, db=ephemeral_db)
+        self.persistent = redis_connect(self.redis_url, db=persistent_db)
         # Back-compat alias: older call sites used ``.client`` for streams.
         self.client = self.ephemeral
 

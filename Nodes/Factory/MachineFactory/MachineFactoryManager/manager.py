@@ -37,7 +37,7 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import ResponseError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
-from megadesk_contracts import resolve_redis_url
+from megadesk_contracts import redis_connect, resolve_ephemeral_db, resolve_redis_url
 from megadesk_contracts.wire import machine as wire
 
 from MachineFactoryManager.floor import (
@@ -64,9 +64,9 @@ ORPHAN_GRACE_SEC = 30.0
 
 def connect_redis(redis_url: str | None = None) -> Redis:
     url = redis_url or resolve_redis_url()
-    client = Redis.from_url(
+    client = redis_connect(
         url,
-        decode_responses=True,
+        db=resolve_ephemeral_db(url),
         socket_connect_timeout=2,
         socket_timeout=None,
     )
@@ -408,6 +408,12 @@ class MachineFactoryManager:
 
     def _reap(self, guid: str, run: dict[str, str]) -> bool:
         """Publish FINISHED for a run whose sandbox died without reporting."""
+        releaser = getattr(self.runtime, "release", None)
+        if callable(releaser):
+            try:
+                releaser(guid)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Could not release Redis lane for run %s: %s", guid, exc)
         ticket_id = run["ticket_id"]
         try:
             order = wire.load_workorder(self.redis, ticket_id)

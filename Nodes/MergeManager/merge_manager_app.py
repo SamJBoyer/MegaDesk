@@ -15,7 +15,7 @@ from typing import Optional
 
 import dearpygui.dearpygui as dpg
 import redis
-from megadesk_contracts import DEFAULT_REDIS_URL, frame_pump
+from megadesk_contracts import frame_pump, redis_connect, resolve_ephemeral_db, resolve_redis_url
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
 from redis.exceptions import ResponseError
@@ -84,10 +84,10 @@ class FinishedItem:
 
 
 def connect_redis(redis_url: str | None = None) -> redis.Redis:
-    url = redis_url or os.environ.get("REDIS_URL", DEFAULT_REDIS_URL)
-    client = redis.Redis.from_url(
+    url = resolve_redis_url(redis_url)
+    client = redis_connect(
         url,
-        decode_responses=True,
+        db=resolve_ephemeral_db(url),
         socket_connect_timeout=2,
         socket_timeout=None,
     )
@@ -130,7 +130,7 @@ def open_in_editor(editor: str, path: Path) -> tuple[bool, str]:
 
 class MergeManager:
     def __init__(self) -> None:
-        self.redis_url = os.environ.get("REDIS_URL", DEFAULT_REDIS_URL)
+        self.redis_url = resolve_redis_url()
         self.consumer = os.environ.get(
             "MERGE_CONSUMER", f"merge-{os.getpid()}"
         )

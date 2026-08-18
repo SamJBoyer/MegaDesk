@@ -10,7 +10,7 @@ import sys
 import threading
 from pathlib import Path
 
-from megadesk_contracts import DEFAULT_REDIS_URL
+from megadesk_contracts import DEFAULT_REDIS_URL, REDIS_DB_EPHEMERAL, redis_url_with_db
 
 log = logging.getLogger("pool")
 
@@ -96,6 +96,26 @@ def _follow_container_logs(container_name: str) -> None:
         daemon=True,
     )
     thread.start()
+
+
+def sandbox_redis_env(
+    ephemeral_db: int,
+    *,
+    container_redis_url: str | None = None,
+    factory_ephemeral_db: int = REDIS_DB_EPHEMERAL,
+) -> tuple[str, str]:
+    """Subject REDIS_URL and factory IPC URL for a sandbox.
+
+    AgentHandler talks to the factory process's ephemeral DB (live 0, or the
+    host-pytest pair if that is who launched it). The agent's MegaDesk uses
+    the leased even DB.
+    """
+    base = container_redis_url or os.environ.get(
+        "REDIS_URL_CONTAINER", DEFAULT_CONTAINER_REDIS_URL
+    )
+    factory_url = redis_url_with_db(base, factory_ephemeral_db)
+    subject_url = redis_url_with_db(base, ephemeral_db)
+    return subject_url, factory_url
 
 
 def require_local_redis() -> None:
@@ -195,6 +215,8 @@ def start_ticket_sandbox(
     agent_dir: Path,
     guid: str,
     ticket_id: str,
+    ephemeral_db: int,
+    factory_ephemeral_db: int = REDIS_DB_EPHEMERAL,
     api_key: str | None = None,
 ) -> str:
     """Mount a host worktree + its .bare and run one-shot AgentHandler.
@@ -225,6 +247,11 @@ def start_ticket_sandbox(
         remove_container(name)
 
     redis_url = os.environ.get("REDIS_URL_CONTAINER", DEFAULT_CONTAINER_REDIS_URL)
+    subject_url, factory_url = sandbox_redis_env(
+        ephemeral_db,
+        container_redis_url=redis_url,
+        factory_ephemeral_db=factory_ephemeral_db,
+    )
     args = [
         "run",
         "-d",
@@ -239,7 +266,9 @@ def start_ticket_sandbox(
         "-e",
         f"CURSOR_API_KEY={key}",
         "-e",
-        f"REDIS_URL={redis_url}",
+        f"REDIS_URL={subject_url}",
+        "-e",
+        f"MEGADESK_FACTORY_REDIS_URL={factory_url}",
         "-e",
         f"GUID={guid}",
         "-e",

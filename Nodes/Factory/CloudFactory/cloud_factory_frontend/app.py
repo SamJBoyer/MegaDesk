@@ -14,7 +14,7 @@ from typing import Optional
 
 import dearpygui.dearpygui as dpg
 import redis
-from megadesk_contracts import REDIS_DB_PERSISTENT, frame_pump, resolve_redis_url
+from megadesk_contracts import resolve_ephemeral_db, resolve_persistent_db, redis_connect, frame_pump, resolve_redis_url
 from megadesk_contracts.wire import cloud as wire
 from megadesk_contracts.wire.factory import is_terminal
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -106,17 +106,16 @@ class CloudFactoryFE:
                 self._redis = None
                 self._persistent = None
         try:
-            client = redis.Redis.from_url(
+            client = redis_connect(
                 self.redis_url,
-                decode_responses=True,
+                db=resolve_ephemeral_db(self.redis_url),
                 socket_connect_timeout=1.5,
                 socket_timeout=2.0,
             )
             client.ping()
-            persistent = redis.Redis.from_url(
+            persistent = redis_connect(
                 self.redis_url,
-                db=REDIS_DB_PERSISTENT,
-                decode_responses=True,
+                db=resolve_persistent_db(self.redis_url),
                 socket_connect_timeout=1.5,
                 socket_timeout=2.0,
             )

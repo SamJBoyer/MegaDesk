@@ -33,12 +33,32 @@ sys.path[:0] = [
     )
 ]
 
-# Redis DB dedicated to tests: assertions need a known stream state and the
-# dismissal path calls XDEL, so this must never be the DB carrying dev traffic.
-# Set before anything imports a node, since each FE reads REDIS_URL on init.
-TEST_REDIS_DB = 15
-TEST_REDIS_URL = f"redis://localhost:6379/{TEST_REDIS_DB}"
-os.environ["REDIS_URL"] = TEST_REDIS_URL
+from megadesk_contracts.supervisor_client import (
+    DEFAULT_REDIS_URL,
+    HOST_PYTEST_EPHEMERAL_DB,
+    REDIS_DB_EPHEMERAL,
+    REDIS_DB_PERSISTENT,
+    redis_url_db,
+    redis_url_with_db,
+    resolve_redis_pair,
+)
+
+# Redis pair dedicated to tests. Live 0/1 is never flushed. If REDIS_URL already
+# names a non-live pair (a MachineFactory sandbox), honor it so agent pytest
+# stays on its lane. Host pytest uses 14/15.
+def _isolate_pytest_redis_url() -> str:
+    raw = (os.environ.get("REDIS_URL") or DEFAULT_REDIS_URL).strip() or DEFAULT_REDIS_URL
+    db = redis_url_db(raw)
+    if db in (REDIS_DB_EPHEMERAL, REDIS_DB_PERSISTENT):
+        return redis_url_with_db(raw, HOST_PYTEST_EPHEMERAL_DB)
+    ephemeral, _persistent = resolve_redis_pair(raw)
+    return redis_url_with_db(raw, ephemeral)
+
+
+os.environ["REDIS_URL"] = _isolate_pytest_redis_url()
+TEST_REDIS_URL = os.environ["REDIS_URL"]
+TEST_EPHEMERAL_DB, TEST_PERSISTENT_DB = resolve_redis_pair(TEST_REDIS_URL)
+PROTECTED_REDIS_DBS = frozenset({REDIS_DB_EPHEMERAL, REDIS_DB_PERSISTENT})
 
 ARTIFACTS_ROOT = ROOT / "tests" / "_artifacts"
 
@@ -158,8 +178,9 @@ def redis_client():
         pytest.skip(f"Redis not reachable at {TEST_REDIS_URL}: {exc}")
 
     db = client.connection_pool.connection_kwargs.get("db")
-    assert db == TEST_REDIS_DB, (
-        f"Refusing to flush Redis DB {db}; tests only own DB {TEST_REDIS_DB}"
+    assert db == TEST_EPHEMERAL_DB and db not in PROTECTED_REDIS_DBS, (
+        f"Refusing to flush Redis DB {db}; tests only own pair "
+        f"{TEST_EPHEMERAL_DB}/{TEST_PERSISTENT_DB}"
     )
     client.flushdb()
     try:
@@ -169,32 +190,19 @@ def redis_client():
         client.close()
 
 
-# Hashes this suite owns on db 1. Everything else there belongs to whatever
-# MegaDesk the developer has running — Supervisor's singleton, its heartbeat, and
-# the RUNNINGNODES registry — so these are deleted by prefix and db 1 is never
-# flushed.
-PERSISTENT_TEST_PREFIXES = (
-    "CODESCOPE:SESSION:",
-    "CLOUDRUN:",
-    "CLOUDDRAFT:",
-    "NODEHB:test-",
-    "NODE:SHUTDOWN:test-",
-)
-
-
 @pytest.fixture
 def persistent_client():
-    """A client on db 1, where the session and cloud-run hashes live.
+    """A flushed client on the test persistent DB (15 when host pytest owns 14/15).
 
-    Production pins these to db 1 the way ``SupervisorClient`` does, so a test
-    that used the db-15 stream client instead would pass while the real FE and BE
-    talked past each other.
+    Production pins hashes to the process pair's persistent half the way
+    ``SupervisorClient`` does, so a test that used the ephemeral client instead
+    would pass while the real FE and BE talked past each other. Live db 1 is
+    never flushed.
     """
     import redis as redis_lib
 
     client = redis_lib.Redis.from_url(
-        TEST_REDIS_URL,
-        db=1,
+        redis_url_with_db(TEST_REDIS_URL, TEST_PERSISTENT_DB),
         decode_responses=True,
         socket_connect_timeout=2,
     )
@@ -203,16 +211,16 @@ def persistent_client():
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"Redis not reachable at {TEST_REDIS_URL}: {exc}")
 
-    def _clear() -> None:
-        for prefix in PERSISTENT_TEST_PREFIXES:
-            for key in client.scan_iter(match=f"{prefix}*", count=100):
-                client.delete(key)
-
-    _clear()
+    db = client.connection_pool.connection_kwargs.get("db")
+    assert db == TEST_PERSISTENT_DB and db not in PROTECTED_REDIS_DBS, (
+        f"Refusing to flush Redis DB {db}; tests only own pair "
+        f"{TEST_EPHEMERAL_DB}/{TEST_PERSISTENT_DB}"
+    )
+    client.flushdb()
     try:
         yield client
     finally:
-        _clear()
+        client.flushdb()
         client.close()
 
 

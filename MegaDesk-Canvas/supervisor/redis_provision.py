@@ -1,8 +1,9 @@
 """Attach to Redis via REDIS_URL or provision Docker Redis + Insights.
 
 Redis databases:
-  db0 — ephemeral control plane (LAUNCHREQUEST / KILLREQUEST / NODEEXIT, node streams)
-  db1 — persistent supervisor state (singleton, RUNNINGNODES, alive heartbeat)
+  ephemeral — control plane (LAUNCHREQUEST / KILLREQUEST / NODEEXIT, node streams)
+  persistent — supervisor state (singleton, RUNNINGNODES, alive heartbeat)
+  Live pair is (0, 1); ``resolve_redis_pair`` selects the pair for this process.
 
 Connection standard: ``REDIS_URL`` (default ``redis://localhost:6379/0``).
 """
@@ -18,10 +19,11 @@ from typing import Optional
 import redis
 from megadesk_contracts.supervisor_client import (
     DEFAULT_REDIS_URL,
-    REDIS_DB_EPHEMERAL,
-    REDIS_DB_PERSISTENT,
+    resolve_ephemeral_db,
+    resolve_persistent_db,
     resolve_redis_url,
     redis_url_host_port,
+    redis_connect,
 )
 
 REDIS_CONTAINER = "gbd-redis"
@@ -49,8 +51,11 @@ def running_nodes_key(unique_id: str) -> str:
 def ping_redis(redis_url: Optional[str] = None, timeout: float = 1.0) -> bool:
     url = resolve_redis_url(redis_url)
     try:
-        client = redis.Redis.from_url(
-            url, db=REDIS_DB_EPHEMERAL, socket_connect_timeout=timeout
+        client = redis_connect(
+            url,
+            db=resolve_ephemeral_db(url),
+            decode_responses=False,
+            socket_connect_timeout=timeout,
         )
         return bool(client.ping())
     except Exception:
@@ -99,7 +104,7 @@ def _ensure_container(name: str, run_args: list[str]) -> None:
 
 @dataclass
 class RedisHandles:
-    """Ephemeral (db0) + persistent (db1) clients on the same Redis server."""
+    """Ephemeral + persistent clients on the same Redis server (process pair)."""
 
     ephemeral: redis.Redis
     persistent: redis.Redis
@@ -109,12 +114,8 @@ class RedisHandles:
 def connect_handles(redis_url: Optional[str] = None) -> RedisHandles:
     url = resolve_redis_url(redis_url)
     return RedisHandles(
-        ephemeral=redis.Redis.from_url(
-            url, db=REDIS_DB_EPHEMERAL, decode_responses=True
-        ),
-        persistent=redis.Redis.from_url(
-            url, db=REDIS_DB_PERSISTENT, decode_responses=True
-        ),
+        ephemeral=redis_connect(url, db=resolve_ephemeral_db(url)),
+        persistent=redis_connect(url, db=resolve_persistent_db(url)),
         redis_url=url,
     )
 
@@ -182,11 +183,8 @@ def clear_supervisor_alive(persistent: Optional[redis.Redis]) -> None:
 
 def is_supervisor_alive(persistent: Optional[redis.Redis] = None) -> bool:
     try:
-        c = persistent or redis.Redis.from_url(
-            resolve_redis_url(),
-            db=REDIS_DB_PERSISTENT,
-            decode_responses=True,
-        )
+        url = resolve_redis_url()
+        c = persistent or redis_connect(url, db=resolve_persistent_db(url))
         return c.exists(SUPERVISOR_ALIVE_KEY) == 1
     except Exception:
         return False

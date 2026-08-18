@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import queue
 import re
 import subprocess
@@ -14,7 +13,13 @@ from urllib.parse import urlparse
 
 import dearpygui.dearpygui as dpg
 import redis
-from megadesk_contracts import DEFAULT_REDIS_URL, coerce_parameters, frame_pump
+from megadesk_contracts import (
+    coerce_parameters,
+    frame_pump,
+    redis_connect,
+    resolve_ephemeral_db,
+    resolve_redis_url,
+)
 from megadesk_contracts.wire.cloud import (
     CLOUDORDER_STREAM,
     cloudorder_fields,
@@ -113,7 +118,7 @@ class TicketDispatcher:
         self._tickets: dict[int, IssueTicket] = {}
         self._dispatched: set[int] = set()
         self._redis: Optional[redis.Redis] = None
-        self.redis_url = os.environ.get("REDIS_URL", DEFAULT_REDIS_URL)
+        self.redis_url = resolve_redis_url()
         self._root_tag = "primary"
         self._frame_registered = False
         self._connect_redis()
@@ -123,9 +128,9 @@ class TicketDispatcher:
 
     def _connect_redis(self) -> None:
         try:
-            self._redis = redis.Redis.from_url(
+            self._redis = redis_connect(
                 self.redis_url,
-                decode_responses=True,
+                db=resolve_ephemeral_db(self.redis_url),
                 socket_connect_timeout=2,
             )
             self._redis.ping()

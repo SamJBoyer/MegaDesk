@@ -150,7 +150,8 @@ by side.
 ## Notes
 
 - Containers reach host Redis via `host.docker.internal` (`REDIS_URL_CONTAINER`
-  overrides).
+  overrides). Sandbox `REDIS_URL` is a leased even DB (the agent's MegaDesk);
+  `MEGADESK_FACTORY_REDIS_URL` is the factory bus.
 - AgentHandler exits when the job finishes; `--rm` removes the container.
 - Containers are labelled `megadesk.run_key=<guid>`, which is how `poll` and
   `cancel` find one again after a manager restart.

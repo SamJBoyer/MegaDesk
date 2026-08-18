@@ -10,8 +10,8 @@ contract, and deliberately mirror `WORKORDER` / `FINISHED` / `AGENTHANDLER` in
 vocabulary in `wire/factory.py`. See
 [`Nodes/Factory/README.md`](../../Nodes/Factory/README.md).
 
-Streams use the database `REDIS_URL` names (0 by default). The three hashes are pinned to
-**DB 1**, because they have to outlive the stream traffic and the processes.
+Streams use the process ephemeral DB (`REDIS_URL`, 0 on the live pair). The three hashes live on
+the persistent half of that pair, because they have to outlive the stream traffic and the processes.
 
 ```mermaid
 sequenceDiagram
@@ -117,7 +117,7 @@ Stream, DB 0.
 means it ran and failed (read the transcript). Collapsing the two loses the only
 information that decides what to do next.
 
-## Hashes (DB 1)
+## Hashes (persistent DB)
 
 | Key | Fields | Owner |
 |---|---|---|

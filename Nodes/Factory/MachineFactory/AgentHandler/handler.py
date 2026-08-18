@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from cursor_sdk import Agent, CursorAgentError, LocalAgentOptions
-from megadesk_contracts import resolve_redis_url
+from megadesk_contracts import redis_connect, resolve_ephemeral_db, resolve_factory_redis_url
 from megadesk_contracts.wire.machine import (
     DEFAULT_MODEL,
     STATUS_ERROR,
@@ -42,9 +42,9 @@ def _env(name: str, default: str | None = None) -> str:
 
 def connect_redis(redis_url: str) -> Redis:
     """Connect to an existing Redis server, or raise with a clear error."""
-    client = Redis.from_url(
+    client = redis_connect(
         redis_url,
-        decode_responses=True,
+        db=resolve_ephemeral_db(redis_url),
         socket_connect_timeout=2,
         socket_timeout=None,
     )
@@ -176,7 +176,7 @@ class AgentHandler:
     """One-shot worker: resolve WORKORDER via AGENTHANDLER ticket_id, run agent, finish."""
 
     def __init__(self) -> None:
-        self.redis_url = resolve_redis_url()
+        self.redis_url = resolve_factory_redis_url()
         self.api_key = _env("CURSOR_API_KEY")
         self.workspace = os.environ.get("WORKSPACE", "/workspace")
         self.repo = os.environ.get("REPO_NAME", "unknown")

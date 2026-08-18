@@ -25,7 +25,17 @@ import uuid
 from pathlib import Path
 from typing import Any, Mapping
 
-from megadesk_contracts import AgentStartupError, RunHandle, RunStatus
+from megadesk_contracts import (
+    AgentStartupError,
+    LaneBusyError,
+    RunHandle,
+    RunStatus,
+    allocate_lane,
+    refresh_lane,
+    release_lane,
+    resolve_redis_pair,
+    resolve_redis_url,
+)
 from megadesk_contracts.wire import factory as status_wire
 
 from MachineFactoryManager.pool import (
@@ -41,6 +51,9 @@ log = logging.getLogger("runtime")
 class DockerSandboxFactory:
     """Launch agents as one-shot AgentHandler containers over mounted worktrees."""
 
+    def __init__(self, redis_url: str | None = None) -> None:
+        self.redis_url = resolve_redis_url(redis_url)
+
     def launch(self, order: Mapping[str, Any]) -> RunHandle:
         """Start a sandbox for one prepared order.
 
@@ -52,6 +65,13 @@ class DockerSandboxFactory:
         """
         run_key = str(order.get("run_key") or "").strip() or uuid.uuid4().hex
         try:
+            ephemeral_db, _persistent_db = allocate_lane(
+                owner=run_key, redis_url=self.redis_url
+            )
+        except LaneBusyError as exc:
+            raise AgentStartupError(str(exc)) from exc
+        factory_ephemeral, _ = resolve_redis_pair(self.redis_url)
+        try:
             container = start_ticket_sandbox(
                 repo=order["repo"],
                 ticket=order["ticket_name"],
@@ -59,12 +79,16 @@ class DockerSandboxFactory:
                 agent_dir=Path(order["agent_dir"]),
                 guid=run_key,
                 ticket_id=order["ticket_id"],
+                ephemeral_db=ephemeral_db,
+                factory_ephemeral_db=factory_ephemeral,
             )
         except SystemExit:
             # A missing CURSOR_API_KEY is a broken installation, not a bad order.
             # Letting it through stops the BE instead of failing orders forever.
+            release_lane(owner=run_key, redis_url=self.redis_url)
             raise
         except Exception as exc:  # noqa: BLE001 - the docker CLI raises broadly
+            release_lane(owner=run_key, redis_url=self.redis_url)
             raise AgentStartupError(f"Could not start sandbox: {exc}") from exc
         return RunHandle(run_key=run_key, run_id=container)
 
@@ -72,6 +96,7 @@ class DockerSandboxFactory:
         """Running while the sandbox is up; finished once Docker has let it go."""
         container = container_for_run(run_key)
         if container and container_is_running(container):
+            refresh_lane(owner=run_key, redis_url=self.redis_url)
             return RunStatus(status=status_wire.STATUS_RUNNING, detail=container)
         return RunStatus(
             status=status_wire.STATUS_FINISHED,
@@ -82,6 +107,12 @@ class DockerSandboxFactory:
         container = container_for_run(run_key)
         if not container:
             log.info("No sandbox left to cancel for run %s", run_key)
+            self.release(run_key)
             return
         log.info("Removing sandbox %s for run %s", container, run_key)
         remove_container(container)
+        self.release(run_key)
+
+    def release(self, run_key: str) -> None:
+        """Drop the Redis lane for a run that is no longer using it."""
+        release_lane(owner=run_key, redis_url=self.redis_url)

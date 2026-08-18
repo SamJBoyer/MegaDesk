@@ -130,8 +130,9 @@ context teardown — by `main()` after the loop and by `CanvasHarness.shutdown()
 
 ## 4. Workflow under test — the real contract map
 
-All pipeline traffic is on **Redis DB 0**. Supervisor keys live on DB 1 and are not
-involved here.
+All pipeline traffic is on the process **ephemeral** Redis DB (0 on the live pair;
+14 when host pytest isolates). Supervisor keys live on the persistent half and are
+not involved in the TicketDispatcher → MachineFactory → MergeManager chain.
 
 ```mermaid
 sequenceDiagram
@@ -314,14 +315,16 @@ and builds its FINISHED payload with MachineFactory's own `finished_fields`.
 
 ### Redis isolation
 
-Tests must not run against the DB carrying real dev traffic, since assertions need a
-known stream state and dismissal tests call `XDEL`. Tests point at **DB 15** via
-`REDIS_URL`, set in `conftest` before any node is imported, and flush it around every
-test. The `redis_client` fixture refuses to flush any other index.
+Tests must not run against the DBs carrying real dev traffic, since assertions need a
+known stream state and dismissal tests call `XDEL`. Host pytest points at the **14/15**
+pair via `REDIS_URL`, set in `conftest` before any node is imported, and flushes both
+halves around every test. The fixtures refuse to flush live 0/1. If `REDIS_URL` already
+names a non-live pair (a MachineFactory sandbox), conftest honors it so agent pytest
+stays on its lane.
 
 Every production Redis client (TicketDispatcher, MergeManager, MachineFactory,
 `SupervisorClient`, Supervisor provision) honors `REDIS_URL` via
-`redis.Redis.from_url` / `resolve_redis_url()`.
+`resolve_redis_pair()` / `redis.Redis.from_url(..., db=...)`.
 
 ---
 
@@ -393,7 +396,7 @@ launch real editors.
   CI requires a self-hosted runner with a session or a virtual display.
 - One DPG context at a time per process, so canvas tests run serially, never with
   `pytest-xdist`.
-- Requires a running Redis reachable at `REDIS_URL` (tests set DB 15 in `conftest`).
+- Requires a running Redis reachable at `REDIS_URL` (tests set the 14/15 pair in `conftest`).
   `SupervisorClient` and Supervisor provision honor the same env var.
 - `MergeManager._on_vscode` / `_on_cursor` use `Popen(..., shell=True)` on Windows and
   would launch real editors — do not fire those callbacks in tests.
@@ -404,9 +407,9 @@ launch real editors.
    cheap once `reset()` existed: 38 tests, 38 create/destroy cycles, ~30 s total. Being
    able to boot a clean empty board per test is also what makes the empty-board pump
    regression expressible at all.
-2. **Redis DB index for tests** — DB 15 on the existing server. The `redis_client`
-   fixture asserts the index before flushing, so a misconfigured `REDIS_URL` cannot wipe
-   dev traffic.
+2. **Redis DB index for tests** — pair 14/15 on the existing server. The fixtures
+   assert the indexes before flushing, so a misconfigured `REDIS_URL` cannot wipe
+   live 0/1.
 3. **Where the harness lives** — `MegaDesk-contracts/megadesk_contracts/testing/`, as
    proposed. The test-only surface stays acceptable because it is inert on import and,
    more importantly, imports nothing from any node; node specifics are injected.
@@ -433,7 +436,7 @@ launch real editors.
 ```bash
 conda activate MEGADESK
 pip install -r requirements-dev.txt
-redis-server            # any local instance; tests use DB 15
+redis-server            # any local instance; tests use DBs 14/15
 pytest                  # from the repo root
 ```
 
@@ -495,7 +498,7 @@ start, which is the rule section 11 arrived at the hard way.
 |---|---|---|
 | `FakeCodeAgent` | `cursor_sdk` and the model behind CodeScope | The clone on disk, the `CODEQ:ASK` group, the session hash, every `CODEQ:ANSWER` payload |
 | `FakeRealtime` | The OpenAI Realtime socket and both audio devices | The tool router, the Redis events, the out-of-band answer injection |
-| `FakeCloudFactory` | Cursor's VM, the branch, the pull request | The `CLOUDORDER` group, the run registry on db 1, `CLOUDFINISHED`, the retry rules |
+| `FakeCloudFactory` | Cursor's VM, the branch, the pull request | The `CLOUDORDER` group, the run registry on the persistent DB, `CLOUDFINISHED`, the retry rules |
 | `FakeMachineFactory` | The Docker daemon and the container | The `WORKORDER` group, the git Floor, the `AGENTHANDLER` registry, `FINISHED:<repo>` |
 
 `FakeCodeAgent` has two faces on purpose, because there are two seams that fail
@@ -519,22 +522,21 @@ response. The production runtime uses `AsyncClient.launch_bridge` rather than
 sync `Agent.create`, because the latter `select()`s a pipe and raises
 `WinError 10038` on Windows.
 
-### Persistent state, and why db 1 is never flushed
+### Persistent state
 
 These nodes keep state that has to outlive a stream: `CODESCOPE:SESSION:<id>`,
-`CLOUDRUN:<agent_id>`, `CLOUDDRAFT:<order_id>`. Production pins those to **db 1** the way
-`SupervisorClient` does, so a test that used the db-15 client instead would pass while
-the real FE and BE talked past each other.
+`CLOUDRUN:<agent_id>`, `CLOUDDRAFT:<order_id>`. Production pins those to the process
+**persistent** DB the way `SupervisorClient` does, so a test that used the ephemeral
+client instead would pass while the real FE and BE talked past each other.
 
-db 1 also holds whatever MegaDesk the developer has running — Supervisor's singleton, its
-heartbeat, `RUNNINGNODES` — so the `persistent_client` fixture deletes only the three
-prefixes above and never calls `FLUSHDB`.
+Host pytest owns 14 (ephemeral) and 15 (persistent) and flushes both. Live db 1 —
+Supervisor's singleton, its heartbeat, `RUNNINGNODES`, lane leases — is never flushed.
 
 ### Fixtures added
 
 | Fixture | Gives you |
 |---|---|
-| `persistent_client` | db 1, cleaned by prefix around each test |
+| `persistent_client` | the test persistent DB (15 on host pytest), flushed around each test |
 | `origin_repo` | A bare `widgets.git`, so a clone of it is named `widgets` |
 | `scope_root` | `SCOPE_ROOT` pointed at a temp dir, keeping clones out of the node package |
 | `fake_code_agent`, `code_scope_manager` | The two CodeScope faces described above |

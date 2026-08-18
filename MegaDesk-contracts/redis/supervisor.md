@@ -34,7 +34,8 @@ confirmation. Log **bytes** live in files; Redis carries metadata and exit event
 only.
 
 Constants live in `megadesk_contracts.supervisor_client`:
-`DEFAULT_REDIS_URL`, `resolve_redis_url()`, `REDIS_DB_EPHEMERAL=0`, `REDIS_DB_PERSISTENT=1`,
+`DEFAULT_REDIS_URL`, `resolve_redis_url()`, `resolve_redis_pair()`, live defaults
+`REDIS_DB_EPHEMERAL=0`, `REDIS_DB_PERSISTENT=1`,
 `SUPERVISOR_SINGLETON_KEY`, `SUPERVISOR_ALIVE_KEY`.
 
 ---
@@ -43,8 +44,11 @@ Constants live in `megadesk_contracts.supervisor_client`:
 
 | DB | Role |
 |----|------|
-| `0` (ephemeral) | `LAUNCHREQUEST`, `KILLREQUEST`, `NODEEXIT`; MachineFactory pipeline traffic |
-| `1` (persistent) | `GBD:SUPERVISOR:SINGLETON`, `GBD:SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>`, `NODEHB:<unique_id>`, `NODE:SHUTDOWN` |
+| live `0` (ephemeral) | `LAUNCHREQUEST`, `KILLREQUEST`, `NODEEXIT`; MachineFactory pipeline traffic |
+| live `1` (persistent) | `GBD:SUPERVISOR:SINGLETON`, `GBD:SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>`, `NODEHB:<unique_id>`, `NODE:SHUTDOWN`, `MEGADESK:LANE:*` |
+
+A process whose `REDIS_URL` names another even DB uses that index and the next one
+instead (`resolve_redis_pair`). Live MegaDesk stays on 0/1.
 
 Launch contract for BE nodes:
 
