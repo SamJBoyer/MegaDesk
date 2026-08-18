@@ -227,8 +227,9 @@ def start_ticket_sandbox(
     with absolute paths MergeManager understands.
     ``.bare`` is mounted at /bare so linked worktrees can resolve gitdir
     pointers inside the Linux container (AgentHandler rewrites them for the run).
-    The run's audit file (``Logs/{session}/agent-{guid}.md``) is bind-mounted as
-    a single file so the sandbox can stream progress without seeing other logs.
+    The run's pretty and token audit files (``Logs/{session}/agent-{guid}.md`` and
+    ``agent-{guid}.tokens.md``) are bind-mounted as two files so the sandbox can
+    stream progress without seeing other logs.
     Uses --rm so the container is removed when AgentHandler exits.
     Returns the container name.
     """

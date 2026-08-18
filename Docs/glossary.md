@@ -11,7 +11,7 @@ Supervisor: Life-cycle manager that launches/terminates nodes and creates pipes 
 Graph: a file that stores which nodes go onto the Canvas, their positions, and the parameters they will 
 start with on boot. 
 
-Logs: Worktree-root session transcripts owned by the Supervisor (`Logs/CURRENT` points at the live folder). One `{node}.md` per node per Supervisor generation, plus `agent-{guid}.md` per MachineFactory sandbox run. Canvas does not rotate these. 
+Logs: Worktree-root session transcripts owned by the Supervisor (`Logs/CURRENT` points at the live folder). One `{node}.md` per node per Supervisor generation, plus `agent-{guid}.md` (pretty) and `agent-{guid}.tokens.md` (token stream) per MachineFactory sandbox run. Canvas does not rotate these. 
 
 Factory: a Node that deploys agents — it reads orders, builds somewhere for an agent to work, starts a harness that carries instructions in and results out, and follows the run. **MachineFactory** does that in Docker sandboxes on this machine; **CloudFactory** does it on Cursor-hosted VMs. Both implement the same `AgentFactory` surface (launch / poll / cancel) so a graph can place an agent either way. See `Nodes/Factory/README.md`. 
 

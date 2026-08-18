@@ -7,12 +7,16 @@ from types import SimpleNamespace
 
 from megadesk_contracts.agent_audit import (
     CONTAINER_AUDIT_PATH,
+    CONTAINER_AUDIT_TOKENS_PATH,
     ENV_AGENT_AUDIT_PATH,
+    ENV_AGENT_AUDIT_TOKENS_PATH,
     AgentAuditLog,
     agent_audit_bind_args,
     ensure_agent_audit_file,
     format_sdk_message,
     resolve_audit_path,
+    resolve_tokens_path,
+    tokens_path_beside,
 )
 from megadesk_contracts.log_session import begin_log_session, session_log_path
 from megadesk_contracts.paths import ENV_LOGS_DIR, ENV_LOGS_ROOT
@@ -74,27 +78,105 @@ def test_ensure_audit_file_lives_in_the_session_folder(
     assert path.name == f"agent-{guid}.md"
     assert path.is_file()
     assert path == session_log_path(f"agent-{guid}")
+    tokens = tokens_path_beside(path)
+    assert tokens.is_file()
+    assert tokens.name == f"agent-{guid}.tokens.md"
 
 
-def test_bind_args_mount_a_single_file(tmp_path: Path, monkeypatch) -> None:
+def test_bind_args_mount_pretty_and_token_files(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv(ENV_LOGS_ROOT, str(tmp_path / "Logs"))
     monkeypatch.delenv(ENV_LOGS_DIR, raising=False)
     begin_log_session()
     guid = "guid-for-bind"
     args = agent_audit_bind_args(guid)
-    assert "-v" in args
-    assert "-e" in args
-    volume = args[args.index("-v") + 1]
-    env = args[args.index("-e") + 1]
-    assert volume.endswith(f":{CONTAINER_AUDIT_PATH}")
-    assert "agent-guid-for-bind.md" in volume
-    assert env == f"{ENV_AGENT_AUDIT_PATH}={CONTAINER_AUDIT_PATH}"
+    volumes = [args[i + 1] for i, flag in enumerate(args) if flag == "-v"]
+    envs = [args[i + 1] for i, flag in enumerate(args) if flag == "-e"]
+    assert any(v.endswith(f":{CONTAINER_AUDIT_PATH}") for v in volumes)
+    assert any(v.endswith(f":{CONTAINER_AUDIT_TOKENS_PATH}") for v in volumes)
+    assert any("agent-guid-for-bind.md" in v for v in volumes)
+    assert any("agent-guid-for-bind.tokens.md" in v for v in volumes)
+    assert f"{ENV_AGENT_AUDIT_PATH}={CONTAINER_AUDIT_PATH}" in envs
+    assert f"{ENV_AGENT_AUDIT_TOKENS_PATH}={CONTAINER_AUDIT_TOKENS_PATH}" in envs
 
 
 def test_resolve_path_prefers_explicit_mount(tmp_path: Path, monkeypatch) -> None:
     mounted = tmp_path / "mounted.md"
+    tokens = tmp_path / "mounted.tokens.md"
     monkeypatch.setenv(ENV_AGENT_AUDIT_PATH, str(mounted))
+    monkeypatch.setenv(ENV_AGENT_AUDIT_TOKENS_PATH, str(tokens))
     assert resolve_audit_path("any") == mounted
+    assert resolve_tokens_path("any", mounted) == tokens
+
+
+def _assistant(text: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        type="assistant",
+        message=SimpleNamespace(content=[SimpleNamespace(type="text", text=text)]),
+    )
+
+
+def test_audit_coalesces_streamed_tokens(tmp_path: Path) -> None:
+    path = tmp_path / "agent-run.md"
+    audit = AgentAuditLog("coalesce", path=path)
+    try:
+        audit.sdk_message({"type": "thinking", "text": "Preparing the smoke"})
+        audit.sdk_message({"type": "thinking", "text": "test worktree."})
+        audit.sdk_message({"type": "thinking", "thinking_duration_ms": 428})
+        audit.sdk_message(_assistant("I'll"))
+        audit.sdk_message(_assistant(" inspect"))
+        audit.sdk_message(_assistant(" the"))
+        audit.sdk_message(_assistant(" repo"))
+        audit.sdk_message({"type": "usage", "usage": {"in": 1}})
+        audit.sdk_message(_assistant(" layout"))
+        audit.sdk_message(
+            SimpleNamespace(
+                type="tool_call",
+                name="Read",
+                status="running",
+                call_id="c1",
+                args={"path": "README.md"},
+                result=None,
+            )
+        )
+        audit.sdk_message({"type": "thinking", "text": "now looking"})
+        audit.sdk_message({"type": "thinking", "text": " at files"})
+    finally:
+        audit.close()
+    body = path.read_text(encoding="utf-8")
+    assert body.count("**thinking**") == 2
+    assert "Preparing the smoke test worktree." in body
+    assert body.count("**assistant**") == 1
+    assert "I'll inspect the repo layout" in body
+    assert body.count("## ") == 4
+    assert "**thinking** (428ms)" not in body
+    assert "**tool_call** `Read` running" in body
+    assert "now looking at files" in body
+    raw = path.with_suffix(".tokens.md").read_text(encoding="utf-8")
+    assert raw.count("**assistant**") == 5
+    assert raw.count("**thinking**") >= 4
+    assert "**thinking** (428ms)" in raw
+    assert "I'll inspect the repo layout" not in raw
+    assert raw.count("## ") > body.count("## ")
+
+
+def test_audit_keeps_assistant_subword_tokens(tmp_path: Path) -> None:
+    path = tmp_path / "agent-run.md"
+    audit = AgentAuditLog("tokens", path=path)
+    try:
+        audit.sdk_message(_assistant("Increment"))
+        audit.sdk_message(_assistant("ed"))
+        audit.sdk_message(_assistant(" `"))
+        audit.sdk_message(_assistant("counter"))
+        audit.sdk_message(_assistant(".txt"))
+        audit.sdk_message(_assistant("`"))
+    finally:
+        audit.close()
+    body = path.read_text(encoding="utf-8")
+    assert body.count("**assistant**") == 1
+    assert "Incremented `counter.txt`" in body
+    raw = path.with_suffix(".tokens.md").read_text(encoding="utf-8")
+    assert raw.count("**assistant**") == 6
+    assert "Incremented `counter.txt`" not in raw
 
 
 def test_audit_log_flushes_events_and_sdk_messages(tmp_path: Path) -> None:

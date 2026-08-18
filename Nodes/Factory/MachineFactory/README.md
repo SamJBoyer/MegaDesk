@@ -141,7 +141,7 @@ Floor/
 |------|------|
 | `MachineFactoryManager/` | WORKORDER loop, Floor setup, run reaping |
 | `MachineFactoryManager/runtime.py` | `AgentFactory` over Docker: launch, poll, cancel |
-| `AgentHandler/` | Inside the sandbox: hash → order → work graph → FINISHED. Streams SDK progress into `Logs/{session}/agent-{guid}.md`. |
+| `AgentHandler/` | Inside the sandbox: hash → order → work graph → FINISHED. Streams SDK progress into `Logs/{session}/agent-{guid}.md` (pretty) and `agent-{guid}.tokens.md` (token stream). |
 | `machine_factory_frontend/` | Canvas monitor (read-only; never consumes WORKORDER). Logs are in the Supervisor Logs tab. |
 | `Dockerfile` | Sandbox image; entrypoint `python -m AgentHandler` |
 | `Floor/` | Local bare clones and worktrees (gitignored) |

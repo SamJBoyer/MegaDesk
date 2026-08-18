@@ -40,7 +40,7 @@ Most breakage here is at the seam between two modules, not inside one, so verify
 </testing>
 <logging>
 
-**Logs/** is the worktree-root session transcript folder. Read `Logs/CURRENT` (JSON pointer) then that timestamp folder. One `{node}.md` per node per Supervisor generation. Canvas open does not rotate or move these files — see `Docs/node_protocol.md` (Logging standard). 
+**Logs/** is the worktree-root session transcript folder. Read `Logs/CURRENT` (JSON pointer) then that timestamp folder. One `{node}.md` per node per Supervisor generation, plus `agent-{guid}.md` / `agent-{guid}.tokens.md` per MachineFactory run. Canvas open does not rotate or move these files — see `Docs/node_protocol.md` (Logging standard). 
 
 </logging>
 <Redis-policy>

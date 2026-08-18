@@ -32,7 +32,7 @@ from megadesk_contracts import (
 | [`megadesk_contracts/parameters.py`](megadesk_contracts/parameters.py) | Graph parameter names (`parameters.yaml`) and the Redis/env JSON packet |
 | [`megadesk_contracts/paths.py`](megadesk_contracts/paths.py) | `resolve_canvas_root()` / `resolve_logs_root()` — Supervisor cwd and worktree `Logs/` follow the running checkout, not another worktree |
 | [`megadesk_contracts/log_session.py`](megadesk_contracts/log_session.py) | Supervisor-generation log sessions (`begin_log_session`, `Logs/CURRENT`, `{node}.md`) |
-| [`megadesk_contracts/agent_audit.py`](megadesk_contracts/agent_audit.py) | Per-run agent audit (`Logs/{session}/agent-{guid}.md`) — streamed SDK progress, not Redis |
+| [`megadesk_contracts/agent_audit.py`](megadesk_contracts/agent_audit.py) | Per-run agent audit (`Logs/{session}/agent-{guid}.md` pretty, `agent-{guid}.tokens.md` token stream) — not Redis |
 | [`megadesk_contracts/wire/`](megadesk_contracts/wire/) | `factory`, `machine`, `cloud`, `code_scope`, `voice` — canonical stream field sets with build / parse helpers |
 | [`megadesk_contracts/wire/factory.py`](megadesk_contracts/wire/factory.py) | The status vocabulary both factories report in, and `normalize_status` |
 | [`megadesk_contracts/repo.py`](megadesk_contracts/repo.py) | `ensure_clone` / `refresh_clone` for disposable read-only clones |

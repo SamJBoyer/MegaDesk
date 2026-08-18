@@ -1,12 +1,14 @@
 """Per-run agent audit transcripts in the Supervisor session Logs folder.
 
 MachineFactory sandboxes used to log only start and finish. That is not enough
-to tell whether a run is making progress or stuck inside a tool call. The audit
-file is the live trail: one ``Logs/{session}/agent-{guid}.md`` per run, flushed
-on every event, never put on a Redis stream.
+to tell whether a run is making progress or stuck inside a tool call. Two files
+per run, flushed on every event, never put on a Redis stream:
+``Logs/{session}/agent-{guid}.md`` (pretty) and ``agent-{guid}.tokens.md``
+(token-by-token).
 
-The sandbox sees a single bind-mounted file (``MEGADESK_AGENT_AUDIT_PATH``), not
-the rest of the session directory, so one agent cannot read another node's log.
+The sandbox sees only those two bind-mounted files (``MEGADESK_AGENT_AUDIT_PATH``
+and ``MEGADESK_AGENT_AUDIT_TOKENS_PATH``), not the rest of the session directory,
+so one agent cannot read another node's log.
 """
 
 from __future__ import annotations
@@ -24,9 +26,12 @@ from megadesk_contracts.paths import ENV_LOGS_DIR
 log = logging.getLogger("agent_audit")
 
 ENV_AGENT_AUDIT_PATH = "MEGADESK_AGENT_AUDIT_PATH"
+ENV_AGENT_AUDIT_TOKENS_PATH = "MEGADESK_AGENT_AUDIT_TOKENS_PATH"
 CONTAINER_AUDIT_PATH = "/tmp/megadesk-agent-audit.md"
+CONTAINER_AUDIT_TOKENS_PATH = "/tmp/megadesk-agent-audit.tokens.md"
 
 _SKIP_TYPES = frozenset({"usage", "request"})
+_STREAM_KINDS = frozenset({"thinking", "assistant", "user"})
 _BODY_LIMIT = 800
 _THINKING_LIMIT = 400
 
@@ -70,12 +75,13 @@ def _attr(message: Any, *names: str) -> Any:
     return None
 
 
-def _content_text(message: Any) -> str:
+def _content_text(message: Any, *, strip: bool = True) -> str:
     inner = _attr(message, "message")
     content = _attr(inner, "content") if inner is not None else None
     if content is None:
         text = _attr(message, "text")
-        return str(text) if text else ""
+        raw = str(text) if text else ""
+        return raw.strip() if strip else raw
     parts: list[str] = []
     for block in content:
         block_type = _attr(block, "type") or ""
@@ -94,7 +100,16 @@ def _content_text(message: Any) -> str:
                 parts.append(str(text))
         elif isinstance(block, str):
             parts.append(block)
-    return "\n".join(parts).strip()
+    joined = "\n".join(parts)
+    return joined.strip() if strip else joined
+
+
+def _stream_delta(message: Any, kind: str) -> str:
+    """Raw token/phrase delta. Do not strip: leading spaces are part of the token."""
+    if kind == "thinking":
+        value = _attr(message, "text")
+        return "" if value is None else str(value)
+    return _content_text(message, strip=False)
 
 
 def format_sdk_message(message: Any) -> Optional[str]:
@@ -175,21 +190,27 @@ def agent_audit_stem(guid: str) -> str:
     return f"agent-{cleaned}"
 
 
-def ensure_agent_audit_file(guid: str) -> Path:
-    """Create ``Logs/{session}/agent-{guid}.md`` so Docker can bind-mount it.
+def tokens_path_beside(pretty: Path) -> Path:
+    """``agent-guid.md`` → ``agent-guid.tokens.md``."""
+    return pretty.with_suffix(".tokens.md")
 
-    Docker turns a missing bind target into a directory, so the file must exist
+
+def ensure_agent_audit_file(guid: str) -> Path:
+    """Create ``Logs/{session}/agent-{guid}.md`` and ``.tokens.md`` for Docker binds.
+
+    Docker turns a missing bind target into a directory, so both files must exist
     on the host before ``docker run``.
     """
     attach_log_session()
     path = session_log_path(agent_audit_stem(guid))
     path.parent.mkdir(parents=True, exist_ok=True)
     path.touch(exist_ok=True)
+    tokens_path_beside(path).touch(exist_ok=True)
     return path
 
 
 def resolve_audit_path(guid: str) -> Optional[Path]:
-    """Where this process should write the audit file.
+    """Where this process should write the pretty audit file.
 
     Order: explicit ``MEGADESK_AGENT_AUDIT_PATH`` (the sandbox mount), the live
     session folder, then the worktree sidecar AgentHandler already uses.
@@ -208,29 +229,47 @@ def resolve_audit_path(guid: str) -> Optional[Path]:
     return None
 
 
+def resolve_tokens_path(guid: str, pretty: Optional[Path] = None) -> Optional[Path]:
+    """Where this process should write the token-by-token audit file."""
+    explicit = (os.environ.get(ENV_AGENT_AUDIT_TOKENS_PATH) or "").strip()
+    if explicit:
+        return Path(explicit)
+    if pretty is None:
+        pretty = resolve_audit_path(guid)
+    if pretty is None:
+        return None
+    return tokens_path_beside(pretty)
+
+
 def agent_audit_bind_args(guid: str) -> list[str]:
-    """``docker run`` fragments that mount this run's audit file into the sandbox."""
+    """``docker run`` fragments that mount this run's pretty and token audit files."""
     try:
         host_path = ensure_agent_audit_file(guid)
     except (RuntimeError, OSError) as exc:
         log.warning("Agent audit file unavailable for %s: %s", guid, exc)
         return []
+    tokens_host = tokens_path_beside(host_path)
     return [
         "-v",
         f"{host_path}:{CONTAINER_AUDIT_PATH}",
         "-e",
         f"{ENV_AGENT_AUDIT_PATH}={CONTAINER_AUDIT_PATH}",
+        "-v",
+        f"{tokens_host}:{CONTAINER_AUDIT_TOKENS_PATH}",
+        "-e",
+        f"{ENV_AGENT_AUDIT_TOKENS_PATH}={CONTAINER_AUDIT_TOKENS_PATH}",
     ]
 
 
 class AgentAuditLog:
-    """Append-only markdown transcript. File writes are best-effort; logger always fires."""
+    """Pretty and token-by-token markdown transcripts. File writes are best-effort."""
 
     def __init__(
         self,
         guid: str,
         *,
         path: Optional[Path] = None,
+        tokens_path: Optional[Path] = None,
         repo: str = "",
         ticket: str = "",
         model: str = "",
@@ -240,14 +279,27 @@ class AgentAuditLog:
         self.ticket = ticket
         self.model = model
         self.path = path if path is not None else resolve_audit_path(guid)
+        self.tokens_path = (
+            tokens_path
+            if tokens_path is not None
+            else resolve_tokens_path(guid, self.path)
+        )
         self._fh: Optional[Any] = None
-        if self.path is not None:
-            try:
-                self.path.parent.mkdir(parents=True, exist_ok=True)
-                self._fh = open(self.path, "a", encoding="utf-8", buffering=1)
-            except OSError as exc:
-                log.warning("Could not open agent audit %s: %s", self.path, exc)
-                self._fh = None
+        self._tokens_fh: Optional[Any] = None
+        self._open_kind: Optional[str] = None
+        self._stream_tail_ws: bool = True
+        self._fh = self._open(self.path)
+        self._tokens_fh = self._open(self.tokens_path)
+
+    def _open(self, path: Optional[Path]) -> Optional[Any]:
+        if path is None:
+            return None
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            return open(path, "a", encoding="utf-8", buffering=1)
+        except OSError as exc:
+            log.warning("Could not open agent audit %s: %s", path, exc)
+            return None
 
     @classmethod
     def for_run(
@@ -261,38 +313,69 @@ class AgentAuditLog:
         return cls(guid, repo=repo, ticket=ticket, model=model)
 
     def header(self) -> None:
-        lines = [
+        stamp = _utc_stamp()
+        pretty = [
             f"# Agent audit `{self.guid}`",
             f"- repo: {self.repo or '(unknown)'}",
             f"- ticket: {self.ticket or '(none)'}",
             f"- model: {self.model or '(unset)'}",
-            f"- started: {_utc_stamp()}",
+            f"- started: {stamp}",
             "",
         ]
-        self._write("\n".join(lines), also_log=False)
+        tokens = [
+            f"# Agent audit `{self.guid}` (tokens)",
+            f"- repo: {self.repo or '(unknown)'}",
+            f"- ticket: {self.ticket or '(none)'}",
+            f"- model: {self.model or '(unset)'}",
+            f"- started: {stamp}",
+            "",
+        ]
+        self._write("\n".join(pretty), also_log=False)
+        self._write_tokens("\n".join(tokens))
         log.info(
-            "Audit log guid=%s path=%s repo=%s ticket=%s",
+            "Audit log guid=%s path=%s tokens=%s repo=%s ticket=%s",
             self.guid,
             self.path or "(none)",
+            self.tokens_path or "(none)",
             self.repo or "(unknown)",
             self.ticket or "(none)",
         )
 
     def event(self, kind: str, detail: str = "") -> None:
+        self._close_stream()
         body = f"**{kind}**"
         if detail:
             body += f" {detail}"
-        self._write(self._wrap(body))
+        wrapped = self._wrap(body)
+        self._write(wrapped)
+        self._write_tokens(wrapped)
 
     def sdk_message(self, message: Any) -> None:
-        formatted = format_sdk_message(message)
-        if formatted is None:
+        kind = _message_type(message)
+        if not kind or kind in _SKIP_TYPES:
             return
-        self._write(self._wrap(formatted))
+        formatted = format_sdk_message(message)
+        if formatted is not None:
+            wrapped = self._wrap(formatted)
+            self._write_tokens(wrapped)
+        else:
+            wrapped = None
+        if kind in _STREAM_KINDS:
+            self._sdk_stream(message, kind)
+            return
+        self._close_stream()
+        if wrapped is None:
+            return
+        self._write(wrapped)
 
     def close(self) -> None:
-        fh = self._fh
-        self._fh = None
+        self._close_stream()
+        self._close_handle("_fh")
+        self._close_handle("_tokens_fh")
+
+    def _close_handle(self, attr: str) -> None:
+        fh = getattr(self, attr)
+        setattr(self, attr, None)
         if fh is None:
             return
         try:
@@ -304,19 +387,69 @@ class AgentAuditLog:
         except OSError:
             pass
 
+    def _sdk_stream(self, message: Any, kind: str) -> None:
+        """Append a thinking/assistant/user delta into the pretty section."""
+        delta = _stream_delta(message, kind)
+        duration = None
+        if kind == "thinking":
+            duration = _attr(message, "thinking_duration_ms", "thinkingDurationMs")
+        if delta:
+            if self._open_kind != kind:
+                self._close_stream()
+                self._open_kind = kind
+                self._stream_tail_ws = True
+                self._write(self._wrap(f"**{kind}**"))
+            if (
+                kind == "thinking"
+                and not self._stream_tail_ws
+                and not delta[0].isspace()
+            ):
+                delta = " " + delta
+            self._write(delta, also_log=False, ensure_newline=False)
+            self._stream_tail_ws = delta[-1].isspace()
+        if kind == "thinking" and duration is not None and duration != "":
+            self._close_stream()
+
+    def _close_stream(self) -> None:
+        if self._open_kind is None:
+            return
+        self._open_kind = None
+        self._stream_tail_ws = True
+        self._write("\n", also_log=False)
+
     def _wrap(self, body: str) -> str:
         return f"## {_utc_stamp()}\n{body}\n"
 
-    def _write(self, text: str, *, also_log: bool = True) -> None:
+    def _write_tokens(self, text: str) -> None:
+        self._emit(self._tokens_fh, self.tokens_path, text, ensure_newline=True)
+
+    def _write(
+        self,
+        text: str,
+        *,
+        also_log: bool = True,
+        ensure_newline: bool = True,
+    ) -> None:
         if also_log:
             summary = text.strip().splitlines()
             if summary:
                 log.info("audit %s", " | ".join(summary[:2]))
-        fh = self._fh
+        self._emit(self._fh, self.path, text, ensure_newline=ensure_newline)
+
+    def _emit(
+        self,
+        fh: Optional[Any],
+        path: Optional[Path],
+        text: str,
+        *,
+        ensure_newline: bool,
+    ) -> None:
         if fh is None:
             return
         try:
-            fh.write(text if text.endswith("\n") else text + "\n")
+            if ensure_newline and not text.endswith("\n"):
+                text = text + "\n"
+            fh.write(text)
             fh.flush()
         except OSError as exc:
-            log.warning("Agent audit write failed %s: %s", self.path, exc)
+            log.warning("Agent audit write failed %s: %s", path, exc)
