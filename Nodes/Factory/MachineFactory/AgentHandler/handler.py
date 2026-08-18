@@ -10,12 +10,12 @@ from typing import Any
 
 from cursor_sdk import Agent, CursorAgentError, LocalAgentOptions
 from megadesk_contracts import redis_connect, resolve_ephemeral_db, resolve_factory_redis_url
+from megadesk_contracts.agent_audit import AgentAuditLog
 from megadesk_contracts.wire.machine import (
     DEFAULT_MODEL,
     STATUS_ERROR,
     STATUS_FINISHED,
     STATUS_RUNNING,
-    WORKORDER_STREAM,
     agent_handler_fields,
     agent_handler_key,
     finished_fields,
@@ -83,9 +83,38 @@ def _truncate(text: str, limit: int = _RESULT_LOG_MAX) -> str:
     return text[: limit - 3] + "..."
 
 
-def run_agent(instruction: str, cwd: str, api_key: str, model: str) -> dict[str, Any]:
+def _stream_run(run: Any, audit: AgentAuditLog) -> None:
+    """Drain SDK messages into the audit log. wait() is still required after this.
+
+    The stream is how we know the agent is moving; a silent wait() is what made
+    a stuck tool call indistinguishable from a long think.
+    """
+    stream = getattr(run, "messages", None) or getattr(run, "stream", None)
+    if stream is None:
+        return
+    supports = getattr(run, "supports", None)
+    if callable(supports) and not supports("stream"):
+        reason = getattr(run, "unsupported_reason", lambda _op: "")("stream")
+        audit.event("stream-unavailable", str(reason) if reason else "run does not support stream")
+        return
+    try:
+        for message in stream():
+            audit.sdk_message(message)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Audit stream interrupted: %s", exc)
+        audit.event("stream-error", str(exc))
+
+
+def run_agent(
+    instruction: str,
+    cwd: str,
+    api_key: str,
+    model: str,
+    audit: AgentAuditLog | None = None,
+) -> dict[str, Any]:
     """Create a local Cursor agent bound to cwd and wait for completion."""
-    log.info("Starting agent model=%s cwd=%s", model, cwd)
+    trail = audit or AgentAuditLog(guid="unknown")
+    trail.event("starting", f"model={model} cwd={cwd}")
     try:
         with Agent.create(
             model=model,
@@ -93,10 +122,11 @@ def run_agent(instruction: str, cwd: str, api_key: str, model: str) -> dict[str,
             local=LocalAgentOptions(cwd=cwd),
         ) as agent:
             agent_id = getattr(agent, "agent_id", None) or getattr(agent, "agentId", None)
-            log.info("Agent created id=%s", agent_id)
+            trail.event("created", f"agent_id={agent_id}")
             run = agent.send(instruction)
             run_id = getattr(run, "id", None)
-            log.info("Run started id=%s", run_id)
+            trail.event("run", f"run_id={run_id}")
+            _stream_run(run, trail)
             result = run.wait()
             status = getattr(result, "status", None) or "unknown"
             text = getattr(result, "result", None)
@@ -112,16 +142,18 @@ def run_agent(instruction: str, cwd: str, api_key: str, model: str) -> dict[str,
                 "result": text if text is None else str(text),
             }
             result_preview = _truncate(str(text)) if text else ""
-            log.info(
-                "Agent finished model=%s status=%s agent_id=%s run_id=%s result=%s",
-                model,
-                outcome["status"],
-                agent_id,
-                run_id,
-                result_preview or "(empty)",
+            trail.event(
+                "agent-finished",
+                f"status={outcome['status']} agent_id={agent_id} run_id={run_id}",
             )
+            if result_preview:
+                trail.event("result", result_preview)
             return outcome
     except CursorAgentError as err:
+        trail.event(
+            "startup-failed",
+            f"{err.message} retryable={getattr(err, 'is_retryable', None)}",
+        )
         log.error(
             "Agent startup failed model=%s: %s (retryable=%s)",
             model,
@@ -190,18 +222,25 @@ class AgentHandler:
     def run_once(self) -> int:
         key = agent_handler_key(self.guid)
         redis = connect_redis(self.redis_url)
+        audit = AgentAuditLog.for_run(
+            self.guid, repo=self.repo, ticket=self.ticket
+        )
+        try:
+            return self._run_once(redis, key, audit)
+        finally:
+            audit.close()
 
-        log.info(
-            "AgentHandler one-shot key=%s repo=%s ticket=%s cwd=%s",
-            key,
-            self.repo,
-            self.ticket,
-            self.workspace,
+    def _run_once(self, redis: Redis, key: str, audit: AgentAuditLog) -> int:
+        audit.header()
+        audit.event(
+            "handler-start",
+            f"key={key} cwd={self.workspace}",
         )
 
         data = redis.hgetall(key)
         if not data:
             log.error("Hash %s is empty or missing", key)
+            audit.event("error", f"hash {key} is empty or missing")
             ticket_id = self.env_ticket_id or "missing"
             ticket_name = self.ticket or "unknown"
             if self.host_wt and self.host_agent_dir:
@@ -220,6 +259,7 @@ class AgentHandler:
             parsed = parse_agent_handler(data)
         except ValueError as exc:
             log.error("%s", exc)
+            audit.event("error", str(exc))
             set_agent_handler_status(
                 redis,
                 key,
@@ -234,6 +274,7 @@ class AgentHandler:
             order = load_workorder(redis, ticket_id)
         except LookupError as exc:
             log.error("%s", exc)
+            audit.event("error", str(exc))
             set_agent_handler_status(
                 redis,
                 key,
@@ -244,6 +285,7 @@ class AgentHandler:
             return 1
         except ValueError as exc:
             log.error("Bad WORKORDER %s: %s", ticket_id, exc)
+            audit.event("error", f"bad WORKORDER {ticket_id}: {exc}")
             set_agent_handler_status(
                 redis,
                 key,
@@ -257,6 +299,13 @@ class AgentHandler:
         instruction = order["instructions"]
         model = order["model"] or os.environ.get("CURSOR_MODEL", DEFAULT_MODEL) or DEFAULT_MODEL
         repo = order["repo"] or self.repo
+        audit.repo = repo
+        audit.ticket = ticket_name
+        audit.model = model
+        audit.event(
+            "order",
+            f"ticket_id={ticket_id} ticket={ticket_name} model={model}",
+        )
 
         # Prefer host paths from env (set by MachineFactoryManager); fall back to WORKORDER.wt.
         wt = self.host_wt or order.get("wt") or ""
@@ -264,6 +313,7 @@ class AgentHandler:
         if not wt or not agent_dir:
             err = "Missing HOST_WT / HOST_AGENT_DIR for FINISHED publish"
             log.error("%s", err)
+            audit.event("error", err)
             set_agent_handler_status(
                 redis, key, ticket_id=ticket_id, status=STATUS_ERROR, error=err
             )
@@ -284,9 +334,11 @@ class AgentHandler:
                     cwd=self.workspace,
                     api_key=self.api_key,
                     model=model,
+                    audit=audit,
                 )
         except (FileNotFoundError, RuntimeError, OSError) as exc:
             log.error("Worktree git bind failed: %s", exc)
+            audit.event("error", f"worktree git bind failed: {exc}")
             outcome = {
                 "status": STATUS_ERROR,
                 "error": f"worktree git bind failed: {exc}",
@@ -314,20 +366,12 @@ class AgentHandler:
         )
 
         if status == STATUS_FINISHED:
-            log.info(
-                "Task done guid=%s ticket_id=%s WORKORDER=%s",
-                self.guid,
-                ticket_id,
-                WORKORDER_STREAM,
-            )
+            audit.event("done", f"ticket_id={ticket_id}")
             return 0
 
-        log.warning(
-            "Task finished with status=%s error=%s guid=%s ticket_id=%s",
-            status,
-            _truncate(error) if error else "(none)",
-            self.guid,
-            ticket_id,
+        audit.event(
+            "failed",
+            f"status={status} error={_truncate(error) if error else '(none)'}",
         )
         return 1
 

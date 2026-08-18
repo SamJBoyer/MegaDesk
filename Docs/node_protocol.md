@@ -299,6 +299,7 @@ Logs/
     supervisor.md
     canvas.md
     machine_factory.md
+    agent-<guid>.md            # one MachineFactory sandbox run (SDK progress)
 ```
 
 Read `Logs/CURRENT`, then that folder. Older timestamp folders are previous generations.
@@ -307,6 +308,7 @@ Read `Logs/CURRENT`, then that folder. Older timestamp folders are previous gene
 |------|----------------------|
 | **BE** | stdout/stderr → Supervisor file `Logs/{session}/{endpoint}.md` (one file per node per session, append; launch/exit banners carry `unique_id`); prefer `megadesk_contracts.configure_node_logging()` |
 | **FE / canvas** | Module logger. Canvas also appends `canvas.md` in the current session. Host reports uncaught `FeSpec.build` / BE-launch failures instead of swallowing them silently. |
+| **Agent sandbox** | `Logs/{session}/agent-{guid}.md` — streamed SDK progress for one MachineFactory run (tool calls, thinking, assistant text). Bind-mounted into the container as a single file. Not a Redis payload. |
 
 Helpers: `begin_log_session` / `attach_log_session` / `session_log_path` in `megadesk_contracts`. Env: `MEGADESK_LOGS_ROOT` (`Logs/` home), `MEGADESK_LOGS_DIR` (live session folder).
 

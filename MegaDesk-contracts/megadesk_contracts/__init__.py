@@ -41,6 +41,11 @@ from megadesk_contracts.parameters import (
     parameters_from_env,
     parameters_to_json,
 )
+from megadesk_contracts.agent_audit import (
+    AgentAuditLog,
+    agent_audit_bind_args,
+    ensure_agent_audit_file,
+)
 from megadesk_contracts.log_session import (
     attach_log_session,
     begin_log_session,
@@ -96,6 +101,7 @@ from megadesk_contracts.redis_lane import (
 
 __all__ = [
     "ENTRY_POINT_GROUP",
+    "AgentAuditLog",
     "AgentError",
     "AgentFactory",
     "AgentRunError",
@@ -122,6 +128,7 @@ __all__ = [
     "SUPERVISOR_SINGLETON_KEY",
     "SupervisorClient",
     "backends_for_frontend",
+    "agent_audit_bind_args",
     "attach_log_session",
     "begin_log_session",
     "clear_shutdown",
@@ -131,6 +138,7 @@ __all__ = [
     "default_scope_root",
     "discover_backends",
     "discover_frontends",
+    "ensure_agent_audit_file",
     "ensure_clone",
     "ensure_supervisor_running",
     "frame_pump",

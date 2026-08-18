@@ -11,6 +11,7 @@ import threading
 from pathlib import Path
 
 from megadesk_contracts import DEFAULT_REDIS_URL, REDIS_DB_EPHEMERAL, redis_url_with_db
+from megadesk_contracts.agent_audit import agent_audit_bind_args
 
 log = logging.getLogger("pool")
 
@@ -226,6 +227,8 @@ def start_ticket_sandbox(
     with absolute paths MergeManager understands.
     ``.bare`` is mounted at /bare so linked worktrees can resolve gitdir
     pointers inside the Linux container (AgentHandler rewrites them for the run).
+    The run's audit file (``Logs/{session}/agent-{guid}.md``) is bind-mounted as
+    a single file so the sandbox can stream progress without seeing other logs.
     Uses --rm so the container is removed when AgentHandler exits.
     Returns the container name.
     """
@@ -289,6 +292,7 @@ def start_ticket_sandbox(
         f"{host_path}:/workspace",
         "-v",
         f"{host_bare}:/bare",
+        *agent_audit_bind_args(guid),
         IMAGE_NAME,
     ]
     log.info(
