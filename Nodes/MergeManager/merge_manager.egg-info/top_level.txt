@@ -1,3 +1,0 @@
-merge
-merge_manager_app
-merge_manager_node

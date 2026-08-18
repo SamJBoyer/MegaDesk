@@ -1,8 +1,0 @@
-Metadata-Version: 2.4
-Name: merge-manager
-Version: 0.1.0
-Summary: MegaDesk FE node: merge finished agent worktrees
-Requires-Python: >=3.10
-Requires-Dist: dearpygui>=1.11.1
-Requires-Dist: redis>=5.0.0
-Requires-Dist: megadesk-contracts

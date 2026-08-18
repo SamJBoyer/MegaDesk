@@ -1,2 +1,0 @@
-ticket_dispatcher_app
-ticket_dispatcher_node

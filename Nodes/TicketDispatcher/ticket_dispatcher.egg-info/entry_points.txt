@@ -1,2 +1,0 @@
-[MegaDesk.nodes]
-ticket_dispatcher = ticket_dispatcher_node:get_exec_spec
