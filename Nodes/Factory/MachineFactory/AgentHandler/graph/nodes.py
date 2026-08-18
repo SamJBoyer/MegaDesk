@@ -1,4 +1,4 @@
-"""The five nodes of the work graph.
+"""The nodes of the work graph.
 
 Each node takes the merged state and returns only the keys it changed. A node
 that fails sets ``error`` and ``failed_node`` rather than raising: the graph
@@ -7,6 +7,11 @@ AGENTHANDLER hash behind for the manager's reaper to clean up 30 seconds later.
 
 Every node is a plain function of ``(context, state)`` curried into a one-arg
 callable by ``build``. That keeps them directly testable without a graph.
+
+Startup binds the linked worktree to ``/workspace`` + ``/bare`` and holds that
+for the rest of the run. Teardown restores the host gitdir pointers before it
+publishes FINISHED, so a missed agent restore cannot leave the worktree
+unmergeable.
 """
 
 from __future__ import annotations
@@ -124,6 +129,13 @@ def startup_node(context: RunContext, state: WorkState) -> WorkState:
         context.reporter.node_failed(node, str(exc))
         return {**resolved, **_fail(node, f"could not mark run running: {exc}")}
 
+    try:
+        context.prepare_git()
+    except (FileNotFoundError, RuntimeError, OSError) as exc:
+        message = f"worktree git bind failed: {exc}"
+        context.reporter.node_failed(node, _clip(message, 200))
+        return {**resolved, **_fail(node, message)}
+
     context.reporter.node_finished(node, f"ticket={ticket_name} model={model}")
     return resolved
 
@@ -174,18 +186,12 @@ def git_node(context: RunContext, state: WorkState) -> WorkState:
     node = "git_node"
     context.reporter.node_started(node)
 
-    try:
-        with context.git_bind(state.get("ticket_name", "")):
-            status_text = _git(context, "status", "--porcelain")
-            if not status_text.strip():
-                context.reporter.node_finished(node, "clean tree, nothing to commit")
-                return {"diff_summary": ""}
-            diff_text = _git(context, "diff")
-            stat_text = _git(context, "diff", "--stat")
-    except (FileNotFoundError, RuntimeError, OSError) as exc:
-        message = f"worktree git bind failed: {exc}"
-        context.reporter.node_failed(node, _clip(message, 200))
-        return _fail(node, message)
+    status_text = _git(context, "status", "--porcelain")
+    if not status_text.strip():
+        context.reporter.node_finished(node, "clean tree, nothing to commit")
+        return {"diff_summary": ""}
+    diff_text = _git(context, "diff")
+    stat_text = _git(context, "diff", "--stat")
 
     instruction = prompts.git_prompt(
         ticket_name=state.get("ticket_name", ""),
@@ -213,15 +219,24 @@ def git_node(context: RunContext, state: WorkState) -> WorkState:
 
 
 def teardown_node(context: RunContext, state: WorkState) -> WorkState:
-    """Publish the outcome, drop the run keys, and let the container exit.
+    """Restore host gitdir pointers, publish the outcome, and stop.
 
     Reached from every other node, so it must work with whatever state it is
-    handed — including a run that failed before it knew its own ticket.
+    handed — including a run that failed before it knew its own ticket. The
+    restore runs first so FINISHED is published against a worktree the host
+    can open.
     """
     from AgentHandler.handler import publish_finished
 
     node = "teardown_node"
     context.reporter.node_started(node)
+
+    restored = False
+    try:
+        context.restore_git()
+        restored = True
+    except Exception as exc:  # noqa: BLE001
+        log.error("wt rectifier restore failed: %s", exc)
 
     error = state.get("error", "")
     status = STATUS_ERROR if error else STATUS_FINISHED
@@ -257,6 +272,8 @@ def teardown_node(context: RunContext, state: WorkState) -> WorkState:
         log.error("No worktree paths known; skipping FINISHED publish")
 
     detail = "published FINISHED" if published else "no FINISHED published"
+    if restored:
+        detail = f"restored host gitdir, {detail}"
     context.reporter.node_finished(node, detail)
     context.reporter.finish_run(status, error)
     context.reporter.clear()
@@ -295,22 +312,20 @@ def _run_agent(
 
     Imported at call time so ``handler`` stays free to import the graph, and so
     a test that patches ``AgentHandler.handler.Agent`` still reaches this path.
+    Gitdir pointers stay bound for the whole run after startup; teardown is the
+    one that writes the host pointers back.
     """
     from AgentHandler.handler import run_agent
 
     model = state.get("model") or context.default_model or DEFAULT_MODEL
     context.audit.event("graph-agent", f"{node} model={model}")
-    try:
-        with context.git_bind(state.get("ticket_name", "")):
-            outcome = run_agent(
-                instruction=instruction,
-                cwd=context.workspace,
-                api_key=context.api_key,
-                model=model,
-                audit=context.audit,
-            )
-    except (FileNotFoundError, RuntimeError, OSError) as exc:
-        return {"status": STATUS_ERROR, "error": f"worktree git bind failed: {exc}"}
+    outcome = run_agent(
+        instruction=instruction,
+        cwd=context.workspace,
+        api_key=context.api_key,
+        model=model,
+        audit=context.audit,
+    )
 
     status = normalize_status(outcome.get("status"))
     if status != STATUS_FINISHED:
@@ -337,11 +352,6 @@ def _git(context: RunContext, *args: str) -> str:
 
 
 def _read_head(context: RunContext, state: WorkState) -> tuple[str, str]:
-    try:
-        with context.git_bind(state.get("ticket_name", "")):
-            sha = _git(context, "rev-parse", "HEAD").strip()
-            message = _git(context, "log", "-1", "--pretty=%B").strip()
-    except (FileNotFoundError, RuntimeError, OSError) as exc:
-        log.warning("Could not read HEAD after commit: %s", exc)
-        return "", ""
+    sha = _git(context, "rev-parse", "HEAD").strip()
+    message = _git(context, "log", "-1", "--pretty=%B").strip()
     return sha[:12], _clip(message, 1000)

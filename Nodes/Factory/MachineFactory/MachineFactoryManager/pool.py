@@ -286,6 +286,8 @@ def start_ticket_sandbox(
         "-e",
         f"HOST_AGENT_DIR={host_agent}",
         "-e",
+        f"HOST_BARE={host_bare}",
+        "-e",
         "WORKSPACE=/workspace",
         "-e",
         "BARE_MOUNT=/bare",

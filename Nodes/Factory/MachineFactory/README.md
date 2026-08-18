@@ -114,8 +114,10 @@ vocabulary (`queued`, `running`, `finished`, `error`, `cancelled`,
 
 `FINISHED` is per-repo rather than one stream because MergeManager watches the
 repos it has checked out, not every repo the Floor knows about. Host paths reach
-the container as `HOST_WT` / `HOST_AGENT_DIR`, since paths inside it are not paths
-anyone else can use.
+the container as `HOST_WT` / `HOST_AGENT_DIR` / `HOST_BARE`, since paths
+inside it are not paths anyone else can use. `HOST_BARE` is the host path of
+`Floor/<repo>/.bare` so the wt rectifier can restore gitdir pointers if a
+previous sandbox left `gitdir: /bare/...` behind.
 
 ```powershell
 redis-cli XADD WORKORDER * repo Helmsman URL https://github.com/SamJBoyer/Helmsman.git new_wt true wt "" ticket_name 1 instructions "Create harness-smoke.txt with the text ok" model auto

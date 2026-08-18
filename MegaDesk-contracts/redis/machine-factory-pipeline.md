@@ -87,7 +87,7 @@ XADD WORKORDER * repo Helmsman URL https://github.com/example/Helmsman.git new_w
 
 This hash is also the handshake: MachineFactoryManager writes it **before** the container starts, because the sandbox reads its own GUID out of the environment to find its work here. A missing hash therefore means "no run", which is what makes the FE's live list truthful without reconciling it.
 
-Ticket payload (`ticket_name`, `instructions`, `model`, paths) is **not** stored on this hash. AgentHandler loads those from `WORKORDER` via `ticket_id`, so they cannot drift from what was ordered. Host absolute paths for the finished package are passed into the container as env (`HOST_WT`, `HOST_AGENT_DIR`).
+Ticket payload (`ticket_name`, `instructions`, `model`, paths) is **not** stored on this hash. AgentHandler loads those from `WORKORDER` via `ticket_id`, so they cannot drift from what was ordered. Host absolute paths for the finished package are passed into the container as env (`HOST_WT`, `HOST_AGENT_DIR`, `HOST_BARE`).
 
 ---
 
@@ -137,5 +137,5 @@ Not Redis packages, but part of the same contract:
 |-----|---------|
 | `GUID` | Sandbox id → hash key `AGENTHANDLER:<GUID>` |
 | `TICKET_ID` | Fallback ticket id if hash missing |
-| `HOST_WT` / `HOST_AGENT_DIR` | Absolute host paths written into `FINISHED` |
+| `HOST_WT` / `HOST_AGENT_DIR` / `HOST_BARE` | Absolute host paths written into `FINISHED`; `HOST_BARE` is also how the wt rectifier restores gitdir pointers |
 | `REPO_NAME` | Repo segment for `FINISHED:<REPO>` |

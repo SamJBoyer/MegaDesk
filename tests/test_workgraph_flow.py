@@ -34,6 +34,12 @@ class NullGitBind:
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         pass
 
+    def prepare(self) -> None:
+        return None
+
+    def restore(self) -> None:
+        return None
+
     def __enter__(self) -> "NullGitBind":
         return self
 
@@ -242,6 +248,46 @@ def test_work_graph_happy_path_publishes_finished_and_clears_hashes(
     assert "When you commit your work" not in joined
     assert "Commit the work already present" in joined
     assert "Names the ticket" in joined
+
+
+def test_work_graph_binds_git_on_startup_and_restores_on_teardown(
+    redis_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from AgentHandler.graph import run_work_graph
+
+    guid = "wg-rectify"
+    workspace = tmp_path / "wt"
+    _seed_order(redis_client, guid=guid, workspace=workspace)
+
+    calls: list[str] = []
+
+    class RecordingGitBind(NullGitBind):
+        def prepare(self) -> None:
+            calls.append("prepare")
+
+        def restore(self) -> None:
+            calls.append("restore")
+
+    prompts: list[str] = []
+    monkeypatch.setattr("AgentHandler.handler.Agent", FakeCursorAgent.bind(prompts))
+    audit = AgentAuditLog(guid, path=tmp_path / "audit.md", repo="widgets")
+    context = _context(redis_client, guid=guid, workspace=workspace, audit=audit)
+    context.git_bind_factory = RecordingGitBind
+    try:
+        final = run_work_graph(context)
+    finally:
+        audit.close()
+
+    assert final.get("status") == machine_wire.STATUS_FINISHED
+    assert calls[0] == "prepare"
+    assert "restore" in calls
+    details = [
+        event["detail"]
+        for event in graph_wire.read_graph_events(redis_client, guid)
+        if event["node"] == "teardown_node" and event["status"] == machine_wire.STATUS_FINISHED
+    ]
+    assert details
+    assert "restored host gitdir" in details[-1]
 
 
 def test_work_graph_failure_still_reaches_teardown(

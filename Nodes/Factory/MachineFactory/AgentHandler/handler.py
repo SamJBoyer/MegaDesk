@@ -2,7 +2,7 @@
 
 This module is now the run's plumbing rather than its plot. It connects Redis,
 opens the audit trail, and hands both to the LangGraph work graph in
-``AgentHandler.graph``, which is where the five steps of a run actually live.
+``AgentHandler.graph``, which is where the steps of a run actually live.
 
 ``run_agent`` stays here because it is the single place the Cursor SDK is
 driven; every agent node in the graph calls back into it, so there is still
@@ -205,6 +205,7 @@ class AgentHandler:
         # Host absolute paths for FINISHED (MergeManager consumes these).
         self.host_wt = os.environ.get("HOST_WT", "")
         self.host_agent_dir = os.environ.get("HOST_AGENT_DIR", "")
+        self.host_bare = os.environ.get("HOST_BARE", "")
         self.env_ticket_id = os.environ.get("TICKET_ID", "")
 
     def run_once(self) -> int:
@@ -243,6 +244,7 @@ class AgentHandler:
             repo=self.repo,
             host_wt=self.host_wt,
             host_agent_dir=self.host_agent_dir,
+            host_bare=self.host_bare,
             env_ticket_id=self.env_ticket_id,
             default_model=self.model,
         )

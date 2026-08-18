@@ -102,7 +102,9 @@ startup_node → pathfinder_node → workhorse_node → git_node → teardown_no
 
 Each non-terminal node also has a conditional edge to `teardown_node` when
 `state["error"]` is set, so `FINISHED:<repo>` is always published and both
-hashes are always deleted.
+hashes are always deleted. Startup rewrites the linked worktree's gitdir
+pointers for `/workspace` + `/bare`; teardown restores the host pointers
+before it publishes so MergeManager can open the worktree.
 
 The hash carries its own `spec` so a visualizer draws what ran, not what it was
 compiled against.

@@ -58,16 +58,28 @@ class RunContext:
     repo: str = ""
     host_wt: str = ""
     host_agent_dir: str = ""
+    host_bare: str = ""
     env_ticket_id: str = ""
     default_model: str = ""
 
     # Injected so tests can drive the graph without a real Floor mount. In the
     # sandbox this is the real thing and the pointers genuinely need rewriting.
     git_bind_factory: Callable[..., Any] = field(default=WorktreeGitBind)
+    _git_bind: Any = field(default=None, init=False, repr=False)
 
-    def git_bind(self, ticket: str = "") -> Any:
-        return self.git_bind_factory(
-            self.workspace,
-            bare_mount=self.bare_mount,
-            ticket=ticket or self.ticket,
-        )
+    def git_binder(self) -> Any:
+        if self._git_bind is None:
+            self._git_bind = self.git_bind_factory(
+                self.workspace,
+                bare_mount=self.bare_mount,
+                ticket=self.ticket,
+                host_wt=self.host_wt,
+                host_bare=self.host_bare,
+            )
+        return self._git_bind
+
+    def prepare_git(self) -> None:
+        self.git_binder().prepare()
+
+    def restore_git(self) -> None:
+        self.git_binder().restore()

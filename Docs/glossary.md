@@ -19,7 +19,7 @@ Floor: MachineFactory's local repo farm (`Nodes/Factory/MachineFactory/Floor/`) 
 
 AgentHandler: the harness that runs inside a MachineFactory sandbox. It reads its own run hash, loads the order, and executes the work graph (startup → pathfinder → workhorse → git → teardown) before publishing the outcome. There is no cloud equivalent — the SDK is the harness there.
 
-Work graph: the LangGraph AgentHandler runs inside a sandbox. Five nodes in a straight line, with every node able to skip ahead to teardown so FINISHED is always published.
+Work graph: the LangGraph AgentHandler runs inside a sandbox. Five nodes in a straight line, with every node able to skip ahead to teardown so FINISHED is always published. Startup rewrites git worktree pointers for the sandbox mounts; teardown restores the host pointers before it publishes.
 
 GraphScope: FE-only canvas node that draws a live work-graph run from `GRAPHRUN:<guid>` and `GRAPHEVENT`.
 

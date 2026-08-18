@@ -175,7 +175,7 @@ WORK_GRAPH = GraphSpec(
             name="startup_node",
             kind=KIND_SCRIPT,
             label="startup",
-            description="Read the run handshake and load the order.",
+            description="Read the run handshake, load the order, and bind git to /bare.",
         ),
         GraphNodeSpec(
             name="pathfinder_node",
@@ -199,7 +199,7 @@ WORK_GRAPH = GraphSpec(
             name="teardown_node",
             kind=KIND_SCRIPT,
             label="teardown",
-            description="Publish the outcome and stop the container.",
+            description="Restore host gitdir pointers, publish the outcome, and stop.",
         ),
     ),
     edges=(

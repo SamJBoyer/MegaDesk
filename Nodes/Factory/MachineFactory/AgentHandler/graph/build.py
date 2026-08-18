@@ -13,6 +13,7 @@ publishes FINISHED and deletes the handshake hash.
 
 from __future__ import annotations
 
+import logging
 from functools import partial
 from typing import Any, Callable
 
@@ -21,6 +22,8 @@ from megadesk_contracts.wire import graph as wire
 
 from AgentHandler.graph import nodes as node_impls
 from AgentHandler.graph.state import RunContext, WorkState
+
+log = logging.getLogger("agent_handler.graph")
 
 NODE_FUNCTIONS: dict[str, Callable[..., WorkState]] = {
     "startup_node": node_impls.startup_node,
@@ -81,9 +84,17 @@ def run_work_graph(
     compiled = build_work_graph(context, spec=spec)
     context.reporter.start_run()
     context.audit.event("graph-start", f"{spec.name}: {' -> '.join(spec.node_names())}")
-    final: WorkState = compiled.invoke({"guid": context.guid})
-    context.audit.event(
-        "graph-done",
-        f"status={final.get('status', 'unknown')} exit={final.get('exit_code', 1)}",
-    )
-    return final
+    try:
+        final: WorkState = compiled.invoke({"guid": context.guid})
+        context.audit.event(
+            "graph-done",
+            f"status={final.get('status', 'unknown')} exit={final.get('exit_code', 1)}",
+        )
+        return final
+    finally:
+        # Teardown restores first so FINISHED is published against host paths.
+        # This catches a graph that raised before teardown could.
+        try:
+            context.restore_git()
+        except Exception as exc:  # noqa: BLE001
+            log.error("wt rectifier restore failed: %s", exc)

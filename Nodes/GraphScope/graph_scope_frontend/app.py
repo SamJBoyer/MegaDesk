@@ -249,14 +249,16 @@ class GraphScope:
         names = spec.node_names()
         if not names:
             return
-        gap = 16
-        total = len(names) * BOX_W + max(0, len(names) - 1) * gap
+        n = len(names)
+        gap = 8
+        box_w = min(BOX_W, max(44, int((DRAW_W - 16 - max(0, n - 1) * gap) / n)))
+        total = n * box_w + max(0, n - 1) * gap
         x0 = max(8, (DRAW_W - total) / 2)
         y = (DRAW_H - BOX_H) / 2
         centers: list[tuple[float, float]] = []
         for i, name in enumerate(names):
-            x = x0 + i * (BOX_W + gap)
-            centers.append((x + BOX_W / 2, y + BOX_H / 2))
+            x = x0 + i * (box_w + gap)
+            centers.append((x + box_w / 2, y + BOX_H / 2))
             status = (progress.get(name) or {}).get("status") or wire.STATUS_QUEUED
             fill = _STATUS_FILL.get(status, COLOR_BOX)
             if name == current:
@@ -264,7 +266,7 @@ class GraphScope:
             node = spec.node(name)
             dpg.draw_rectangle(
                 (x, y),
-                (x + BOX_W, y + BOX_H),
+                (x + box_w, y + BOX_H),
                 parent=tag,
                 fill=fill,
                 color=COLOR_EDGE,
@@ -272,7 +274,7 @@ class GraphScope:
                 tag=self._tag(f"box_{name}"),
             )
             dpg.draw_text(
-                (x + 6, y + 10),
+                (x + 4, y + 10),
                 node.label,
                 parent=tag,
                 size=12,
@@ -285,8 +287,8 @@ class GraphScope:
             a = centers[name_at[source]]
             b = centers[name_at[target]]
             dpg.draw_line(
-                (a[0] + BOX_W / 2 - 2, a[1]),
-                (b[0] - BOX_W / 2 + 2, b[1]),
+                (a[0] + box_w / 2 - 2, a[1]),
+                (b[0] - box_w / 2 + 2, b[1]),
                 parent=tag,
                 color=COLOR_EDGE,
                 thickness=1,
