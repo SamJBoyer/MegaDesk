@@ -1,11 +1,9 @@
-"""The wire format itself, independent of any GUI.
+"""The WORKORDER / FINISHED wire format itself, independent of any GUI.
 
-MergeManager and MissionControl each ship their own top-level ``redis_packets``
-module. Both are installed as top-level modules in the same environment, so
-``import redis_packets`` resolves to whichever editable finder was registered
-first — today MergeManager's, by alphabetical .pth order. Two copies of a
-contract that both sides of a stream depend on is exactly the seam that drifts
-silently, so these tests pin them together.
+TicketDispatcher, MachineFactory and MergeManager all write to this family, and
+all three import it from ``megadesk_contracts.wire.machine``. There used to be a
+copy of it inside two node packages, and tests here pinned the copies together;
+now there is one definition and these tests pin its writers and parsers instead.
 
 The parsers accept aliases (``REPO``, ``ticket``, ``workpath``) for
 backwards-compatibility, but every writer emits canonical names only. Tests
@@ -33,51 +31,53 @@ FINISHED_SAMPLE = {
 }
 
 
-def test_workorder_writer_emits_only_canonical_fields(mm_wire) -> None:
-    fields = mm_wire.workorder_fields(**WORKORDER_SAMPLE)
+def test_workorder_writer_emits_only_canonical_fields(machine_wire) -> None:
+    fields = machine_wire.workorder_fields(**WORKORDER_SAMPLE)
     assert set(fields) == set(WORKORDER_CANONICAL_FIELDS)
     assert all(isinstance(v, str) for v in fields.values()), "Redis takes strings only"
 
 
-def test_finished_writer_emits_only_canonical_fields(mc_wire) -> None:
-    fields = mc_wire.finished_fields(**FINISHED_SAMPLE)
+def test_finished_writer_emits_only_canonical_fields(machine_wire) -> None:
+    fields = machine_wire.finished_fields(**FINISHED_SAMPLE)
     assert set(fields) == set(FINISHED_CANONICAL_FIELDS)
     assert all(isinstance(v, str) for v in fields.values())
 
 
-def test_both_node_copies_build_identical_payloads(mm_wire, mc_wire) -> None:
-    """The duplicated contract must not drift between its two copies."""
-    assert mm_wire.workorder_fields(**WORKORDER_SAMPLE) == mc_wire.workorder_fields(
-        **WORKORDER_SAMPLE
-    )
-    assert mm_wire.finished_fields(**FINISHED_SAMPLE) == mc_wire.finished_fields(
-        **FINISHED_SAMPLE
-    )
-    assert mm_wire.WORKORDER_STREAM == mc_wire.WORKORDER_STREAM
-    assert mm_wire.FINISHED_PREFIX == mc_wire.FINISHED_PREFIX
-    assert mm_wire.finished_stream("widgets") == mc_wire.finished_stream("widgets")
+def test_every_writer_shares_one_definition() -> None:
+    """The three nodes on this stream family must import the same module.
+
+    This is what replaced the old copy-versus-copy comparison: sameness is now
+    an import fact rather than something a test has to keep checking.
+    """
+    import merge_manager_app
+    import ticket_dispatcher_app
+    from megadesk_contracts.wire import machine
+
+    assert ticket_dispatcher_app.WORKORDER_STREAM == machine.WORKORDER_STREAM
+    assert ticket_dispatcher_app.workorder_fields is machine.workorder_fields
+    assert merge_manager_app.FINISHED_PREFIX == machine.FINISHED_PREFIX
+    assert merge_manager_app.workorder_fields is machine.workorder_fields
 
 
-def test_both_node_copies_parse_identically(mm_wire, mc_wire) -> None:
-    written = mm_wire.workorder_fields(**WORKORDER_SAMPLE)
-    assert mm_wire.parse_workorder(written) == mc_wire.parse_workorder(written)
-
-    finished = mc_wire.finished_fields(**FINISHED_SAMPLE)
-    assert mm_wire.parse_finished(finished) == mc_wire.parse_finished(finished)
-
-
-def test_workorder_round_trips_through_the_parser(mm_wire) -> None:
-    parsed = mm_wire.parse_workorder(mm_wire.workorder_fields(**WORKORDER_SAMPLE))
+def test_workorder_round_trips_through_the_parser(machine_wire) -> None:
+    parsed = machine_wire.parse_workorder(machine_wire.workorder_fields(**WORKORDER_SAMPLE))
     assert parsed["repo"] == "widgets"
     assert parsed["new_wt"] is True
     assert parsed["wt"] == ""
     assert parsed["model"] == "grok-4.5"
 
 
-def test_conflict_workorder_requires_an_existing_worktree(mm_wire) -> None:
+def test_finished_round_trips_through_the_parser(machine_wire) -> None:
+    parsed = machine_wire.parse_finished(machine_wire.finished_fields(**FINISHED_SAMPLE))
+    assert parsed["ticket_name"] == FINISHED_SAMPLE["ticket_name"]
+    assert parsed["wt"] == FINISHED_SAMPLE["wt"]
+    assert parsed["agent_dir"] == FINISHED_SAMPLE["agent_dir"]
+
+
+def test_conflict_workorder_requires_an_existing_worktree(machine_wire) -> None:
     """new_wt=false is meaningless without a path to work in."""
     with pytest.raises(ValueError):
-        mm_wire.workorder_fields(
+        machine_wire.workorder_fields(
             repo="widgets",
             url="",
             new_wt=False,
@@ -87,15 +87,23 @@ def test_conflict_workorder_requires_an_existing_worktree(mm_wire) -> None:
         )
 
 
-def test_finished_rejects_incomplete_entries(mc_wire) -> None:
+def test_finished_rejects_incomplete_entries(machine_wire) -> None:
     with pytest.raises(ValueError):
-        mc_wire.finished_fields(
+        machine_wire.finished_fields(
             ticket_name="add-widget-tests", ticket_id="1-0", wt="", agent_dir=""
         )
 
 
-def test_merge_instructions_carry_both_absolute_paths(mm_wire) -> None:
-    text = mm_wire.merge_workorder_instructions(
+def test_agent_handler_rejects_a_status_outside_the_shared_vocabulary(
+    machine_wire,
+) -> None:
+    """Both factories report into one status set, so a typo must not reach Redis."""
+    with pytest.raises(ValueError):
+        machine_wire.agent_handler_fields(ticket_id="1-0", status="almost-done")
+
+
+def test_merge_instructions_carry_both_absolute_paths(machine_wire) -> None:
+    text = machine_wire.merge_workorder_instructions(
         repo="widgets",
         wt=FINISHED_SAMPLE["wt"],
         agent_dir=FINISHED_SAMPLE["agent_dir"],

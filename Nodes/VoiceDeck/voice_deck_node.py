@@ -2,7 +2,7 @@
 
 FE: push-to-talk, state, and a rolling transcript (requires ``[canvas]``).
 BE: VoiceDeckManager, which owns the microphone, the speaker, and the realtime
-socket, and routes the model's tool calls to CodeScope and CloudDispatcher.
+socket, and routes the model's tool calls to CodeScope and CloudFactory.
 """
 
 from __future__ import annotations

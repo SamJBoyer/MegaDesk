@@ -11,17 +11,26 @@ from megadesk_contracts import ENV_CANVAS_ROOT, ensure_supervisor_running, frame
 from megadesk_contracts.log_session import attach_log_session, session_log_path
 
 from engine.display_engine import (
+    CATALOG_BODY_TAG,
+    CATALOG_TOGGLE_TAG,
+    CATALOG_WIDTH,
+    CANVAS_BODY_TAG,
+    EDITOR_HOST_TAG,
     GRAPH_WINDOW,
     NODE_EDITOR,
     PAYLOAD_TYPE,
     REF_NODE,
     SIDEBAR_TAG,
+    SUPERVISOR_BODY_TAG,
+    SUPERVISOR_PANEL_TAG,
+    SUPERVISOR_TOGGLE_TAG,
+    SUPERVISOR_WIDTH,
     DisplayEngine,
 )
 from engine.graph_bar import BAR_HEIGHT, GRAPH_BAR_TAG, build_graph_bar
 from engine.graph_model import GraphError, GraphModel
 from engine.megadesk_registry import discover_megadesk_frontends
-from supervisor.panel import build_supervisor_panel, reposition_supervisor_panel
+from supervisor.panel import build_supervisor_panel, show_logs_for_canvas_node
 
 
 def _apply_daytime_theme() -> None:
@@ -71,6 +80,7 @@ def build_canvas(
     still be shown, since a minimized viewport renders nothing.
     """
     engine = DisplayEngine(model)
+    engine.supervisor_enabled = supervisor_panel
 
     dpg.create_context()
     _apply_daytime_theme()
@@ -104,14 +114,32 @@ def build_canvas(
                 border=True,
                 no_scrollbar=True,
             )
-        with dpg.group(horizontal=True):
-            dpg.add_child_window(
+        with dpg.group(horizontal=True, tag=CANVAS_BODY_TAG):
+            with dpg.child_window(
                 tag=SIDEBAR_TAG,
-                width=240,
+                width=CATALOG_WIDTH,
                 border=True,
-                no_scrollbar=False,
-            )
-            with dpg.child_window(width=-1, border=True, no_scrollbar=True):
+                no_scrollbar=True,
+            ):
+                dpg.add_button(
+                    tag=CATALOG_TOGGLE_TAG,
+                    label="<",
+                    width=18,
+                    callback=lambda: engine.toggle_catalog(),
+                )
+                dpg.add_child_window(
+                    tag=CATALOG_BODY_TAG,
+                    width=-1,
+                    height=-1,
+                    border=False,
+                    no_scrollbar=False,
+                )
+            with dpg.child_window(
+                tag=EDITOR_HOST_TAG,
+                width=-1,
+                border=True,
+                no_scrollbar=True,
+            ):
                 with dpg.group(
                     drop_callback=engine.on_graph_drop,
                     payload_type=PAYLOAD_TYPE,
@@ -123,6 +151,26 @@ def build_canvas(
                     ):
                         dpg.add_node(tag=REF_NODE, label="", show=False)
                         dpg.bind_item_theme(REF_NODE, ref_theme)
+            if supervisor_panel:
+                with dpg.child_window(
+                    tag=SUPERVISOR_PANEL_TAG,
+                    width=SUPERVISOR_WIDTH,
+                    border=True,
+                    no_scrollbar=True,
+                ):
+                    dpg.add_button(
+                        tag=SUPERVISOR_TOGGLE_TAG,
+                        label=">",
+                        width=18,
+                        callback=lambda: engine.toggle_supervisor(),
+                    )
+                    dpg.add_child_window(
+                        tag=SUPERVISOR_BODY_TAG,
+                        width=-1,
+                        height=-1,
+                        border=False,
+                        no_scrollbar=False,
+                    )
 
     viewport_kwargs: dict[str, object] = {}
     if viewport_pos is not None:
@@ -138,14 +186,13 @@ def build_canvas(
     if graph_bar:
         build_graph_bar(engine, GRAPH_BAR_TAG)
     if supervisor_panel:
-        build_supervisor_panel()
+        engine.on_member_selected = show_logs_for_canvas_node
+        build_supervisor_panel(SUPERVISOR_BODY_TAG)
     engine.on_viewport_resize()
     engine.host_all_members()
 
     def _on_resize(*_args: object) -> None:
         engine.on_viewport_resize()
-        if supervisor_panel:
-            reposition_supervisor_panel()
 
     dpg.set_viewport_resize_callback(_on_resize)
     return engine

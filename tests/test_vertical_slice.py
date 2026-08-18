@@ -1,7 +1,7 @@
-"""Vertical slice: TicketDispatcher → MissionControl (Plant) → MergeManager.
+"""Vertical slice: TicketDispatcher → MachineFactory → MergeManager.
 
 Uses the public smoke-test repo URL and one agent-ready issue. The sandbox
-boundary is still FakeAgent (no Docker, no Cursor API), but MissionControl's
+boundary is still FakeAgent (no Docker, no Cursor API), but MachineFactory's
 FE is hosted and must show a live AGENTHANDLER while the agent works — the
 gap T8 left open.
 """
@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from conftest import WORKORDER_STREAM
+from conftest import WORKORDER_GROUP, WORKORDER_STREAM
 
 pytestmark = [pytest.mark.canvas, pytest.mark.redis, pytest.mark.git]
 
@@ -35,32 +35,32 @@ def smoke_floor(tmp_path: Path):
 
 
 @pytest.fixture
-def smoke_agent(redis_client, smoke_floor, mc_wire):
+def smoke_agent(redis_client, smoke_floor, machine_wire):
     from megadesk_contracts.testing import FakeAgent
 
     agent = FakeAgent(
         redis=redis_client,
         floor=smoke_floor,
-        wire=mc_wire,
-        group="mission_control",
+        wire=machine_wire,
+        group=WORKORDER_GROUP,
     )
     agent.ensure_group()
     return agent
 
 
-def test_ticket_plant_merge_vertical_slice(
+def test_ticket_factory_merge_vertical_slice(
     redis_client,
     fake_gh,
     harness,
     smoke_floor,
     smoke_agent,
-    mc_wire,
+    machine_wire,
 ) -> None:
-    """Dispatch the smoke-test issue, show a live Plant sandbox, then merge."""
+    """Dispatch the smoke-test issue, show a live factory sandbox, then merge."""
     fake_gh.add_issue(ISSUE_NUMBER, ISSUE_TITLE, ISSUE_BODY)
 
     dispatcher = harness.drop("ticket_dispatcher")
-    plant = harness.drop("mission_control")
+    factory = harness.drop("machine_factory")
     manager = harness.drop("merge_manager")
 
     dispatcher.type_into("git_url", SMOKE_URL)
@@ -78,16 +78,16 @@ def test_ticket_plant_merge_vertical_slice(
     guid = "slice-live-agent"
     redis_client.hset(
         f"AGENTHANDLER:{guid}",
-        mapping=mc_wire.agent_handler_fields(
+        mapping=machine_wire.agent_handler_fields(
             ticket_id=str(workorder_id),
             status="running",
         ),
     )
     harness.wait_until(
-        lambda: "live=1" in plant.get("status_lbl"),
-        message="MissionControl to show the live AgentHandler sandbox",
+        lambda: "live=1" in factory.get("status_lbl"),
+        message="MachineFactory to show the live AgentHandler sandbox",
     )
-    live_items = plant.items("live_list")
+    live_items = factory.items("live_list")
     assert any("running" in item for item in live_items)
 
     runs = smoke_agent.run_once()

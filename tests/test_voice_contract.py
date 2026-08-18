@@ -1,11 +1,9 @@
 """The voice chain's wire format, independent of any GUI, Redis, or audio device.
 
-CodeScope, VoiceDeck and CloudDispatcher define their streams once, in
-``megadesk_contracts.wire``, precisely so there is no second copy to drift the
-way MergeManager's and MissionControl's ``redis_packets`` can (see
-``test_wire_contract.py``). That leaves one thing worth pinning here: writers
-emit exactly the canonical field names, and builders reject payloads a consumer
-could not act on.
+CodeScope, VoiceDeck and CloudFactory define their streams once, in
+``megadesk_contracts.wire``, so there is no second copy to drift. That leaves one
+thing worth pinning here: writers emit exactly the canonical field names, and
+builders reject payloads a consumer could not act on.
 
 These tests touch no GUI, no Redis and no microphone, so they run anywhere:
 ``pytest tests/test_voice_contract.py``.
@@ -162,13 +160,31 @@ def test_cloud_agent_ids_are_recognized_by_their_prefix() -> None:
     assert cloud.is_cloud_agent_id("local-abc123") is False
 
 
-def test_booleans_use_the_same_wire_form_as_the_mission_control_family(mm_wire) -> None:
-    """One Redis, one encoding: ``"true"`` / ``"false"`` across both stream families."""
+def test_booleans_use_the_same_wire_form_as_the_machine_factory_family(
+    machine_wire,
+) -> None:
+    """One Redis, one encoding: ``"true"`` / ``"false"`` across both stream families.
+
+    Asserted through the two order writers rather than the shared helper, because
+    the risk is a writer formatting its own flag, not the helper changing.
+    """
     from megadesk_contracts import wire
 
-    assert wire.BOOL_TRUE == mm_wire.BOOL_TRUE
-    assert wire.BOOL_FALSE == mm_wire.BOOL_FALSE
-    assert wire.bool_field(True) == mm_wire.bool_field(True)
+    machine_order = machine_wire.workorder_fields(
+        repo="widgets",
+        url="",
+        new_wt=True,
+        ticket_name="add-widget-tests",
+        instructions="Cover the widget module with tests.",
+    )
+    cloud_order = cloud.cloudorder_fields(
+        order_id=cloud.new_order_id(),
+        repo_url="https://github.com/acme/widgets",
+        title="Document the frame pump reset",
+        instructions="Explain why the frame pump needs a reset.",
+        auto_pr=True,
+    )
+    assert machine_order["new_wt"] == cloud_order["auto_pr"] == wire.BOOL_TRUE
 
 
 # --- rejections ------------------------------------------------------------

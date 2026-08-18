@@ -329,7 +329,7 @@ class VoiceSession:
             status = cloud_wire.STATUS_QUEUED
         else:
             # A draft, not an order: voice must not open a pull request on its
-            # own. It shows up in CloudDispatcher as a row with a button, and the
+            # own. It shows up in CloudFactory as a row with a button, and the
             # stored fields are the order verbatim, so dispatching adds nothing.
             self.persistent.hset(cloud_wire.clouddraft_key(order_id), mapping=order)
             status = cloud_wire.STATUS_DRAFT

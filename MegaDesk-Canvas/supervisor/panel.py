@@ -15,8 +15,9 @@ COLOR_RED = (231, 76, 60, 255)
 COLOR_DIM = (120, 120, 130, 255)
 
 SUPERVISOR_PANEL_TAG = "supervisor_panel_window"
+SUPERVISOR_BODY_TAG = "supervisor_panel_window::body"
 _STATUS_POLL_S = 1.0
-_PROCESS_LOG_TAIL = 80
+_PROCESS_LOG_TAIL = 200
 _LIVE: dict[str, "SupervisorPanel"] = {}
 
 
@@ -34,7 +35,9 @@ class SupervisorPanel:
         self._running: list[dict[str, str]] = []
         self._running_labels: list[str] = []
         self._selected_running_uid: Optional[str] = None
+        self._log_endpoint: Optional[str] = None
         self._frame_registered = False
+        self._pending_logs_tab = False
 
     @property
     def client(self) -> SupervisorClient:
@@ -99,12 +102,31 @@ class SupervisorPanel:
             lines = lines[-max_lines:]
         return "\n".join(lines) if lines else "(empty log)"
 
+    def _session_log_text(self, endpoint: str) -> str:
+        try:
+            path = str(session_log_path(endpoint))
+        except Exception as exc:
+            return f"(no log for {endpoint}: {exc})"
+        return self._tail_file(path)
+
     def _refresh_process_log(self) -> None:
         entry = self._selected_running_entry()
-        if not entry:
-            self._set_process_log("Select an alive instance to view its log.")
+        if entry:
+            self._set_process_log(self._tail_file(entry.get("log_path") or ""))
             return
-        self._set_process_log(self._tail_file(entry.get("log_path") or ""))
+        if self._log_endpoint:
+            self._set_process_log(self._session_log_text(self._log_endpoint))
+            return
+        self._set_process_log("Select an alive instance to view its log.")
+
+    def _restore_running_selection(self) -> None:
+        tag = self._tag("running")
+        if not dpg.does_item_exist(tag) or not self._selected_running_uid:
+            return
+        for entry, label in zip(self._running, self._running_labels):
+            if entry.get("unique_id") == self._selected_running_uid:
+                dpg.set_value(tag, label)
+                return
 
     def _refresh_lists(self) -> None:
         catalog = self._tag("catalog")
@@ -119,6 +141,7 @@ class SupervisorPanel:
                 running,
                 items=self._running_labels or ["(none running)"],
             )
+            self._restore_running_selection()
         self._refresh_process_log()
 
     def _poll_status(self, force: bool = False) -> None:
@@ -168,73 +191,81 @@ class SupervisorPanel:
         self._root_tag = tag_prefix
         _ = width, height
 
-        with dpg.group(parent=parent):
-            with dpg.group(horizontal=True):
-                dpg.add_text("Redis:")
-                dpg.add_text("*", tag=self._tag("redis_dot"), color=COLOR_RED)
-                dpg.add_spacer(width=10)
-                dpg.add_text("Backend:")
-                dpg.add_text("*", tag=self._tag("backend_dot"), color=COLOR_RED)
-                dpg.add_spacer(width=8)
-                dpg.add_text("", tag=self._tag("status_lbl"), wrap=220)
+        with dpg.tab_bar(parent=parent, tag=self._tag("tabs")):
+            with dpg.tab(label="Nodes", tag=self._tag("tab_nodes")):
+                with dpg.group(horizontal=True):
+                    dpg.add_text("Redis:")
+                    dpg.add_text("*", tag=self._tag("redis_dot"), color=COLOR_RED)
+                    dpg.add_spacer(width=10)
+                    dpg.add_text("Backend:")
+                    dpg.add_text("*", tag=self._tag("backend_dot"), color=COLOR_RED)
+                    dpg.add_spacer(width=8)
+                    dpg.add_text("", tag=self._tag("status_lbl"), wrap=180)
 
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="Send", width=70, callback=self._on_send)
-                dpg.add_button(label="Stop", width=70, callback=self._on_stop)
-                dpg.add_button(label="Stop all", width=70, callback=self._on_stop_all)
-                dpg.add_spacer(width=8)
-                dpg.add_button(
-                    label="Refresh",
-                    width=70,
-                    callback=lambda: self._poll_status(force=True),
+                with dpg.group(horizontal=True):
+                    dpg.add_button(label="Send", width=70, callback=self._on_send)
+                    dpg.add_button(label="Stop", width=70, callback=self._on_stop)
+                    dpg.add_button(label="Stop all", width=70, callback=self._on_stop_all)
+
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        label="Refresh",
+                        width=70,
+                        callback=lambda: self._poll_status(force=True),
+                    )
+                    dpg.add_button(
+                        label="Start BE",
+                        width=70,
+                        callback=lambda: self._ensure_backend(),
+                    )
+
+                dpg.add_separator()
+                dpg.add_text("Catalog", color=COLOR_DIM)
+                dpg.add_listbox(
+                    items=["(loading…)"],
+                    tag=self._tag("catalog"),
+                    num_items=5,
+                    width=-1,
+                    callback=self._on_catalog_select,
                 )
-                dpg.add_button(
-                    label="Start BE",
-                    width=70,
-                    callback=lambda: self._ensure_backend(),
+
+                dpg.add_separator()
+                dpg.add_text("Alive procs", color=COLOR_DIM)
+                dpg.add_listbox(
+                    items=["(none running)"],
+                    tag=self._tag("running"),
+                    num_items=5,
+                    width=-1,
+                    callback=self._on_running_select,
                 )
 
-            dpg.add_separator()
-            dpg.add_text("Catalog", color=COLOR_DIM)
-            dpg.add_listbox(
-                items=["(loading…)"],
-                tag=self._tag("catalog"),
-                num_items=5,
-                width=-1,
-                callback=self._on_catalog_select,
-            )
+                dpg.add_separator()
+                dpg.add_text("Actions", color=COLOR_DIM)
+                dpg.add_input_text(
+                    tag=self._tag("log"),
+                    default_value="",
+                    multiline=True,
+                    readonly=True,
+                    width=-1,
+                    height=-1,
+                )
 
-            dpg.add_separator()
-            dpg.add_text("Alive procs", color=COLOR_DIM)
-            dpg.add_listbox(
-                items=["(none running)"],
-                tag=self._tag("running"),
-                num_items=5,
-                width=-1,
-                callback=self._on_running_select,
-            )
-
-            dpg.add_separator()
-            dpg.add_text("Process log", color=COLOR_DIM)
-            dpg.add_input_text(
-                tag=self._tag("process_log"),
-                default_value="Select an alive instance to view its log.",
-                multiline=True,
-                readonly=True,
-                width=-1,
-                height=140,
-            )
-
-            dpg.add_separator()
-            dpg.add_text("Actions", color=COLOR_DIM)
-            dpg.add_input_text(
-                tag=self._tag("log"),
-                default_value="",
-                multiline=True,
-                readonly=True,
-                width=-1,
-                height=-1,
-            )
+            with dpg.tab(label="Logs", tag=self._tag("tab_logs")):
+                with dpg.child_window(
+                    tag=self._tag("log_host"),
+                    width=-1,
+                    height=-1,
+                    border=False,
+                    no_scrollbar=True,
+                ):
+                    dpg.add_input_text(
+                        tag=self._tag("process_log"),
+                        default_value="Select an alive instance to view its log.",
+                        multiline=True,
+                        readonly=True,
+                        width=-1,
+                        height=-1,
+                    )
 
         dpg.set_item_user_data(parent, self.shutdown)
         self._poll_status(force=True)
@@ -249,12 +280,61 @@ class SupervisorPanel:
         ):
             return
         self._poll_status()
+        if self._pending_logs_tab:
+            self._apply_logs_tab()
+            self._pending_logs_tab = False
 
     def shutdown(self) -> None:
         if self._frame_registered:
             frame_pump.unregister(self._on_frame)
             self._frame_registered = False
         _LIVE.pop(self._root_tag, None)
+
+    def _apply_logs_tab(self) -> None:
+        tabs = self._tag("tabs")
+        logs = self._tag("tab_logs")
+        if dpg.does_item_exist(tabs) and dpg.does_item_exist(logs):
+            dpg.set_value(tabs, logs)
+
+    def _focus_logs_tab(self) -> None:
+        self._pending_logs_tab = True
+        self._apply_logs_tab()
+
+    def show_logs_for_node(
+        self,
+        name: str,
+        backends: tuple[str, ...] = (),
+        *,
+        focus: bool = True,
+    ) -> None:
+        """Show the session / RUNNINGNODES log for a canvas node."""
+        endpoints: list[str] = []
+        for item in backends:
+            if item and item not in endpoints:
+                endpoints.append(item)
+        if name and name not in endpoints:
+            endpoints.append(name)
+
+        entry = None
+        for endpoint in endpoints:
+            for running in self._running:
+                if running.get("node_endpoint") == endpoint:
+                    entry = running
+                    break
+            if entry is not None:
+                break
+
+        if entry is not None:
+            self._selected_running_uid = entry.get("unique_id")
+            self._log_endpoint = None
+            self._restore_running_selection()
+            self._refresh_process_log()
+        else:
+            self._selected_running_uid = None
+            self._log_endpoint = endpoints[0] if endpoints else name
+            self._refresh_process_log()
+        if focus:
+            self._focus_logs_tab()
 
     def _on_catalog_select(self, sender, app_data, user_data=None) -> None:
         name = str(app_data if app_data is not None else "").strip()
@@ -266,6 +346,7 @@ class SupervisorPanel:
     def _on_running_select(self, sender, app_data, user_data=None) -> None:
         label = str(app_data if app_data is not None else "").strip()
         self._selected_running_uid = None
+        self._log_endpoint = None
         for entry, entry_label in zip(self._running, self._running_labels):
             if entry_label == label:
                 self._selected_running_uid = entry.get("unique_id")
@@ -337,52 +418,45 @@ class SupervisorPanel:
         self._poll_status(force=True)
 
 
+def live_panel() -> Optional[SupervisorPanel]:
+    panel = _LIVE.get(SUPERVISOR_PANEL_TAG)
+    if panel is not None:
+        return panel
+    if _LIVE:
+        return next(iter(_LIVE.values()))
+    return None
+
+
+def show_logs_for_canvas_node(name: str, backends: tuple[str, ...] = ()) -> None:
+    """Canvas selection hook: show this node's log in the Supervisor Logs tab."""
+    panel = live_panel()
+    if panel is None:
+        return
+    panel.show_logs_for_node(name, backends, focus=True)
+
+
 def build_supervisor_panel(
+    parent: str | None = None,
     *,
-    pos: tuple[int, int] | None = None,
     width: int = 360,
     height: int = 560,
 ) -> SupervisorPanel:
-    """Create the collapsible Supervisor floating panel on the canvas."""
-    if dpg.does_item_exist(SUPERVISOR_PANEL_TAG):
-        dpg.delete_item(SUPERVISOR_PANEL_TAG)
-        for panel in list(_LIVE.values()):
-            panel.shutdown()
-
-    vp_w = dpg.get_viewport_client_width() or 1280
-    if pos is None:
-        pos = (max(10, vp_w - width - 16), 40)
-
-    with dpg.window(
-        label="Supervisor",
-        tag=SUPERVISOR_PANEL_TAG,
-        pos=list(pos),
-        width=width,
-        height=height,
-        no_close=True,
-        no_collapse=False,
-    ):
-        content = dpg.add_child_window(
-            tag=f"{SUPERVISOR_PANEL_TAG}::content",
-            width=-1,
-            height=-1,
-            border=False,
+    """Fill the docked Supervisor pane (created by the canvas chrome)."""
+    target = parent or SUPERVISOR_BODY_TAG
+    if not dpg.does_item_exist(target):
+        raise RuntimeError(
+            f"Supervisor pane {target!r} missing; canvas chrome must create it first"
         )
+    if dpg.does_item_exist(target):
+        dpg.delete_item(target, children_only=True)
+    for panel in list(_LIVE.values()):
+        panel.shutdown()
 
     panel = SupervisorPanel()
     panel.build_ui(
-        content,
+        target,
         tag_prefix=SUPERVISOR_PANEL_TAG,
         width=width,
         height=height,
     )
     return panel
-
-
-def reposition_supervisor_panel() -> None:
-    """Keep the panel near the right edge after viewport resize."""
-    if not dpg.does_item_exist(SUPERVISOR_PANEL_TAG):
-        return
-    vp_w = dpg.get_viewport_client_width() or 1280
-    width = dpg.get_item_width(SUPERVISOR_PANEL_TAG) or 360
-    dpg.set_item_pos(SUPERVISOR_PANEL_TAG, [max(10, vp_w - int(width) - 16), 40])

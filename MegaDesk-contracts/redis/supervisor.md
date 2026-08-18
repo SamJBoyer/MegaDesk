@@ -3,7 +3,7 @@
 Supervisor is **Canvas infrastructure**, not a `MegaDesk.nodes` Catalog entry. It lives under `MegaDesk-Canvas/supervisor/`:
 
 - **BE:** `python -m supervisor` (started on canvas launch via `megadesk_contracts.ensure_supervisor_running()`)
-- **FE:** collapsible chrome panel via `supervisor.panel.build_supervisor_panel`
+- **FE:** right-hand collapsible chrome pane (Nodes / Logs tabs) via `supervisor.panel.build_supervisor_panel`
 
 Supervisor uses Redis for:
 
@@ -25,7 +25,7 @@ on DB 1 every 5s (`pid`, `status`, `node`) and exits if `NODE:SHUTDOWN` or
 OS PIDs and those heartbeats; dead hashes are deleted, not shown as exited.
 The operator panel lists **alive procs** only.
 
-This family is independent of the MissionControl pipeline streams, but shares the same
+This family is independent of the MachineFactory pipeline streams, but shares the same
 Redis server via **`REDIS_URL`** (different DB indexes).
 
 There is **no** request/response ack path. Producers `XADD` and move on;
@@ -43,7 +43,7 @@ Constants live in `megadesk_contracts.supervisor_client`:
 
 | DB | Role |
 |----|------|
-| `0` (ephemeral) | `LAUNCHREQUEST`, `KILLREQUEST`, `NODEEXIT`; MissionControl pipeline traffic |
+| `0` (ephemeral) | `LAUNCHREQUEST`, `KILLREQUEST`, `NODEEXIT`; MachineFactory pipeline traffic |
 | `1` (persistent) | `GBD:SUPERVISOR:SINGLETON`, `GBD:SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>`, `NODEHB:<unique_id>`, `NODE:SHUTDOWN` |
 
 Launch contract for BE nodes:
@@ -113,7 +113,7 @@ Supervisor BE — see `MegaDesk-Canvas/supervisor/redis_provision.py`.
 ### Example
 
 ```text
-XADD LAUNCHREQUEST * node_endpoint mission_control parameters ""
+XADD LAUNCHREQUEST * node_endpoint machine_factory parameters ""
 ```
 
 ---
@@ -146,7 +146,7 @@ XADD LAUNCHREQUEST * node_endpoint mission_control parameters ""
 ### Example
 
 ```text
-XADD KILLREQUEST * node_endpoint mission_control unique_id 3f2a9c1e-…
+XADD KILLREQUEST * node_endpoint machine_factory unique_id 3f2a9c1e-…
 ```
 
 ---
@@ -182,9 +182,9 @@ OS PID and heartbeat are both gone.
 ### Example
 
 ```text
-HSET RUNNINGNODES:3f2a9c1e-… node_endpoint mission_control unique_id 3f2a9c1e-…
+HSET RUNNINGNODES:3f2a9c1e-… node_endpoint machine_factory unique_id 3f2a9c1e-…
   parameters "" PID 12345 status running
-  log_path C:/…/Logs/2026-08-17T20-55-03Z/mission_control.md
+  log_path C:/…/Logs/2026-08-17T20-55-03Z/machine_factory.md
   launched_at 2026-08-06T20:00:00+00:00 exit_code "" exited_at ""
 ```
 
@@ -215,8 +215,8 @@ Metadata only — **never** log line bodies.
 ### Example
 
 ```text
-XADD NODEEXIT * unique_id 3f2a9c1e-… node_endpoint mission_control
-  exit_code 1 log_path C:/…/Logs/2026-08-17T20-55-03Z/mission_control.md
+XADD NODEEXIT * unique_id 3f2a9c1e-… node_endpoint machine_factory
+  exit_code 1 log_path C:/…/Logs/2026-08-17T20-55-03Z/machine_factory.md
   exited_at 2026-08-06T20:01:00+00:00
 ```
 

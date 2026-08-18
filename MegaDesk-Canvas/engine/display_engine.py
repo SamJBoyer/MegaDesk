@@ -29,10 +29,21 @@ log = logging.getLogger("megadesk.canvas")
 
 GRAPH_WINDOW = "graph_window"
 SIDEBAR_TAG = "catalog_sidebar"
+CATALOG_BODY_TAG = "catalog_sidebar::body"
+CATALOG_TOGGLE_TAG = "catalog_sidebar::toggle"
+CANVAS_BODY_TAG = "canvas_body"
+EDITOR_HOST_TAG = "graph_editor_host"
 REF_NODE = "graph_ref_node"
 PAYLOAD_TYPE = "MEGADESK_NODE"
 NODE_PADDING = (8, 8)
 SUPERVISOR_PANEL_TAG = "supervisor_panel_window"
+SUPERVISOR_BODY_TAG = "supervisor_panel_window::body"
+SUPERVISOR_TOGGLE_TAG = "supervisor_panel_window::toggle"
+
+CATALOG_WIDTH = 240
+SUPERVISOR_WIDTH = 360
+COLLAPSED_PANEL_WIDTH = 22
+_WINDOW_PAD = 16
 
 
 class DisplayEngine:
@@ -41,6 +52,11 @@ class DisplayEngine:
         # Set by the graph bar so it can re-read the model after a load / save.
         self.on_graph_changed: Optional[Callable[[], None]] = None
         self.graph_bar = None
+        self.catalog_expanded = True
+        self.supervisor_expanded = True
+        self.supervisor_enabled = False
+        self.on_member_selected: Optional[Callable[[str, tuple[str, ...]], None]] = None
+        self._selected_member_id: Optional[str] = None
 
     # --- drop position (Canvas2 REF_NODE technique) ---
 
@@ -194,10 +210,13 @@ class DisplayEngine:
                 member.sync_position_from_node()
 
         for member_id in pending_delete:
+            if member_id == self._selected_member_id:
+                self._selected_member_id = None
             self.model.delete_node(member_id)
             destroy_hosted_node(hosted_node_tag(member_id))
         if pending_delete:
             self._notify_graph_changed()
+        self._sync_canvas_selection()
 
     # --- graph file operations (driven by the graph bar) ---
 
@@ -261,9 +280,111 @@ class DisplayEngine:
         self._notify_graph_changed()
         return captured
 
+    def _sync_canvas_selection(self) -> None:
+        """When the operator selects a hosted node, show that node's Supervisor log."""
+        if not dpg.does_item_exist(NODE_EDITOR):
+            return
+        try:
+            selected = list(dpg.get_selected_nodes(NODE_EDITOR) or [])
+        except Exception:
+            selected = []
+        member_id: Optional[str] = None
+        for tag in selected:
+            if tag == REF_NODE:
+                continue
+            parsed = member_id_from_hosted_tag(tag)
+            if parsed and parsed in self.model.members:
+                member_id = parsed
+                break
+        if member_id == self._selected_member_id:
+            return
+        self._selected_member_id = member_id
+        if member_id is None or self.on_member_selected is None:
+            return
+        member = self.model.members[member_id]
+        backends = tuple(member.spec.backends or ())
+        self.on_member_selected(member.name, backends)
+
+    def notify_member_clicked(self, member_id: str) -> None:
+        """Show logs for a canvas member (same path as a node_editor selection)."""
+        if member_id not in self.model.members:
+            return
+        self._selected_member_id = member_id
+        if self.on_member_selected is None:
+            return
+        member = self.model.members[member_id]
+        self.on_member_selected(member.name, tuple(member.spec.backends or ()))
+
+    # --- Catalog / Supervisor chrome ---
+
+    def toggle_catalog(self) -> None:
+        self.catalog_expanded = not self.catalog_expanded
+        self.relayout_chrome()
+
+    def toggle_supervisor(self) -> None:
+        if not self.supervisor_enabled:
+            return
+        self.supervisor_expanded = not self.supervisor_expanded
+        self.relayout_chrome()
+
+    def relayout_chrome(self) -> None:
+        """Size the left Catalog, editor, and right Supervisor as a single row."""
+        vp_w = dpg.get_viewport_client_width() or 1280
+        vp_h = dpg.get_viewport_client_height() or 800
+        if dpg.does_item_exist(GRAPH_WINDOW):
+            dpg.set_item_width(GRAPH_WINDOW, vp_w)
+            dpg.set_item_height(GRAPH_WINDOW, vp_h)
+
+        cat_w = CATALOG_WIDTH if self.catalog_expanded else COLLAPSED_PANEL_WIDTH
+        sup_w = 0
+        if self.supervisor_enabled and dpg.does_item_exist(SUPERVISOR_PANEL_TAG):
+            sup_w = (
+                SUPERVISOR_WIDTH if self.supervisor_expanded else COLLAPSED_PANEL_WIDTH
+            )
+        editor_w = max(160, int(vp_w) - cat_w - sup_w - _WINDOW_PAD)
+
+        bar_h = 0
+        if dpg.does_item_exist("graph_bar"):
+            try:
+                bar_h = int(dpg.get_item_height("graph_bar") or 0)
+            except Exception:
+                bar_h = 32
+        body_h = max(120, int(vp_h) - bar_h - _WINDOW_PAD)
+
+        if dpg.does_item_exist(SIDEBAR_TAG):
+            dpg.configure_item(SIDEBAR_TAG, width=cat_w, height=body_h)
+        if dpg.does_item_exist(CATALOG_BODY_TAG):
+            dpg.configure_item(CATALOG_BODY_TAG, show=self.catalog_expanded)
+        if dpg.does_item_exist(CATALOG_TOGGLE_TAG):
+            dpg.configure_item(
+                CATALOG_TOGGLE_TAG, label="<" if self.catalog_expanded else ">"
+            )
+        if dpg.does_item_exist(EDITOR_HOST_TAG):
+            dpg.configure_item(EDITOR_HOST_TAG, width=editor_w, height=body_h)
+        if dpg.does_item_exist(SUPERVISOR_PANEL_TAG):
+            dpg.configure_item(
+                SUPERVISOR_PANEL_TAG,
+                width=sup_w,
+                height=body_h,
+                show=True,
+            )
+        if dpg.does_item_exist(SUPERVISOR_BODY_TAG):
+            dpg.configure_item(SUPERVISOR_BODY_TAG, show=self.supervisor_expanded)
+        if dpg.does_item_exist(SUPERVISOR_TOGGLE_TAG):
+            dpg.configure_item(
+                SUPERVISOR_TOGGLE_TAG,
+                label=">" if self.supervisor_expanded else "<",
+            )
+
     # --- Catalog sidebar ---
 
-    def build_sidebar(self, parent: str = SIDEBAR_TAG) -> None:
+    def build_sidebar(self, parent: Optional[str] = None) -> None:
+        if parent is None:
+            parent = (
+                CATALOG_BODY_TAG
+                if dpg.does_item_exist(CATALOG_BODY_TAG)
+                else SIDEBAR_TAG
+            )
         if not dpg.does_item_exist(parent):
             return
 
@@ -334,8 +455,4 @@ class DisplayEngine:
                 dpg.add_spacer(height=6)
 
     def on_viewport_resize(self) -> None:
-        vp_w = dpg.get_viewport_client_width() or 1280
-        vp_h = dpg.get_viewport_client_height() or 800
-        if dpg.does_item_exist(GRAPH_WINDOW):
-            dpg.set_item_width(GRAPH_WINDOW, vp_w)
-            dpg.set_item_height(GRAPH_WINDOW, vp_h)
+        self.relayout_chrome()

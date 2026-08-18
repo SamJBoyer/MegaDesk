@@ -1,7 +1,7 @@
 """A real local git Floor for tests.
 
 MergeManager's merge path is worth testing for real rather than stubbing a
-handful of git argv patterns, so this builds the actual layout MissionControl
+handful of git argv patterns, so this builds the actual layout MachineFactory
 produces::
 
     <root>/origin.git                          bare, stands in for GitHub

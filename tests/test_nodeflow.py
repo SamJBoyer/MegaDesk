@@ -1,11 +1,11 @@
-"""The node-to-node workflow: TicketDispatcher → MissionControl → MergeManager.
+"""The node-to-node workflow: TicketDispatcher → MachineFactory → MergeManager.
 
 Each test crosses a seam that unit tests on either side cannot reach — a Redis
 stream or a GUI callback. The chain is cut at the sandbox boundary: `FakeAgent`
 stands in for Floor cloning, Docker and `cursor_sdk`, while the GUI, the stream
 contracts, the consumer-group semantics and the real `git merge` stay real.
 
-The real MissionControl BE is never launched. Dropping a node only publishes a
+The real MachineFactory BE is never launched. Dropping a node only publishes a
 LAUNCHREQUEST when Supervisor is alive, and neither FE under test has a BE, so
 nothing here can spawn Docker.
 
@@ -49,7 +49,7 @@ def dispatch(harness, dispatcher, issue_id: int, *, model: str | None = None) ->
 
 
 def seed_finished(redis_client, wire, floor, *, ticket_name: str, wt: Path) -> str:
-    """XADD a FINISHED entry the way MissionControl would, and return its id."""
+    """XADD a FINISHED entry the way MachineFactory would, and return its id."""
     return str(
         redis_client.xadd(
             wire.finished_stream(floor.repo),
@@ -146,7 +146,7 @@ def test_t2b_gh_failure_surfaces_in_the_status_widget(
 
 
 def test_t3_agent_acks_the_group_and_publishes_finished(
-    redis_client, fake_gh, harness, git_floor, fake_agent, mc_wire
+    redis_client, fake_gh, harness, git_floor, fake_agent, machine_wire
 ) -> None:
     """Catches consumer-group and ack semantics, and path relativization."""
     fake_gh.add_issue(43, "t3-ticket", "Make a commit.")
@@ -155,13 +155,13 @@ def test_t3_agent_acks_the_group_and_publishes_finished(
     dispatch(harness, dispatcher, 43)
 
     runs = fake_agent.run_once()
-    assert len(runs) == 1, "the mission_control group delivered nothing"
+    assert len(runs) == 1, "the machine_factory group delivered nothing"
     run = runs[0]
     assert run.repo == REPO
     assert run.new_wt is True
     assert fake_agent.pending() == 0, "WORKORDER entries left unacked after handling"
 
-    finished = redis_client.xrange(mc_wire.finished_stream(REPO))
+    finished = redis_client.xrange(machine_wire.finished_stream(REPO))
     assert len(finished) == 1
     _finished_id, fields = finished[0]
 
@@ -179,7 +179,7 @@ def test_t3_agent_acks_the_group_and_publishes_finished(
 
 
 def test_t3b_a_second_pass_delivers_nothing_new(
-    redis_client, fake_gh, harness, fake_agent, mc_wire
+    redis_client, fake_gh, harness, fake_agent, machine_wire
 ) -> None:
     """An acked entry must not be redelivered on the next poll."""
     fake_gh.add_issue(44, "t3b-ticket", "Once only.")
@@ -189,19 +189,19 @@ def test_t3b_a_second_pass_delivers_nothing_new(
 
     assert len(fake_agent.run_once()) == 1
     assert fake_agent.run_once() == []
-    assert redis_client.xlen(mc_wire.finished_stream(REPO)) == 1
+    assert redis_client.xlen(machine_wire.finished_stream(REPO)) == 1
 
 
 # --- T4: FINISHED → MergeManager GUI --------------------------------------
 
 
 def test_t4_finished_entry_populates_a_merge_row(
-    redis_client, harness, git_floor, mc_wire
+    redis_client, harness, git_floor, machine_wire
 ) -> None:
     """Catches stream → GUI population, which depends on the frame-pump drain."""
     ticket = git_floor.add_ticket("t4-ticket")
     manager, key, entry_id = merge_row(
-        harness, redis_client, mc_wire, git_floor, ticket_name="t4-ticket", wt=ticket
+        harness, redis_client, machine_wire, git_floor, ticket_name="t4-ticket", wt=ticket
     )
 
     assert manager.get(f"name::{key}") == "t4-ticket"
@@ -212,18 +212,18 @@ def test_t4_finished_entry_populates_a_merge_row(
 
 
 def test_t4b_malformed_finished_entry_is_acked_not_shown(
-    redis_client, harness, git_floor, mc_wire
+    redis_client, harness, git_floor, machine_wire
 ) -> None:
     """A bad entry must be acked away, not retried forever or rendered."""
-    redis_client.xadd(mc_wire.finished_stream(REPO), {"ticket_name": "broken"})
+    redis_client.xadd(machine_wire.finished_stream(REPO), {"ticket_name": "broken"})
     manager = harness.drop("merge_manager")
 
     harness.wait_until(
-        lambda: _group_exists(redis_client, mc_wire.finished_stream(REPO)),
+        lambda: _group_exists(redis_client, machine_wire.finished_stream(REPO)),
         message="MergeManager to create its consumer group",
     )
     harness.wait_until(
-        lambda: _pending(redis_client, mc_wire.finished_stream(REPO)) == 0,
+        lambda: _pending(redis_client, machine_wire.finished_stream(REPO)) == 0,
         message="the malformed entry to be acked",
     )
     assert manager.suffixes(r"^name::") == []
@@ -248,13 +248,13 @@ def _pending(redis_client, stream: str) -> int:
 
 
 def test_t5_clean_merge_pushes_and_flips_the_row(
-    redis_client, harness, git_floor, mc_wire
+    redis_client, harness, git_floor, machine_wire
 ) -> None:
     """Catches the merge + push path and the row state machine."""
     ticket = git_floor.add_ticket("t5-ticket")
     sha = git_floor.commit(ticket, "feature.txt", "a feature\n", "ticket: add feature")
     manager, key, _entry_id = merge_row(
-        harness, redis_client, mc_wire, git_floor, ticket_name="t5-ticket", wt=ticket
+        harness, redis_client, machine_wire, git_floor, ticket_name="t5-ticket", wt=ticket
     )
 
     manager.click(f"merge::{key}")
@@ -275,14 +275,14 @@ def test_t5_clean_merge_pushes_and_flips_the_row(
 
 
 def test_t5b_dirty_agents_blocks_the_merge_and_offers_hard_reset(
-    redis_client, harness, git_floor, mc_wire
+    redis_client, harness, git_floor, machine_wire
 ) -> None:
     ticket = git_floor.add_ticket("t5b-ticket")
     sha = git_floor.commit(ticket, "feature.txt", "a feature\n")
     git_floor.dirty(git_floor.agents_dir)
 
     manager, key, _entry_id = merge_row(
-        harness, redis_client, mc_wire, git_floor, ticket_name="t5b-ticket", wt=ticket
+        harness, redis_client, machine_wire, git_floor, ticket_name="t5b-ticket", wt=ticket
     )
     manager.click(f"merge::{key}")
     harness.pump(2)
@@ -302,7 +302,7 @@ def test_t5b_dirty_agents_blocks_the_merge_and_offers_hard_reset(
 
 
 def test_t6_conflict_aborts_and_publishes_a_followup_workorder(
-    redis_client, harness, git_floor, mc_wire, workorders
+    redis_client, harness, git_floor, machine_wire, workorders
 ) -> None:
     """The loop-closing seam: a conflicted merge must re-enter the pipeline."""
     ticket = git_floor.add_ticket("t6-ticket")
@@ -310,7 +310,7 @@ def test_t6_conflict_aborts_and_publishes_a_followup_workorder(
     agents_before = git_floor.head(git_floor.agents_dir)
 
     manager, key, _entry_id = merge_row(
-        harness, redis_client, mc_wire, git_floor, ticket_name="t6-ticket", wt=ticket
+        harness, redis_client, machine_wire, git_floor, ticket_name="t6-ticket", wt=ticket
     )
     manager.click(f"merge::{key}")
     harness.pump(2)
@@ -336,14 +336,14 @@ def test_t6_conflict_aborts_and_publishes_a_followup_workorder(
 
 
 def test_t6b_the_followup_workorder_is_consumable(
-    redis_client, harness, git_floor, mc_wire, fake_agent, workorders
+    redis_client, harness, git_floor, machine_wire, fake_agent, workorders
 ) -> None:
     """The re-entered WORKORDER must satisfy the consumer that reads it."""
     ticket = git_floor.add_ticket("t6b-ticket")
     git_floor.make_conflict("t6b-ticket")
 
     manager, key, _entry_id = merge_row(
-        harness, redis_client, mc_wire, git_floor, ticket_name="t6b-ticket", wt=ticket
+        harness, redis_client, machine_wire, git_floor, ticket_name="t6b-ticket", wt=ticket
     )
     manager.click(f"merge::{key}")
     harness.pump(2)
@@ -357,15 +357,15 @@ def test_t6b_the_followup_workorder_is_consumable(
 
 
 def test_t7_dismiss_acks_deletes_and_removes_the_row(
-    redis_client, harness, git_floor, mc_wire
+    redis_client, harness, git_floor, machine_wire
 ) -> None:
     """Catches stream cleanup drifting apart from GUI teardown."""
     ticket = git_floor.add_ticket("t7-ticket")
     git_floor.commit(ticket, "feature.txt", "a feature\n")
-    stream = mc_wire.finished_stream(REPO)
+    stream = machine_wire.finished_stream(REPO)
 
     manager, key, _entry_id = merge_row(
-        harness, redis_client, mc_wire, git_floor, ticket_name="t7-ticket", wt=ticket
+        harness, redis_client, machine_wire, git_floor, ticket_name="t7-ticket", wt=ticket
     )
     manager.click(f"merge::{key}")
     harness.pump(2)
@@ -384,7 +384,7 @@ def test_t7_dismiss_acks_deletes_and_removes_the_row(
 
 
 def test_t8_full_chain_from_dispatch_to_merged_agents(
-    redis_client, fake_gh, harness, git_floor, fake_agent, mc_wire
+    redis_client, fake_gh, harness, git_floor, fake_agent, machine_wire
 ) -> None:
     """Dispatch → FakeAgent → MergeManager row → merge, with both FEs hosted.
 

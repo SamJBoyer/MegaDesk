@@ -37,8 +37,8 @@
     "48e5ab77-69b4-421a-a48e-ed464a7603f1": {
       "member_id": "48e5ab77-69b4-421a-a48e-ed464a7603f1",
       "type": "megadesk",
-      "nickname": "mission_control",
-      "node_name": "mission_control",
+      "nickname": "machine_factory",
+      "node_name": "machine_factory",
       "position": [
         927.0,
         -188.0
@@ -47,7 +47,7 @@
       "data": {
         "width": 520.0,
         "height": 400.0,
-        "node_name": "mission_control"
+        "node_name": "machine_factory"
       }
     }
   }

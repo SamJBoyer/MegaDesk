@@ -17,4 +17,4 @@ dependencies = [
 merge_manager = "merge_manager_node:get_exec_spec"
 
 [tool.setuptools]
-py-modules = ["merge_manager_app", "merge", "redis_packets", "merge_manager_node"]
+py-modules = ["merge_manager_app", "merge", "merge_manager_node"]

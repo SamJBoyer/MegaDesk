@@ -2,8 +2,9 @@ MegaDesk canvas — Dear PyGui whiteboard host for MegaDesk FE tools.
 
 **Supervisor is built-in:** on launch the canvas starts the Supervisor BE via
 `megadesk_contracts.ensure_supervisor_running()` (`python -m supervisor` from
-this package). The operator UI is collapsible chrome
-(`supervisor.panel.build_supervisor_panel`), not a Catalog / `MegaDesk.nodes`
+this package). The operator UI is a right-hand pane
+(`supervisor.panel.build_supervisor_panel`), docked like the Catalog and
+collapsible the same way — Nodes and Logs tabs, not a Catalog / `MegaDesk.nodes`
 entry. Managed BE logs land under worktree `Logs/{session}/{endpoint}.md`
 (read `Logs/CURRENT`).
 

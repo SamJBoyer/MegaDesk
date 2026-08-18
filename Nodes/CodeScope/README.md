@@ -25,9 +25,8 @@ already runs a background thread. The BE never needs the URL — it reads
 
 ## Wire
 
-Canonical definitions live in `megadesk_contracts.wire.code_scope`, so there is
-only one copy (unlike the duplicated `redis_packets` modules that
-`tests/test_wire_contract.py` has to police).
+Canonical definitions live in `megadesk_contracts.wire.code_scope`, where every
+stream in this repo is defined exactly once.
 
 | Package | Type | Key | DB |
 |---------|------|-----|----|
@@ -51,7 +50,7 @@ cleans untracked files. Nothing you care about should live there, which is also
 the safety net for the agent's write tools — the prompt tells it to read only,
 and the clone makes it not matter if it forgets.
 
-This is deliberately not MissionControl's `Floor/` worktree farm: answering
+This is deliberately not MachineFactory's `Floor/` worktree farm: answering
 questions needs no branches, and sharing a worktree with a writing agent would
 race it.
 

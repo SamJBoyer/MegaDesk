@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "voice-deck"
 version = "0.1.0"
-description = "MegaDesk node: speech-to-speech front end for CodeScope and CloudDispatcher"
+description = "MegaDesk node: speech-to-speech front end for CodeScope and CloudFactory"
 requires-python = ">=3.10"
 dependencies = [
     "redis>=5.0.0",

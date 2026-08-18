@@ -11,7 +11,7 @@ A **node** is a modular tool inside MegaDesk. Nodes can expose a front-end (FE),
 
 Shared contract lives in the installable `megadesk-contracts` package (`MegaDesk-contracts/`): `FeSpec`, `BeSpec`, entry-point discovery, `SupervisorClient`, `frame_pump`, and logging helpers.
 
-**Supervisor** is Canvas infrastructure (`MegaDesk-Canvas/supervisor/`), not a Catalog / `MegaDesk.nodes` entry. The BE starts on canvas launch via `megadesk_contracts.ensure_supervisor_running()` (`python -m supervisor`). The operator UI is a collapsible panel (`supervisor.panel.build_supervisor_panel`), not a droppable FE.
+**Supervisor** is Canvas infrastructure (`MegaDesk-Canvas/supervisor/`), not a Catalog / `MegaDesk.nodes` entry. The BE starts on canvas launch via `megadesk_contracts.ensure_supervisor_running()` (`python -m supervisor`). The operator UI is a right-hand collapsible pane with Nodes and Logs tabs (`supervisor.panel.build_supervisor_panel`), matching the left Catalog — not a droppable FE.
 
 **Naming (MegaDesk vs legacy Executive):** MegaDesk uses `MegaDesk.nodes` + `FeSpec`/`BeSpec` + canvas host class `MegaDeskMember`. That is not the older Executive stack (`executive.nodes` / `BaseNode`).
 
@@ -55,12 +55,17 @@ Examples in-repo:
 
 | Node | Entry point | Modes |
 |------|-------------|-------|
-| MissionControl | `mission_control` | FE + BE |
+| MachineFactory (`Nodes/Factory/MachineFactory`) | `machine_factory` | FE + BE |
+| CloudFactory (`Nodes/Factory/CloudFactory`) | `cloud_factory` | FE + BE |
 | MergeManager | `merge_manager` | FE only |
 | TicketDispatcher | `ticket_dispatcher` | FE only |
 | CodeScope | `code_scope` | FE + BE |
 | VoiceDeck | `voice_deck` | FE + BE |
-| CloudDispatcher | `cloud_dispatcher` | FE + BE |
+
+Nodes may be nested. Related ones are grouped by folder — `Nodes/Factory/` holds
+the two factories as siblings — and `scripts/refresh_nodes.py` discovers at any
+depth. Nesting groups nodes; it does not merge them: each keeps its own
+`pyproject.toml`, its own entry point and its own identity on the canvas.
 
 ---
 
@@ -172,8 +177,8 @@ from megadesk_contracts import BeSpec, Mode
 
 def get_be_spec():
     return BeSpec(
-        name="mission_control",
-        argv=[sys.executable, "-u", "-m", "MissionControlManager"],
+        name="machine_factory",
+        argv=[sys.executable, "-u", "-m", "MachineFactoryManager"],
         cwd=str(package_root),
     )
 
@@ -181,7 +186,7 @@ def get_fe_spec():
     return None
 ```
 
-FE+BE example: `get_fe_spec()` returns an `FeSpec` with `backends=(name,)`; `get_be_spec()` returns the `BeSpec` (see `Nodes/MissionControl/mission_control_node.py`).
+FE+BE example: `get_fe_spec()` returns an `FeSpec` with `backends=(name,)`; `get_be_spec()` returns the `BeSpec` (see `Nodes/Factory/MachineFactory/machine_factory_node.py`).
 
 ---
 
@@ -206,7 +211,7 @@ Related public helpers (same package): `SupervisorClient`, `ensure_supervisor_ru
 
 ## How the FE uses nodes (MegaDesk graph)
 
-1. On startup, MegaDesk-Canvas calls `ensure_supervisor_running()` so the Supervisor BE (`python -m supervisor`) is up before UI drop can request BE launches. Then it calls `discover_frontends()` (via `engine.megadesk_registry.discover_megadesk_frontends`) and fills the Catalog palette (`megadesk:<name>`). Icons come from `FeSpec.icon`. A **graph bar** sits above the Catalog so the operator can pick, save, save-as, Capture, or delete a graph. The Supervisor operator UI is built as collapsible chrome via `build_supervisor_panel` — it is not a Catalog entry.
+1. On startup, MegaDesk-Canvas calls `ensure_supervisor_running()` so the Supervisor BE (`python -m supervisor`) is up before UI drop can request BE launches. Then it calls `discover_frontends()` (via `engine.megadesk_registry.discover_megadesk_frontends`) and fills the Catalog palette (`megadesk:<name>`). Icons come from `FeSpec.icon`. A **graph bar** sits above the Catalog so the operator can pick, save, save-as, Capture, or delete a graph. The Supervisor operator UI is a right-hand collapsible pane (Nodes / Logs tabs) via `build_supervisor_panel` — it is not a Catalog entry. Selecting a hosted node on the board shows that node's session log in the Logs tab.
 2. Dropping a node places a graph member (`type: "megadesk"`, `node_name` in the open `.json`) and hosts the FE as a native `dpg.node` inside the graph `node_editor` via `FeSpec.build`. Graph parameters for that member are passed into `get_fe_spec(parameters=…)`.
 3. Nodes on the board are always the live FE (no placard / closed state). Middle-mouse pans the editor; there is no graph zoom. Delete removes the selected node(s).
 4. After drop **and** when a saved graph is opened, the host reads `FeSpec.backends` and `XADD`s one `LAUNCHREQUEST` per endpoint with `parameters` set to `FeSpec.backend_parameters` (skipped if that BE is already alive, Redis is down, or Supervisor is not up).
@@ -221,11 +226,11 @@ pip install -e MegaDesk-contracts
 pip install -e MegaDesk-Canvas
 pip install -e Nodes/TicketDispatcher   # FE example
 pip install -e Nodes/MergeManager       # FE example
-pip install -e Nodes/MissionControl[canvas]     # FE + BE example
+pip install -e Nodes/Factory/MachineFactory[canvas]   # FE + BE example, nested
 python main.py   # from MegaDesk-Canvas/ — starts Supervisor BE on launch
 ```
 
-To reinstall every node from scratch, run `python scripts/refresh_nodes.py` from the MEGADESK env — it uninstalls and editable-reinstalls each `Nodes/<Name>/`, then verifies discovery. Before changing the Supervisor or a BE, run `python scripts/down_nodes.py`.
+To reinstall every node from scratch, run `python scripts/refresh_nodes.py` from the MEGADESK env — it uninstalls and editable-reinstalls every node under `Nodes/`, at any depth, then verifies discovery. It skips anything inside a nested git checkout, because CodeScope clones repos into `Nodes/CodeScope/Scope/` and one of them is usually MegaDesk itself. Before changing the Supervisor or a BE, run `python scripts/down_nodes.py`.
 
 ### Hosted shell (`MegaDeskMember`)
 
@@ -293,7 +298,7 @@ Logs/
   2026-08-17T20-55-03Z/
     supervisor.md
     canvas.md
-    mission_control.md
+    machine_factory.md
 ```
 
 Read `Logs/CURRENT`, then that folder. Older timestamp folders are previous generations.

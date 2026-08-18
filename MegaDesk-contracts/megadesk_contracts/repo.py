@@ -1,11 +1,11 @@
 """Read-only repo clones for nodes that only need to look at code.
 
-MissionControl's ``Floor/`` is a worktree farm: a bare clone plus per-ticket
+MachineFactory's ``Floor/`` is a worktree farm: a bare clone plus per-ticket
 branches, because agents there *write*. A node that only answers questions about
 code needs none of that, and sharing a worktree with a writing agent would race
 it. So this is a plain clone with a refresh that throws local changes away.
 
-``MissionControlManager/floor.py`` keeps its own URL-to-name helpers; that copy
+``MachineFactoryManager/floor.py`` keeps its own URL-to-name helpers; that copy
 serves the branch layout and its required ``main``/``dev``/``agents`` branches,
 which do not apply here.
 """

@@ -14,8 +14,13 @@ boundary that still removes a network or a device:
   injected into the real one.
 * ``FakeRealtime`` — a scripted OpenAI Realtime socket. No audio device, no
   websocket, so the real tool router runs against real event shapes.
-* ``FakeCloudRuntime`` — ``bc-`` agent ids and a canned PR URL instead of a
-  Cursor-hosted VM, including both failure modes the dispatcher must separate.
+* ``FakeCloudFactory`` — ``bc-`` agent ids and a canned PR URL instead of a
+  Cursor-hosted VM, including both failure modes a factory must separate.
+* ``FakeMachineFactory`` — sandbox guids and a container that stops when told,
+  instead of a Docker daemon.
+
+The last two implement ``megadesk_contracts.factory.AgentFactory``, so a test can
+hand either to a graph and assert the same three verbs behave the same way.
 """
 
 from __future__ import annotations
@@ -29,7 +34,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
 from megadesk_contracts.agent_errors import AgentRunError, AgentStartupError
-from megadesk_contracts.cloud_runtime import CloudLaunch, CloudStatus
+from megadesk_contracts.factory import RunHandle, RunStatus
 from megadesk_contracts.realtime import (
     EVENT_ASSISTANT_TEXT,
     EVENT_ERROR,
@@ -41,6 +46,7 @@ from megadesk_contracts.realtime import (
 )
 from megadesk_contracts.wire import cloud as cloud_wire
 from megadesk_contracts.wire import code_scope as code_scope_wire
+from megadesk_contracts.wire import factory as factory_wire
 
 
 @dataclass
@@ -138,9 +144,9 @@ def _safe_name(name: str) -> str:
 class FakeAgent:
     """Consumes WORKORDER, commits in a real worktree, publishes FINISHED.
 
-    Reads through the real ``mission_control`` consumer group with the real
-    ack semantics, and builds its payloads with the production wire helpers
-    injected as ``wire`` — so a renamed field or a dropped ack fails here.
+    Reads through MachineFactory's real consumer group with the real ack
+    semantics, and builds its payloads with the production wire helpers injected
+    as ``wire`` — so a renamed field or a dropped ack fails here.
     """
 
     def __init__(
@@ -149,7 +155,7 @@ class FakeAgent:
         redis: Any,
         floor: Any,
         wire: Any,
-        group: str = "mission_control",
+        group: Optional[str] = None,
         consumer: str = "fake-agent",
         commit_relpath: str = "agent.txt",
         commit_text: str = "work done by the fake agent\n",
@@ -158,7 +164,7 @@ class FakeAgent:
         self.redis = redis
         self.floor = floor
         self.wire = wire
-        self.group = group
+        self.group = group or wire.WORKORDER_GROUP
         self.consumer = consumer
         self.commit_relpath = commit_relpath
         self.commit_text = commit_text
@@ -573,13 +579,13 @@ class FakeRealtime:
         return None
 
 
-# --- CloudDispatcher -------------------------------------------------------
+# --- Factories -------------------------------------------------------------
 
 
-class FakeCloudRuntime:
+class FakeCloudFactory:
     """``bc-`` ids and a canned PR URL instead of a Cursor-hosted VM.
 
-    Models both failure modes the dispatcher has to keep apart: ``startup_error``
+    Models both failure modes a factory has to keep apart: ``startup_error``
     raises before an agent id exists, while ``run_error`` produces a real agent
     that finishes badly.
     """
@@ -603,16 +609,7 @@ class FakeCloudRuntime:
         self._polls: dict[str, int] = {}
         self._seq = 0
 
-    def launch(
-        self,
-        *,
-        repo_url: str,
-        instructions: str,
-        title: str,
-        model: str,
-        auto_pr: bool = True,
-        ref: str = "",
-    ) -> CloudLaunch:
+    def launch(self, order: Any) -> RunHandle:
         if self.startup_error:
             raise AgentStartupError(self.startup_error, retryable=self.retryable)
         self._seq += 1
@@ -620,30 +617,84 @@ class FakeCloudRuntime:
         self.launches.append(
             {
                 "agent_id": agent_id,
-                "repo_url": repo_url,
-                "instructions": instructions,
-                "title": title,
-                "model": model,
-                "auto_pr": bool(auto_pr),
-                "ref": ref,
+                "repo_url": str(order["repo_url"]),
+                "instructions": str(order["instructions"]),
+                "title": str(order["title"]),
+                "model": str(order.get("model") or ""),
+                "auto_pr": bool(order.get("auto_pr", True)),
+                "ref": str(order.get("ref") or ""),
             }
         )
-        return CloudLaunch(agent_id=agent_id, run_id=f"run_{self._seq:03d}")
+        return RunHandle(run_key=agent_id, run_id=f"run_{self._seq:03d}")
 
-    def poll(self, agent_id: str) -> CloudStatus:
-        seen = self._polls.get(agent_id, 0) + 1
-        self._polls[agent_id] = seen
-        if agent_id in self.cancelled:
-            return CloudStatus(status=cloud_wire.STATUS_CANCELLED)
+    def poll(self, run_key: str) -> RunStatus:
+        seen = self._polls.get(run_key, 0) + 1
+        self._polls[run_key] = seen
+        if run_key in self.cancelled:
+            return RunStatus(status=factory_wire.STATUS_CANCELLED)
         if seen <= self.polls_before_finish:
-            return CloudStatus(status=cloud_wire.STATUS_RUNNING)
+            return RunStatus(status=factory_wire.STATUS_RUNNING)
         if self.run_error:
-            return CloudStatus(status=cloud_wire.STATUS_ERROR, detail=self.run_error)
-        index = agent_id.rsplit("fake", 1)[-1].lstrip("0") or "1"
-        return CloudStatus(
-            status=cloud_wire.STATUS_FINISHED,
-            pr_url=self.pr_url_template.format(n=index),
+            return RunStatus(status=factory_wire.STATUS_ERROR, detail=self.run_error)
+        index = run_key.rsplit("fake", 1)[-1].lstrip("0") or "1"
+        return RunStatus(
+            status=factory_wire.STATUS_FINISHED,
+            result=self.pr_url_template.format(n=index),
         )
 
-    def cancel(self, agent_id: str) -> None:
-        self.cancelled.append(agent_id)
+    def cancel(self, run_key: str) -> None:
+        self.cancelled.append(run_key)
+
+
+class FakeMachineFactory:
+    """Sandbox guids and a container that stops when told, instead of Docker.
+
+    The mirror of ``FakeCloudFactory`` at the same seam, so MachineFactory's order
+    loop and its reaping of lost sandboxes can be tested without a daemon. Unlike
+    the cloud, the run key arrives on the order: the manager mints it so the hash
+    exists before the sandbox reads it.
+    """
+
+    def __init__(self, *, startup_error: str = "", retryable: bool = False) -> None:
+        self.startup_error = startup_error
+        self.retryable = retryable
+        self.launches: list[dict[str, Any]] = []
+        self.cancelled: list[str] = []
+        self.running: set[str] = set()
+        self._seq = 0
+
+    def launch(self, order: Any) -> RunHandle:
+        if self.startup_error:
+            raise AgentStartupError(self.startup_error, retryable=self.retryable)
+        self._seq += 1
+        run_key = str(order.get("run_key") or f"fake-guid-{self._seq:03d}")
+        container = f"mf-{order['repo']}-ticket-{order['ticket_name']}".lower()
+        self.launches.append(
+            {
+                "run_key": run_key,
+                "repo": str(order["repo"]),
+                "ticket_name": str(order["ticket_name"]),
+                "wt": str(order["wt"]),
+                "agent_dir": str(order["agent_dir"]),
+                "ticket_id": str(order["ticket_id"]),
+                "container": container,
+            }
+        )
+        self.running.add(run_key)
+        return RunHandle(run_key=run_key, run_id=container)
+
+    def stop(self, run_key: str) -> None:
+        """Make a sandbox vanish the way a crashed container does: silently."""
+        self.running.discard(run_key)
+
+    def poll(self, run_key: str) -> RunStatus:
+        if run_key in self.running:
+            return RunStatus(status=factory_wire.STATUS_RUNNING)
+        return RunStatus(
+            status=factory_wire.STATUS_FINISHED,
+            detail="sandbox is no longer running",
+        )
+
+    def cancel(self, run_key: str) -> None:
+        self.cancelled.append(run_key)
+        self.running.discard(run_key)

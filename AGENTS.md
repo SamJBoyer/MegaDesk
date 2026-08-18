@@ -27,7 +27,7 @@ python scripts/refresh_nodes.py
 
 Overview of code implementation: 
 - MegaDesk-Canvas: MegaDesk-Canvas is the folder that contains the code for running the canvas that integrates the Nodes. 
-- Nodes/: contains each node and its implementation. Read each node's README.md before editing. Some nodes are both Front-end and back-end. Always make sure you are placing the content in the appropriate place.
+- Nodes/: contains each node and its implementation. Read each node's README.md before editing. Some nodes are both Front-end and back-end. Always make sure you are placing the content in the appropriate place. Nodes may be grouped in a subfolder when they are variants of one idea — `Nodes/Factory/` holds MachineFactory and CloudFactory — but each stays its own package with its own entry point. Read `Nodes/Factory/README.md` before touching either factory.
 - MegaDesk-contracts: contains shared contracts between modules to ensure standardization. If a contract is modified or added make sure it is reflected in MegaDesk-contracts
 - tests: contains unit tests for all implementations 
 - scripts: helper scripts 
@@ -47,15 +47,14 @@ Most breakage here is at the seam between two modules, not inside one, so verify
 
 We use different REDIS database for different levels of persistence. DB 0 is temporary and DB 1 is persistent. All clients connect via **`REDIS_URL`** (default `redis://localhost:6379/0`; see `DEFAULT_REDIS_URL` / `resolve_redis_url()` in `megadesk_contracts`). Do not hardcode host/port.
 
-
-
-
-**DB 0 (ephemeral)** — streams / MissionControl default traffic:
+**DB 0 (ephemeral)** — streams / default node traffic:
 - **LAUNCHREQUEST** — consume `node_endpoint` + `parameters` (JSON object of graph kvps, or `""`); discover BE via `MegaDesk.nodes` → `BeSpec`; `Popen` with `MEGADESK_*` env (including `MEGADESK_PARAMETERS`)
 - **KILLREQUEST** — match `node_endpoint` + `unique_id`, graceful→force shutdown, `DEL` the RUNNINGNODES hash
 - **NODEEXIT** — published on natural exit (metadata only; no log bodies)
-- MissionControl `WORKORDER` / `AGENTHANDLER` / `FINISHED` also live here (same `REDIS_URL`, db 0)
-- Voice chain: `CODEQ:ASK` / `CODEQ:ANSWER`, `VOICE:CONTROL` / `VOICE:EVENT`, `CLOUDORDER` / `CLOUDFINISHED` — defined once in `megadesk_contracts.wire`, documented in `MegaDesk-contracts/redis/voice-chain.md`. New streams go there, never in a per-node `redis_packets.py`. Audio never goes on a stream.
+- MachineFactory `WORKORDER` / `AGENTHANDLER` / `FINISHED` also live here (same `REDIS_URL`, db 0)
+- Voice chain: `CODEQ:ASK` / `CODEQ:ANSWER`, `VOICE:CONTROL` / `VOICE:EVENT`, `CLOUDORDER` / `CLOUDFINISHED` — defined once in `megadesk_contracts.wire`, documented in `MegaDesk-contracts/redis/voice-chain.md`. Audio never goes on a stream.
+
+Every stream and hash is defined exactly once, in `megadesk_contracts.wire`, and imported by every writer. A node must never ship its own `redis_packets.py`: `WORKORDER` used to be defined twice and the copies were free to drift. Both factories additionally share one status vocabulary (`wire/factory.py`) and one Python surface (`megadesk_contracts.factory.AgentFactory`: launch / poll / cancel), so a graph controller can place an agent locally or in the cloud without the two behaving differently.
 
 **DB 1 (persistent):**
 - **GBD:SUPERVISOR:SINGLETON** — one-BE lock

@@ -1,3 +1,36 @@
 {
-  "members": {}
+  "members": {
+    "ba56ef04-10b6-4292-ab89-f0bbfa6dee5a": {
+      "member_id": "ba56ef04-10b6-4292-ab89-f0bbfa6dee5a",
+      "type": "megadesk",
+      "nickname": "cloud_factory",
+      "node_name": "cloud_factory",
+      "position": [
+        360.0,
+        200.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 520.0,
+        "height": 260.0,
+        "node_name": "cloud_factory"
+      }
+    },
+    "20e1bf62-f70b-4801-88e2-3960ed54e98c": {
+      "member_id": "20e1bf62-f70b-4801-88e2-3960ed54e98c",
+      "type": "megadesk",
+      "nickname": "machine_factory",
+      "node_name": "machine_factory",
+      "position": [
+        361.0,
+        535.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 520.0,
+        "height": 400.0,
+        "node_name": "machine_factory"
+      }
+    }
+  }
 }

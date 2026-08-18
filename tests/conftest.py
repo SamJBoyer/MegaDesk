@@ -3,20 +3,13 @@
 See [`Docs/integration_testing.md`](../Docs/integration_testing.md) for what these
 tests are for and where the chain is cut.
 
-Two environment facts shape this file:
-
-* Nodes are installed editable into the MEGADESK conda env, which may point at a
-  different checkout. Putting this repo's source directories at the front of
-  ``sys.path`` makes the suite test *this* worktree.
-* MergeManager and MissionControl both ship a top-level ``redis_packets``
-  module, so plain ``import redis_packets`` is ambiguous. The path order below
-  fixes the winner to MergeManager's copy (the superset, and the one that wins
-  in the installed env), and the second copy is loaded explicitly by path.
+Nodes are installed editable into the MEGADESK conda env, which may point at a
+different checkout. Putting this repo's source directories at the front of
+``sys.path`` makes the suite test *this* worktree.
 """
 
 from __future__ import annotations
 
-import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -33,10 +26,10 @@ sys.path[:0] = [
         "MegaDesk-Canvas",
         "Nodes/TicketDispatcher",
         "Nodes/MergeManager",
-        "Nodes/MissionControl",
         "Nodes/CodeScope",
         "Nodes/VoiceDeck",
-        "Nodes/CloudDispatcher",
+        "Nodes/Factory/MachineFactory",
+        "Nodes/Factory/CloudFactory",
     )
 ]
 
@@ -88,51 +81,29 @@ CLOUDRUN_CANONICAL_FIELDS = frozenset(
 )
 
 WORKORDER_STREAM = "WORKORDER"
-WORKORDER_GROUP = "mission_control"
+WORKORDER_GROUP = "machine_factory"
 FINISHED_GROUP = "merge_manager"
 CODEQ_ASK_GROUP = "code_scope"
-CLOUDORDER_GROUP = "cloud_dispatcher"
+CLOUDORDER_GROUP = "cloud_factory"
 
 # Background poll intervals, shortened so a test does not wait on production
 # cadence. Patched per test; module defaults are untouched.
 FAST_POLL_SEC = 0.1
 
 
-def _load_by_path(name: str, path: Path) -> ModuleType:
-    """Import a module from an explicit file, bypassing sys.path ambiguity."""
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:  # pragma: no cover - packaging error
-        raise ImportError(f"Cannot load {name} from {path}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
 # --- wire contract modules -------------------------------------------------
 
 
 @pytest.fixture(scope="session")
-def mm_wire() -> ModuleType:
-    """MergeManager's redis_packets — the writer of the conflict WORKORDER."""
-    import redis_packets
+def machine_wire() -> ModuleType:
+    """The one definition of WORKORDER / AGENTHANDLER / FINISHED.
 
-    expected = ROOT / "Nodes" / "MergeManager" / "redis_packets.py"
-    assert Path(redis_packets.__file__) == expected, (
-        f"'import redis_packets' resolved to {redis_packets.__file__}, expected "
-        f"{expected}. Both MergeManager and MissionControl ship a top-level "
-        "redis_packets module; check the sys.path order in conftest."
-    )
-    return redis_packets
+    TicketDispatcher, MachineFactory and MergeManager all write to this family
+    and all import it from here, so there is no second copy to drift.
+    """
+    from megadesk_contracts.wire import machine
 
-
-@pytest.fixture(scope="session")
-def mc_wire() -> ModuleType:
-    """MissionControl's redis_packets — the writer of FINISHED."""
-    return _load_by_path(
-        "mission_control_redis_packets",
-        ROOT / "Nodes" / "MissionControl" / "redis_packets.py",
-    )
+    return machine
 
 
 @pytest.fixture(scope="session")
@@ -157,8 +128,8 @@ def voice_deck_module() -> ModuleType:
 
 
 @pytest.fixture(scope="session")
-def cloud_dispatcher_module() -> ModuleType:
-    from cloud_dispatcher_frontend import app
+def cloud_factory_module() -> ModuleType:
+    from cloud_factory_frontend import app
 
     return app
 
@@ -262,9 +233,9 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
     """Shorten FE background poll intervals so tests do not wait on real cadence."""
     import merge_manager_app
     import ticket_dispatcher_app
-    from cloud_dispatcher_frontend import app as cloud_dispatcher_app
+    from cloud_factory_frontend import app as cloud_factory_app
     from code_scope_frontend import app as code_scope_app
-    from mission_control_frontend import app as mission_control_app
+    from machine_factory_frontend import app as machine_factory_app
     from voice_deck_frontend import app as voice_deck_app
 
     for module in (
@@ -272,8 +243,8 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
         merge_manager_app,
         code_scope_app,
         voice_deck_app,
-        cloud_dispatcher_app,
-        mission_control_app,
+        cloud_factory_app,
+        machine_factory_app,
     ):
         monkeypatch.setattr(module, "POLL_INTERVAL_SEC", FAST_POLL_SEC)
 
@@ -329,14 +300,14 @@ def fake_gh(monkeypatch: pytest.MonkeyPatch, ticket_dispatcher_module: ModuleTyp
 
 
 @pytest.fixture
-def fake_agent(redis_client, git_floor, mc_wire: ModuleType):
+def fake_agent(redis_client, git_floor, machine_wire: ModuleType):
     """The sandbox stand-in: real consumer group, real git, real FINISHED payload."""
     from megadesk_contracts.testing import FakeAgent
 
     agent = FakeAgent(
         redis=redis_client,
         floor=git_floor,
-        wire=mc_wire,
+        wire=machine_wire,
         group=WORKORDER_GROUP,
     )
     agent.ensure_group()
@@ -394,38 +365,68 @@ def code_scope_manager(redis_client, persistent_client, fake_code_agent):
 
 
 @pytest.fixture
-def fake_cloud_runtime():
+def fake_cloud_factory():
     """``bc-`` ids and a canned PR URL instead of a Cursor-hosted VM."""
-    from megadesk_contracts.testing import FakeCloudRuntime
+    from megadesk_contracts.testing import FakeCloudFactory
 
-    return FakeCloudRuntime()
+    return FakeCloudFactory()
 
 
 @pytest.fixture
-def cloud_dispatcher(redis_client, persistent_client, fake_cloud_runtime):
+def cloud_factory(redis_client, persistent_client, fake_cloud_factory):
     """The real BE loop with a fake runtime: the registry and acks are real."""
-    from CloudDispatcherManager.dispatcher import CloudDispatcher
+    from CloudFactoryManager.manager import CloudFactoryManager
 
-    dispatcher = CloudDispatcher(
+    manager = CloudFactoryManager(
         ephemeral=redis_client,
         persistent=persistent_client,
-        runtime=fake_cloud_runtime,
+        runtime=fake_cloud_factory,
         group=CLOUDORDER_GROUP,
-        consumer="test-dispatcher",
+        consumer="test-cloud-factory",
         run_poll_interval=0.0,
         retry_delay=0.0,
     )
-    dispatcher.ensure_group()
-    return dispatcher
+    manager.ensure_group()
+    return manager
+
+
+@pytest.fixture
+def fake_machine_factory():
+    """Sandbox guids and a container that stops when told, instead of Docker."""
+    from megadesk_contracts.testing import FakeMachineFactory
+
+    return FakeMachineFactory()
+
+
+@pytest.fixture
+def machine_factory(redis_client, git_floor, fake_machine_factory):
+    """The real BE loop with a fake sandbox host: Floor, wire and acks are real.
+
+    ``orphan_grace=0`` because the grace period exists to survive the moment
+    between a sandbox exiting and its hash being deleted, and a test that waited
+    it out would spend 30 seconds proving nothing.
+    """
+    from MachineFactoryManager.manager import MachineFactoryManager
+
+    manager = MachineFactoryManager(
+        redis=redis_client,
+        runtime=fake_machine_factory,
+        group=WORKORDER_GROUP,
+        consumer="test-machine-factory",
+        floor=git_floor.floor,
+        run_poll_interval=0.0,
+        orphan_grace=0.0,
+    )
+    return manager
 
 
 @pytest.fixture
 def opened_urls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     """Catch PR links the FE would open, so no browser appears mid-test."""
-    from cloud_dispatcher_frontend import app as cloud_dispatcher_app
+    from cloud_factory_frontend import app as cloud_factory_app
 
     opened: list[str] = []
-    monkeypatch.setattr(cloud_dispatcher_app, "open_url", opened.append)
+    monkeypatch.setattr(cloud_factory_app, "open_url", opened.append)
     return opened
 
 

@@ -7,8 +7,8 @@ Different fixes, different retry advice, different thing to tell the user — so
 node that collapses them into one ``except Exception`` throws away the only
 information that decides what to do next.
 
-Shared here rather than per node so CodeScope's local runner, CloudDispatcher's
-cloud runtime, and the test fakes that stand in for both speak one vocabulary.
+Shared here rather than per node so CodeScope's local runner, both Factory
+runtimes, and the test fakes that stand in for them speak one vocabulary.
 """
 
 from __future__ import annotations

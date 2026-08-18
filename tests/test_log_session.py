@@ -38,11 +38,11 @@ def test_attach_reuses_current_and_does_not_move_files(tmp_path: Path, monkeypat
     monkeypatch.setenv(ENV_LOGS_ROOT, str(home))
     monkeypatch.delenv(ENV_LOGS_DIR, raising=False)
     first = begin_log_session()
-    (first / "mission_control.md").write_text("kept\n", encoding="utf-8")
+    (first / "machine_factory.md").write_text("kept\n", encoding="utf-8")
     monkeypatch.delenv(ENV_LOGS_DIR, raising=False)
     attached = attach_log_session()
     assert attached == first
-    assert (first / "mission_control.md").read_text(encoding="utf-8") == "kept\n"
+    assert (first / "machine_factory.md").read_text(encoding="utf-8") == "kept\n"
     assert list(home.iterdir())  # original folder still there
 
 
@@ -65,10 +65,10 @@ def test_session_log_path_is_one_md_per_node(tmp_path: Path, monkeypatch) -> Non
     monkeypatch.setenv(ENV_LOGS_ROOT, str(home))
     monkeypatch.delenv(ENV_LOGS_DIR, raising=False)
     session = begin_log_session()
-    path = session_log_path("mission_control")
+    path = session_log_path("machine_factory")
     assert path.parent == session
-    assert path.name == "mission_control.md"
-    other = session_log_path("mission_control")
+    assert path.name == "machine_factory.md"
+    other = session_log_path("machine_factory")
     assert other == path
 
 

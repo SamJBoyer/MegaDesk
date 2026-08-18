@@ -56,8 +56,8 @@ ehthumbs.db
 Logs/*
 !Logs/README.md
 
-# MissionControl Floor worktrees (bare clones + checkouts)
-Nodes/MissionControl/Floor/
+# MachineFactory Floor worktrees (bare clones + checkouts)
+Nodes/Factory/MachineFactory/Floor/
 
 # CodeScope disposable clones (never share with a writing agent)
 Nodes/CodeScope/Scope/

@@ -19,11 +19,17 @@ pytestmark = pytest.mark.canvas
 
 def test_boot_builds_the_engine_chrome(harness) -> None:
     assert harness.model.members == {}
-    from engine.display_engine import GRAPH_WINDOW, NODE_EDITOR, SIDEBAR_TAG
+    from engine.display_engine import (
+        CATALOG_TOGGLE_TAG,
+        GRAPH_WINDOW,
+        NODE_EDITOR,
+        SIDEBAR_TAG,
+    )
     from engine.graph_bar import GRAPH_BAR_TAG, SELECT_TAG, CAPTURE_TAG
 
     assert dpg.does_item_exist(GRAPH_WINDOW)
     assert dpg.does_item_exist(SIDEBAR_TAG)
+    assert dpg.does_item_exist(CATALOG_TOGGLE_TAG)
     assert dpg.does_item_exist(NODE_EDITOR)
     assert dpg.does_item_exist(GRAPH_BAR_TAG)
     assert dpg.does_item_exist(SELECT_TAG)

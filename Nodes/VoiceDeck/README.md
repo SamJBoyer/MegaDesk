@@ -3,7 +3,7 @@
 Talk to your codebase. VoiceDeck is a transport, not a brain: it holds a
 speech-to-speech session with the OpenAI Realtime API and routes the model's tool
 calls to the nodes that actually do the work — CodeScope for questions,
-CloudDispatcher for documentation agents.
+CloudFactory for documentation agents.
 
 ## Halves
 
@@ -44,12 +44,12 @@ wait for the user to speak again.
 | Tool | Effect |
 |------|--------|
 | `ask_codebase(question)` | `CODEQ:ASK` to CodeScope; returns `searching` |
-| `dispatch_doc_agent(title, instructions, target)` | A **draft** in CloudDispatcher, unless auto-dispatch is on |
+| `dispatch_doc_agent(title, instructions, target)` | A **draft** in CloudFactory, unless auto-dispatch is on |
 | `set_repo(repo)` | Switch which loaded repo questions are about |
 | `end_session()` | Close the socket |
 
 **Voice cannot open a pull request by itself.** `dispatch_doc_agent` writes a
-`CLOUDDRAFT:<order_id>` hash that CloudDispatcher shows as a row with a button;
+`CLOUDDRAFT:<order_id>` hash that CloudFactory shows as a row with a button;
 nothing runs until someone presses it. Flipping the `auto` checkbox in the FE
 changes that, deliberately and visibly.
 

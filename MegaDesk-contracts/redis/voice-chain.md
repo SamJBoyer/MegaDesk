@@ -1,10 +1,14 @@
-# Voice chain: CodeScope → VoiceDeck → CloudDispatcher
+# Voice chain: CodeScope → VoiceDeck → CloudFactory
 
-Three nodes, five streams, three hashes. Unlike the MissionControl pipeline, every
-package here has exactly **one** definition, in
-[`megadesk_contracts/wire/`](../megadesk_contracts/wire/) — `code_scope.py`, `voice.py`,
-`cloud.py` — imported by both halves of every node. There is no per-node
-`redis_packets.py` copy to drift.
+Three nodes, five streams, three hashes, each with exactly **one** definition in
+[`megadesk_contracts/wire/`](../megadesk_contracts/wire/) — `code_scope.py`,
+`voice.py`, `cloud.py` — imported by both halves of every node.
+
+`CLOUDORDER` / `CLOUDFINISHED` / `CLOUDRUN` are also the cloud half of the Factory
+contract, and deliberately mirror `WORKORDER` / `FINISHED` / `AGENTHANDLER` in
+[machine-factory-pipeline.md](machine-factory-pipeline.md): both share the status
+vocabulary in `wire/factory.py`. See
+[`Nodes/Factory/README.md`](../../Nodes/Factory/README.md).
 
 Streams use the database `REDIS_URL` names (0 by default). The three hashes are pinned to
 **DB 1**, because they have to outlive the stream traffic and the processes.
@@ -15,7 +19,7 @@ sequenceDiagram
     participant VD as voice_deck BE
     participant RT as OpenAI Realtime
     participant CS as code_scope BE
-    participant CD as cloud_dispatcher BE
+    participant CD as cloud_factory BE
 
     VDFE->>VD: VOICE:CONTROL start
     VD->>VDFE: VOICE:EVENT state=listening
@@ -86,7 +90,7 @@ control plane, and 24kHz PCM would swamp it.
 
 ## CLOUDORDER
 
-Stream, DB 0. Consumer group `cloud_dispatcher`.
+Stream, DB 0. Consumer group `cloud_factory`.
 
 | Field | Meaning |
 |---|---|
@@ -118,8 +122,8 @@ information that decides what to do next.
 | Key | Fields | Owner |
 |---|---|---|
 | `CODESCOPE:SESSION:<id>` | `repo`, `clone_path`, `agent_id`, `model`, `status` | CodeScope FE writes, BE updates `agent_id` / `status` |
-| `CLOUDRUN:<agent_id>` | `order_id`, `repo_url`, `title`, `status`, `pr_url`, `run_id` | CloudDispatcher BE |
-| `CLOUDDRAFT:<order_id>` | exactly the `CLOUDORDER` field set | VoiceDeck writes, CloudDispatcher FE consumes |
+| `CLOUDRUN:<agent_id>` | `order_id`, `repo_url`, `title`, `status`, `pr_url`, `run_id` | CloudFactory BE |
+| `CLOUDDRAFT:<order_id>` | exactly the `CLOUDORDER` field set | VoiceDeck writes, CloudFactory FE consumes |
 
 `agent_id` on a session is what lets a restarted CodeScope BE `Agent.resume` instead of
 starting cold. `CLOUDRUN` is written before its order is acked, so a crash in between
@@ -131,7 +135,7 @@ its own. That is the safety rail: voice writes drafts, and only a click writes o
 
 ## Code references
 
-- `MegaDesk-contracts/megadesk_contracts/wire/{code_scope,voice,cloud}.py` — the definitions
+- `MegaDesk-contracts/megadesk_contracts/wire/{code_scope,voice,cloud,factory}.py` — the definitions
 - `Nodes/CodeScope/CodeScopeManager/manager.py`, `Nodes/CodeScope/code_scope_frontend/app.py`
 - `Nodes/VoiceDeck/VoiceDeckManager/session.py`, `Nodes/VoiceDeck/voice_deck_frontend/app.py`
-- `Nodes/CloudDispatcher/CloudDispatcherManager/dispatcher.py`, `Nodes/CloudDispatcher/cloud_dispatcher_frontend/app.py`
+- `Nodes/Factory/CloudFactory/CloudFactoryManager/{manager,runtime}.py`, `Nodes/Factory/CloudFactory/cloud_factory_frontend/app.py`

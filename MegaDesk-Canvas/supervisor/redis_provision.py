@@ -1,7 +1,7 @@
 """Attach to Redis via REDIS_URL or provision Docker Redis + Insights.
 
 Redis databases:
-  db0 — ephemeral control plane (LAUNCHREQUEST / KILLREQUEST / NODEEXIT, MissionControl streams)
+  db0 — ephemeral control plane (LAUNCHREQUEST / KILLREQUEST / NODEEXIT, node streams)
   db1 — persistent supervisor state (singleton, RUNNINGNODES, alive heartbeat)
 
 Connection standard: ``REDIS_URL`` (default ``redis://localhost:6379/0``).

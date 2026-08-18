@@ -15,10 +15,13 @@ from urllib.parse import urlparse
 import dearpygui.dearpygui as dpg
 import redis
 from megadesk_contracts import DEFAULT_REDIS_URL, coerce_parameters, frame_pump
+from megadesk_contracts.wire.machine import (
+    DEFAULT_MODEL,
+    WORKORDER_STREAM,
+    workorder_fields,
+)
 
 POLL_INTERVAL_SEC = 3.0
-REDIS_STREAM_KEY = "WORKORDER"
-DEFAULT_MODEL = "auto"
 MODEL_OPTIONS = ("auto", "grok-4.5")
 GH_TIMEOUT_SEC = 15
 
@@ -415,20 +418,25 @@ class TicketDispatcher:
         if dpg.does_item_exist(model_tag):
             model = (dpg.get_value(model_tag) or "").strip() or DEFAULT_MODEL
 
-        fields = {
-            "repo": repo_name,
-            "URL": repo_url,
-            "new_wt": "true",
-            "wt": "",
-            "ticket_name": ticket.name,
-            "instructions": ticket.body or ticket.name,
-            "model": model,
-        }
+        status = self._tag("status_text")
+        try:
+            fields = workorder_fields(
+                repo=repo_name,
+                url=repo_url,
+                new_wt=True,
+                ticket_name=ticket.name,
+                instructions=ticket.body or ticket.name,
+                model=model,
+            )
+        except ValueError as exc:
+            if dpg.does_item_exist(status):
+                dpg.set_value(status, f"Cannot dispatch #{issue_id}: {exc}")
+                dpg.configure_item(status, color=COLOR_RED)
+            return
 
         if self._redis is None:
             self._connect_redis()
 
-        status = self._tag("status_text")
         if self._redis is None:
             if dpg.does_item_exist(status):
                 dpg.set_value(status, "Redis unavailable — could not dispatch")
@@ -436,12 +444,12 @@ class TicketDispatcher:
             return
 
         try:
-            entry_id = self._redis.xadd(REDIS_STREAM_KEY, fields)
+            entry_id = self._redis.xadd(WORKORDER_STREAM, fields)
             self._dispatched.add(issue_id)
             if dpg.does_item_exist(status):
                 dpg.set_value(
                     status,
-                    f"Dispatched #{issue_id} → Redis stream {REDIS_STREAM_KEY} ({entry_id})",
+                    f"Dispatched #{issue_id} → Redis stream {WORKORDER_STREAM} ({entry_id})",
                 )
                 dpg.configure_item(status, color=COLOR_BLUE)
         except redis.RedisError as exc:

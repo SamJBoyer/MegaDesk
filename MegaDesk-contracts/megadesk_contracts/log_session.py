@@ -8,7 +8,7 @@ A session is one Supervisor generation (not a MegaDesk-Canvas open). Layout::
       2026-08-17T20-55-03Z/
         supervisor.md
         canvas.md
-        mission_control.md
+        machine_factory.md
 
 ``CURRENT`` is a pointer only. Timestamp folders are the archive: a new Supervisor
 process creates a sibling folder and points ``CURRENT`` at it. Files are born in

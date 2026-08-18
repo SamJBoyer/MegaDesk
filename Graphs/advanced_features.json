@@ -3,8 +3,8 @@
     "e1582bb2-5f65-48ad-a56a-c1aeecc75486": {
       "member_id": "e1582bb2-5f65-48ad-a56a-c1aeecc75486",
       "type": "megadesk",
-      "nickname": "cloud_dispatcher",
-      "node_name": "cloud_dispatcher",
+      "nickname": "cloud_factory",
+      "node_name": "cloud_factory",
       "position": [
         -130.0,
         130.0
@@ -13,7 +13,7 @@
       "data": {
         "width": 520.0,
         "height": 260.0,
-        "node_name": "cloud_dispatcher"
+        "node_name": "cloud_factory"
       }
     },
     "33c83304-0536-4ea5-8543-722fd4f0cb40": {

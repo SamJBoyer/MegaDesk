@@ -13,12 +13,13 @@ Individual modules:
   - Supervisor (`MegaDesk-Canvas/supervisor/`): Canvas infrastructure — process lifecycle manager (`LAUNCHREQUEST` / `KILLREQUEST` / `RUNNINGNODES`; Redis DB 0 streams, DB 1 persistent keys). Not a Catalog node.
 
 - Nodes (`Nodes/`): productivity nodes installed via `pip install -e Nodes/<name>` (or `.[canvas]` where noted).
-  - MissionControl: FE + BE node — Redis WORKORDER poller that launches Docker agent sandboxes, plus Floor monitor panel.
+  - Factories (`Nodes/Factory/`): the two nodes that deploy agents. Same three verbs, same status words, same shape — one runs them here, one runs them in the cloud, and a graph should be able to choose without the choice changing what an agent can do. See [`Nodes/Factory/README.md`](Nodes/Factory/README.md).
+    - MachineFactory: FE + BE node — Redis WORKORDER poller that launches Docker agent sandboxes against git worktrees, plus a Floor monitor panel. Hands back a worktree for MergeManager to merge.
+    - CloudFactory: FE + BE node — sends Cursor **cloud** agents to work on a repo and open a PR, and surfaces their runs and links. Voice can only create drafts here; opening a PR takes a click.
   - MergeManager: FE-only Dear PyGui tool that merges finished worktrees into the agents branch.
   - TicketDispatcher: FE-only Dear PyGui tool that lists `agent-ready` GitHub issues and publishes WORKORDERs.
   - CodeScope: FE + BE node — clones a repo into `Scope/` and answers questions about it with a warm local Cursor agent. The agent's own search and file-read tools are the retrieval layer, so there is no index, no embeddings, and no RAG pipeline.
-  - VoiceDeck: FE + BE node — a speech-to-speech loop (OpenAI Realtime) that calls into CodeScope and CloudDispatcher by tool call. Audio stays inside the BE; only transcripts and control messages cross Redis. Needs `[audio]` (PortAudio) and `OPENAI_API_KEY`.
-  - CloudDispatcher: FE + BE node — sends Cursor **cloud** agents to open documentation PRs, and surfaces their runs and links. Voice can only create drafts here; opening a PR takes a click.
+  - VoiceDeck: FE + BE node — a speech-to-speech loop (OpenAI Realtime) that calls into CodeScope and CloudFactory by tool call. Audio stays inside the BE; only transcripts and control messages cross Redis. Needs `[audio]` (PortAudio) and `OPENAI_API_KEY`.
 
 Shared contract: installable `megadesk-contracts` package in `MegaDesk-contracts/` (`FeSpec` / `BeSpec`, entry-point discovery, Supervisor client). Redis IPC docs live alongside it (DB 0 ephemeral / DB 1 Supervisor persistent).
 

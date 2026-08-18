@@ -1,0 +1,34 @@
+# The MachineFactory sandbox image builds from this directory so it can install
+# MegaDesk-contracts. Everything below would otherwise be shipped into the build
+# context for nothing, and the first three hold whole repositories: Floor/ has a
+# bare clone per repo, and CodeScope clones into Scope/.
+.git/
+Logs/
+Floor/
+Nodes/*/Floor/
+Nodes/Factory/*/Floor/
+Nodes/*/Scope/
+tests/
+Prompts/
+Graphs/
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+*.log
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

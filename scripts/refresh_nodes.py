@@ -20,6 +20,8 @@ from pathlib import Path
 ENV_NAME = "MEGADESK"
 SKIP_EXTRAS = {"dev", "test", "tests", "docs", "lint", "sandbox"}
 REPO_ROOT = Path(__file__).resolve().parent.parent
+# Build leftovers carry pyproject.toml files that are not nodes.
+SKIP_DIRS = {".venv", "venv", "build", "dist", "node_modules"}
 
 
 def megadesk_python() -> Path:
@@ -48,9 +50,38 @@ def megadesk_python() -> Path:
     )
 
 
+def in_foreign_checkout(nodes_root: Path, directory: Path) -> bool:
+    """True when ``directory`` lives inside a git repo nested under ``Nodes/``.
+
+    CodeScope clones whole repositories into ``Nodes/CodeScope/Scope/``, and one
+    of those is usually MegaDesk itself. Installing the packages found in there
+    would silently point the env at a different checkout, so the recursion stops
+    at anything that is its own repo.
+    """
+    for parent in [directory, *directory.parents]:
+        if parent == nodes_root:
+            return False
+        if (parent / ".git").exists():
+            return True
+    return False
+
+
 def node_specs(nodes_root: Path) -> list[tuple[Path, str, str, list[str]]]:
+    """Every installable node under ``Nodes/``, at any depth.
+
+    Nested because related nodes are grouped by folder — ``Nodes/Factory/`` holds
+    MachineFactory and CloudFactory as siblings — and a flat glob would have
+    quietly installed neither.
+    """
     specs: list[tuple[Path, str, str, list[str]]] = []
-    for pyproject in sorted(nodes_root.glob("*/pyproject.toml")):
+    for pyproject in sorted(nodes_root.rglob("pyproject.toml")):
+        relative = pyproject.relative_to(nodes_root).parts
+        if SKIP_DIRS.intersection(relative) or any(
+            part.endswith(".egg-info") for part in relative
+        ):
+            continue
+        if in_foreign_checkout(nodes_root, pyproject.parent):
+            continue
         project = tomllib.loads(pyproject.read_text(encoding="utf-8")).get("project", {})
         name = project.get("name")
         if not name:

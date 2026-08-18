@@ -1,3 +1,27 @@
+<context>
+
+We're transforming 
+
+The supervisor panel in MegaDesk should be fixed to the right hand side in the same manner the catalog panel is fixed. Both the supervisor panel and catalog panel should be collapseable. 
+
+The supervisor panel should now have 2 tabs: nopes and logs. The Nodes tab should have all of the current features, but the logs should be moved seperatly to a Logs tab so I can see in a much larger box. 
+
+Check the wiring to ensure that clicking on a node in the canvas displays its logs in the supervisor panel
+
+</context>
+<command>
+
+Implement the features discribed in context. 
+
+</command>
+
+
+
+
+
+
+</context>
+
 
 MissionControl designs the way an agent recieves instructions, including easy standardized instructions like "you're an engineer, write a detailed
 git commit, etc." 

@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "machine-factory"
+version = "0.1.0"
+description = "MegaDesk Factory node: run agents in local sandboxes on this machine (BE) + Floor monitor (FE)"
+requires-python = ">=3.10"
+dependencies = [
+    "cursor-sdk>=0.1.0",
+    "redis>=5.0.0",
+    "docker>=7.0.0",
+    "megadesk-contracts",
+]
+
+[project.optional-dependencies]
+# Install megadesk-contracts + dearpygui into the MegaDesk env, then:
+#   pip install -e .[canvas]
+canvas = [
+    "dearpygui>=1.11.1",
+]
+
+[project.entry-points."MegaDesk.nodes"]
+machine_factory = "machine_factory_node:get_exec_spec"
+
+[tool.setuptools]
+py-modules = ["machine_factory_node"]
+
+[tool.setuptools.packages.find]
+include = ["MachineFactoryManager*", "AgentHandler*", "machine_factory_frontend*"]

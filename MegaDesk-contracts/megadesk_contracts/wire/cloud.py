@@ -1,4 +1,4 @@
-"""CloudDispatcher wire format: documentation work sent to Cursor-hosted agents.
+"""CloudFactory wire format: work sent to Cursor-hosted agents.
 
 (STREAM, db0) CLOUDORDER
   - order_id, repo_url, ref, title, instructions, model, auto_pr
@@ -17,11 +17,19 @@ publishing CLOUDORDER, because a spoken sentence should not be able to open a
 pull request on its own; pressing dispatch in the FE turns the hash into the
 stream entry unchanged, which is why it carries exactly the order's fields.
 
-A cloud agent clones the repo onto Cursor's own VM and pushes a branch, so
-``repo_url`` is the whole input — there is no local worktree to hand over and
-nothing for MergeManager to merge. ``order_id`` is minted by the dispatcher and
-survives the round trip so a FE row can be reconciled with its run even after a
-restart, when the only other identifier is Cursor's ``bc-`` agent id.
+The machine family's counterpart is ``wire.machine``, and the shape is the same:
+an order stream, a hash per live run, a finished stream. The statuses are shared
+outright — see ``wire.factory`` — so a graph can watch a run without knowing
+which kind of factory started it.
+
+Where this family differs is infrastructure, not taste. A cloud agent clones the
+repo onto Cursor's own VM and pushes a branch, so ``repo_url`` is the whole input
+and a pull request is the whole output: there is no local worktree to hand over
+and nothing for MergeManager to merge. The run also lives on db 1 rather than
+db 0, because it outlives this process by minutes and a machine sandbox does not.
+``order_id`` is minted before launch and survives the round trip, so a FE row can
+be reconciled with its run after a restart, when the only other identifier is
+Cursor's ``bc-`` agent id.
 """
 
 from __future__ import annotations
@@ -37,41 +45,63 @@ from megadesk_contracts.wire._fields import (
     stripped,
     text_field,
 )
+from megadesk_contracts.wire.factory import (
+    DEFAULT_MODEL,
+    RUN_STATUSES,
+    STATUS_CANCELLED,
+    STATUS_DRAFT,
+    STATUS_ERROR,
+    STATUS_FINISHED,
+    STATUS_QUEUED,
+    STATUS_RUNNING,
+    STATUS_STARTUP_ERROR,
+    TERMINAL_STATUSES,
+    is_terminal,
+    normalize_status,
+)
 
 CLOUDORDER_STREAM = "CLOUDORDER"
 CLOUDFINISHED_STREAM = "CLOUDFINISHED"
 CLOUDRUN_PREFIX = "CLOUDRUN:"
 CLOUDDRAFT_PREFIX = "CLOUDDRAFT:"
-CLOUDORDER_GROUP = "cloud_dispatcher"
+CLOUDORDER_GROUP = "cloud_factory"
 
-DEFAULT_MODEL = "auto"
 CLOUD_AGENT_ID_PREFIX = "bc-"
 
-STATUS_DRAFT = "draft"
-STATUS_QUEUED = "queued"
-STATUS_RUNNING = "running"
-STATUS_FINISHED = "finished"
-STATUS_ERROR = "error"
-STATUS_CANCELLED = "cancelled"
-# The run never started: auth, config or network. Distinct from ``error``, which
-# means the agent ran and failed, because only one of the two is worth retrying.
-# See ``megadesk_contracts.agent_errors`` for the exceptions a runtime raises.
-STATUS_STARTUP_ERROR = "startup_error"
-
-RUN_STATUSES = frozenset(
-    {
-        STATUS_DRAFT,
-        STATUS_QUEUED,
-        STATUS_RUNNING,
-        STATUS_FINISHED,
-        STATUS_ERROR,
-        STATUS_CANCELLED,
-        STATUS_STARTUP_ERROR,
-    }
-)
-TERMINAL_STATUSES = frozenset(
-    {STATUS_FINISHED, STATUS_ERROR, STATUS_CANCELLED, STATUS_STARTUP_ERROR}
-)
+# The shared statuses are re-exported so a caller working in one family can spell
+# every status it needs off one module.
+__all__ = [
+    "CLOUDDRAFT_PREFIX",
+    "CLOUDFINISHED_STREAM",
+    "CLOUDORDER_GROUP",
+    "CLOUDORDER_STREAM",
+    "CLOUDRUN_PREFIX",
+    "CLOUD_AGENT_ID_PREFIX",
+    "DEFAULT_MODEL",
+    "RUN_STATUSES",
+    "STATUS_CANCELLED",
+    "STATUS_DRAFT",
+    "STATUS_ERROR",
+    "STATUS_FINISHED",
+    "STATUS_QUEUED",
+    "STATUS_RUNNING",
+    "STATUS_STARTUP_ERROR",
+    "TERMINAL_STATUSES",
+    "agent_id_from_key",
+    "clouddraft_key",
+    "cloudfinished_fields",
+    "cloudorder_fields",
+    "cloudrun_fields",
+    "cloudrun_key",
+    "is_cloud_agent_id",
+    "is_terminal",
+    "new_order_id",
+    "normalize_status",
+    "order_id_from_draft_key",
+    "parse_cloudfinished",
+    "parse_cloudorder",
+    "parse_cloudrun",
+]
 
 
 def cloudrun_key(agent_id: str) -> str:

@@ -28,15 +28,6 @@ try:
         git_remote_url,
         hard_reset_agents,
     )
-    from .redis_packets import (
-        FINISHED_PREFIX,
-        WORKORDER_STREAM,
-        finished_stream,
-        merge_workorder_instructions,
-        parse_finished,
-        repo_from_finished_key,
-        workorder_fields,
-    )
 except ImportError:
     from merge import (
         MergeOutcome,
@@ -44,20 +35,21 @@ except ImportError:
         git_remote_url,
         hard_reset_agents,
     )
-    from redis_packets import (
-        FINISHED_PREFIX,
-        WORKORDER_STREAM,
-        finished_stream,
-        merge_workorder_instructions,
-        parse_finished,
-        repo_from_finished_key,
-        workorder_fields,
-    )
+
+from megadesk_contracts.wire.machine import (
+    FINISHED_GROUP,
+    FINISHED_PREFIX,
+    WORKORDER_STREAM,
+    finished_stream,
+    merge_workorder_instructions,
+    parse_finished,
+    repo_from_finished_key,
+    workorder_fields,
+)
 
 log = logging.getLogger("merge_manager")
 
 POLL_INTERVAL_SEC = 2.0
-FINISHED_GROUP = "merge_manager"
 
 # Keep live instances alive while their embed windows exist.
 _LIVE: dict[str, "MergeManager"] = {}

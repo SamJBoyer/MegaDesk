@@ -1,22 +1,26 @@
 """Canonical Redis payload shapes for MegaDesk nodes.
 
-One definition per stream, imported by both halves of every node that touches
-it. MergeManager and MissionControl each ship a copy of a shared
-``redis_packets`` module, and ``tests/test_wire_contract.py`` exists to catch the
-two copies drifting apart; new streams live here instead so there is only ever
-one copy to keep honest.
+One definition per stream, imported by both halves of every node that touches it.
+Nothing here is a copy of anything: a node that ships its own ``redis_packets``
+is a node with a second opinion about the wire, and there is no way to tell which
+opinion is current until something silently stops matching.
 
 Submodules are exported rather than flattened, because several of them
 legitimately define the same names (``DEFAULT_MODEL``, ``parse_*``)::
 
     from megadesk_contracts import wire
 
-    wire.code_scope.ask_fields(...)
+    wire.machine.workorder_fields(...)
     wire.cloud.cloudorder_fields(...)
+    wire.code_scope.ask_fields(...)
     wire.voice.event_fields(...)
+
+``wire.factory`` holds what the two Factory families share — the run statuses —
+so ``wire.machine`` and ``wire.cloud`` can stay separate without inventing two
+words for the same outcome.
 """
 
-from megadesk_contracts.wire import cloud, code_scope, voice
+from megadesk_contracts.wire import cloud, code_scope, factory, machine, voice
 from megadesk_contracts.wire._fields import BOOL_FALSE, BOOL_TRUE, bool_field, is_true
 
 __all__ = [
@@ -25,6 +29,8 @@ __all__ = [
     "bool_field",
     "cloud",
     "code_scope",
+    "factory",
     "is_true",
+    "machine",
     "voice",
 ]

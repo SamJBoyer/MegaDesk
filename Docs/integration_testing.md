@@ -11,10 +11,10 @@ and the suite in [`tests/`](../tests/); both blockers in
 [What landed](#11-what-landed) for what changed against this plan.
 
 **Scope of the first slice:** the node-to-node workflow
-`TicketDispatcher → MissionControl → MergeManager`.
+`TicketDispatcher → MachineFactory → MergeManager`.
 
 Related: [`Docs/node_protocol.md`](node_protocol.md),
-[`MegaDesk-contracts/redis/mission-control-pipeline.md`](../MegaDesk-contracts/redis/mission-control-pipeline.md).
+[`MegaDesk-contracts/redis/machine-factory-pipeline.md`](../MegaDesk-contracts/redis/machine-factory-pipeline.md).
 
 ---
 
@@ -137,14 +137,14 @@ involved here.
 sequenceDiagram
     participant TD as TicketDispatcher FE
     participant WO as WORKORDER (stream)
-    participant MC as MissionControlManager BE
+    participant MC as MachineFactoryManager BE
     participant AH as AGENTHANDLER:GUID (hash)
     participant AG as AgentHandler (Docker)
     participant FIN as FINISHED:repo (stream)
     participant MM as MergeManager FE
 
     TD->>WO: XADD new_wt=true
-    MC->>WO: XREADGROUP group=mission_control
+    MC->>WO: XREADGROUP group=machine_factory
     MC->>MC: git clone / worktree on Floor
     MC->>AH: HSET status=starting
     MC->>AG: docker run
@@ -182,21 +182,21 @@ writer drifting to an alias would pass.
 
 ### Where to cut
 
-The middle of the chain is not testable in a fast loop: `MissionControlManager` shells
+The middle of the chain is not testable in a fast loop: `MachineFactoryManager` shells
 out to `git clone --bare` and `docker run`, and `AgentHandler` calls the real Cursor API
 via `cursor_sdk.Agent.create`. Requiring Docker, a network clone and an API key per test
 run makes the suite slow and flaky, and none of it is the seam we are testing.
 
 **Cut at the sandbox boundary.** A `FakeAgent` fixture replaces
 `start_ticket_sandbox` + Docker + `cursor_sdk`: it consumes `WORKORDER` using the real
-`mission_control` consumer group, makes a scripted commit in a real local ticket
+`machine_factory` consumer group, makes a scripted commit in a real local ticket
 worktree, and `XADD`s `FINISHED:{repo}`. Everything on both sides of it — the GUI, the
 stream contracts, the consumer-group semantics, and the real `git merge` logic — stays
 real.
 
-The real MissionControl BE is never launched: with no Supervisor alive,
+The real MachineFactory BE is never launched: with no Supervisor alive,
 `DisplayEngine._maybe_launch_backend` logs and skips (`display_engine.py:136`), so
-dropping `mission_control` in a test cannot spawn Docker.
+dropping `machine_factory` in a test cannot spawn Docker.
 
 ---
 
@@ -210,16 +210,18 @@ MegaDesk-contracts/megadesk_contracts/testing/
   __init__.py           # the public surface: import everything from here
   harness.py            # CanvasHarness: boot / pump / wait_until / drop / screenshot
   driver.py             # NodeDriver: tag-based read, write, click
-  fakes.py              # FakeGh, FakeAgent
+  fakes.py              # FakeGh, FakeAgent, FakeCodeAgent, FakeRealtime, the two factory fakes
   gitfloor.py           # real local git Floor fixture
 tests/
   conftest.py           # fixtures, sys.path order, canonical field sets
   test_frame_pump.py    # the two blockers in section 3
   test_canvas_harness.py# the harness reaches production code
   test_nodeflow.py      # the scenarios in section 6
-  test_vertical_slice.py# TicketDispatcher → Plant → MergeManager on SMOKETESTREPO
+  test_vertical_slice.py# TicketDispatcher → MachineFactory → MergeManager on SMOKETESTREPO
   test_node_runtime.py  # heartbeat, kill switch, stale RUNNINGNODES
-  test_wire_contract.py # the wire format, and the two redis_packets copies
+  test_wire_contract.py # the WORKORDER / FINISHED wire format
+  test_machinefactory_flow.py # the order loop and the sandbox reaper
+  test_cloudfactory_flow.py   # the same three verbs against the cloud
 ```
 
 `megadesk_contracts.testing` imports nothing from any node — the node-specific pieces
@@ -306,9 +308,9 @@ the agents commit would fast-forward cleanly instead of conflicting, which would
 turn T6 into a second copy of T5.
 
 **`FakeAgent`** — the sandbox stand-in described in [section 4](#where-to-cut). It
-consumes through the real `mission_control` group, honors `new_wt` (creating a ticket
+consumes through the real `machine_factory` group, honors `new_wt` (creating a ticket
 worktree, or reusing the absolute `wt` a conflict WORKORDER carries), commits for real,
-and builds its FINISHED payload with MissionControl's own `finished_fields`.
+and builds its FINISHED payload with MachineFactory's own `finished_fields`.
 
 ### Redis isolation
 
@@ -317,7 +319,7 @@ known stream state and dismissal tests call `XDEL`. Tests point at **DB 15** via
 `REDIS_URL`, set in `conftest` before any node is imported, and flush it around every
 test. The `redis_client` fixture refuses to flush any other index.
 
-Every production Redis client (TicketDispatcher, MergeManager, MissionControl,
+Every production Redis client (TicketDispatcher, MergeManager, MachineFactory,
 `SupervisorClient`, Supervisor provision) honors `REDIS_URL` via
 `redis.Redis.from_url` / `resolve_redis_url()`.
 
@@ -331,13 +333,13 @@ Ordered by seam. Each names the bug class it catches.
 |---|---|---|
 | T1 | With `FakeGh` serving one issue, click the ticket row. Assert `WORKORDER` gained one entry with exactly the seven canonical fields, `new_wt="true"`, `wt=""`. | Field renames, legacy `WORKREQUEST`/`REPO` drift |
 | T2 | Set the row's model combo to `grok-4.5`, then dispatch. Assert `model="grok-4.5"`. | Per-row widget → payload wiring |
-| T3 | Dispatch, then let `FakeAgent` consume. Assert the `mission_control` group has zero pending after ack, and `FINISHED:{repo}` carries the four canonical fields with absolute paths. | Consumer-group and ack semantics; path relativization |
+| T3 | Dispatch, then let `FakeAgent` consume. Assert the `machine_factory` group has zero pending after ack, and `FINISHED:{repo}` carries the four canonical fields with absolute paths. | Consumer-group and ack semantics; path relativization |
 | T4 | `XADD FINISHED:{repo}`, pump. Assert row widgets `name::{repo}\|{id}` and `merge::{repo}\|{id}` exist and the merge button is visible. | Stream → GUI population; frame-pump drain |
 | T5 | Real git, clean agents, non-conflicting ticket commit. Click `merge::{key}`. Assert `SUCCESS`, the commit is on `agents`, it landed in bare origin, and the row flips to MERGED (merge hidden, dismiss shown). | Merge + push path; row state machine |
 | T6 | Craft conflicting commits. Click merge. Assert the merge was aborted (agents clean, no `MERGE_HEAD`) **and** a new `WORKORDER` exists with `new_wt="false"`, `wt=<abs ticket path>`, `ticket_name="merge-{orig}"`. | The loop-closing seam — highest value |
 | T7 | Click `dismiss::{key}`. Assert `XACK` + `XDEL` on `FINISHED:{repo}` and the row widget is gone. | Stream cleanup vs GUI teardown |
 | T8 | Full chain in one canvas with both FEs hosted: dispatch → `FakeAgent` → MergeManager row appears → merge → assert final git state. | Cross-node behavior over the **shared** frame pump |
-| V1 | TicketDispatcher on `https://github.com/SamJBoyer/SMOKETESTREPO.git` → MissionControl FE shows a live `AGENTHANDLER` → FakeAgent finishes → MergeManager merges. | The Plant/sandbox row T8 never hosted |
+| V1 | TicketDispatcher on `https://github.com/SamJBoyer/SMOKETESTREPO.git` → MachineFactory FE shows a live `AGENTHANDLER` → FakeAgent finishes → MergeManager merges. | The sandbox row T8 never hosted |
 
 T8 is the one that would have caught the `frame_pump` bug, and it is the only scenario
 that exercises two FEs sharing pump state — the exact condition under which 3.1 and 3.2
@@ -453,40 +455,38 @@ the order, which matters — see below.
 
 ## 11. What landed beyond the plan
 
-**A module-name collision on `redis_packets`.** MergeManager and MissionControl each ship
-a *different* top-level module by that name (`py-modules` in both `pyproject.toml` files),
-so `import redis_packets` resolves to whichever editable finder was registered first —
-today MergeManager's, by alphabetical `.pth` order. MergeManager's copy is the superset,
-so both nodes happen to work.
+**A module-name collision on `redis_packets`, since fixed.** MergeManager and the machine
+factory each used to ship a *different* top-level module by that name, so
+`import redis_packets` resolved to whichever editable finder was registered first — by
+alphabetical `.pth` order, MergeManager's. Its copy was the superset, so both nodes
+happened to work.
 
-Nothing in production announces this. Putting `Nodes/MissionControl` earlier on
+Nothing in production announced this. Putting the factory's directory earlier on
 `sys.path` while building the harness flipped the winner, and MergeManager's FE stopped
 being discoverable at all — `ImportError: cannot import name
 'merge_workorder_instructions'`, swallowed into a "FE discovery failed" log. The Catalog
 simply came up with one fewer node.
 
-Two consequences worth keeping in mind:
+The fix is one copy: `WORKORDER`, `AGENTHANDLER` and `FINISHED` now live in
+[`megadesk_contracts/wire/machine.py`](../MegaDesk-contracts/megadesk_contracts/wire/machine.py),
+next to the `redis/` docs that describe them, and TicketDispatcher, MachineFactory and
+MergeManager all import from there. Both `redis_packets.py` files are gone.
 
-- `conftest` pins the `sys.path` order and asserts which copy won, so the suite cannot
-  silently test the wrong one.
-- [`tests/test_wire_contract.py`](../tests/test_wire_contract.py) loads both copies by
-  explicit path and asserts they build and parse identical payloads. The copies are free
-  to drift today; that test is what makes the drift fail something.
-
-The real fix is one copy — the wire helpers belong in `megadesk_contracts` next to the
-`redis/` docs that already describe them, which is what
-[`MegaDesk-contracts/README.md`](../MegaDesk-contracts/README.md) means by "when those
-diverge, treat this folder as the intended contract". That is a bigger change than this
-slice, and the drift test is what makes it safe to defer.
+`test_wire_contract.py` used to load the two copies by path and assert they built
+identical payloads. That comparison is now meaningless, so it was replaced by
+`test_every_writer_shares_one_definition`, which asserts the three writers reference the
+same module objects — sameness as an import fact rather than something a test keeps
+re-checking. The lesson worth keeping: a contract both sides of a stream depend on gets
+exactly one definition, and a new stream belongs in `megadesk_contracts.wire`.
 
 ---
 
 ## 12. Second slice: the voice chain
 
-`CodeScope → VoiceDeck → CloudDispatcher`. Same method as sections 4–6, three new
+`CodeScope → VoiceDeck → CloudFactory`. Same method as sections 4–6, three new
 external things to keep out of the loop: a microphone, a Cursor VM, and a model that
-charges by the minute. Their wire contracts live in `megadesk_contracts.wire` from the
-start, so the duplicate-`redis_packets` problem in section 11 cannot repeat here.
+charges by the minute. Their wire contracts lived in `megadesk_contracts.wire` from the
+start, which is the rule section 11 arrived at the hard way.
 
 ### Where to cut, and why there
 
@@ -494,7 +494,8 @@ start, so the duplicate-`redis_packets` problem in section 11 cannot repeat here
 |---|---|---|
 | `FakeCodeAgent` | `cursor_sdk` and the model behind CodeScope | The clone on disk, the `CODEQ:ASK` group, the session hash, every `CODEQ:ANSWER` payload |
 | `FakeRealtime` | The OpenAI Realtime socket and both audio devices | The tool router, the Redis events, the out-of-band answer injection |
-| `FakeCloudRuntime` | Cursor's VM, the branch, the pull request | The `CLOUDORDER` group, the run registry on db 1, `CLOUDFINISHED`, the retry rules |
+| `FakeCloudFactory` | Cursor's VM, the branch, the pull request | The `CLOUDORDER` group, the run registry on db 1, `CLOUDFINISHED`, the retry rules |
+| `FakeMachineFactory` | The Docker daemon and the container | The `WORKORDER` group, the git Floor, the `AGENTHANDLER` registry, `FINISHED:<repo>` |
 
 `FakeCodeAgent` has two faces on purpose, because there are two seams that fail
 independently: `run_once()` consumes asks and publishes answers as a whole stand-in BE
@@ -502,7 +503,13 @@ independently: `run_once()` consumes asks and publishes answers as a whole stand
 `CodeScopeManager` so its sentence buffering, `agent_id` persistence and error answers
 run for real.
 
-One cut sits higher than the network: `CursorCloudRuntime._sdk` is patched in
+The last two implement the same `AgentFactory` protocol, so the two factory suites read as
+the same suite twice — see [`Nodes/Factory/README.md`](../Nodes/Factory/README.md). Their
+fakes differ only where the infrastructure does: `FakeMachineFactory` takes its run key
+off the order (the manager mints it so the hash exists before the sandbox reads it) and
+can be told to `stop()` a sandbox silently, which is how the reaper gets tested.
+
+One cut sits higher than the network: `CursorCloudFactory._sdk` is patched in
 `test_the_cloud_runtime_asks_for_a_pr_and_never_runs_locally`, because the bug worth
 guarding against there is a missing keyword argument — the SDK runs an agent *locally*
 when neither `local=` nor `cloud=` is passed — not a bad response.
@@ -527,16 +534,18 @@ prefixes above and never calls `FLUSHDB`.
 | `scope_root` | `SCOPE_ROOT` pointed at a temp dir, keeping clones out of the node package |
 | `fake_code_agent`, `code_scope_manager` | The two CodeScope faces described above |
 | `fake_realtime`, `voice_session` | The real `VoiceSession` with its transport swapped out |
-| `fake_cloud_runtime`, `cloud_dispatcher` | The real dispatcher loop with a fake runtime |
+| `fake_cloud_factory`, `cloud_factory` | The real CloudFactory loop with a fake runtime |
+| `fake_machine_factory`, `machine_factory` | The real MachineFactory loop with a fake sandbox host |
 | `opened_urls` | PR links the FE would open, so no browser appears mid-test |
 
 ### Files
 
 ```text
-tests/test_voice_contract.py      # field names only: no GUI, no Redis, no audio
-tests/test_codescope_flow.py      # FE ↔ stream, then BE ↔ agent
-tests/test_voicedeck_flow.py      # control plane, tool router, answer relay, FE
-tests/test_clouddispatch_flow.py  # launching, both failure modes, drafts, PR links
+tests/test_voice_contract.py       # field names only: no GUI, no Redis, no audio
+tests/test_codescope_flow.py       # FE ↔ stream, then BE ↔ agent
+tests/test_voicedeck_flow.py       # control plane, tool router, answer relay, FE
+tests/test_cloudfactory_flow.py    # launching, both failure modes, drafts, PR links
+tests/test_machinefactory_flow.py  # the handshake ordering, and reaping a dead sandbox
 ```
 
 ### Two timing rules these tests pin
@@ -561,6 +570,6 @@ tests that *do* drive controls arm the cursor first, as the BE does at boot.
   covered without a socket or a device (`test_voicedeck_flow.py`, "the real transport's
   event mapping"), since a renamed vendor event is the likely break; the audio threads
   themselves are verified only by running them.
-- `python -m VoiceDeckManager devices` and `python -m CloudDispatcherManager models` exist
+- `python -m VoiceDeckManager devices` and `python -m CloudFactoryManager models` exist
   because of that gap: they are the two things to run by hand when voice is silent or a
   key is wrong.

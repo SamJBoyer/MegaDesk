@@ -5,7 +5,7 @@ from megadesk_contracts.agent_errors import (
     AgentRunError,
     AgentStartupError,
 )
-from megadesk_contracts.cloud_runtime import CloudLaunch, CloudRuntime, CloudStatus
+from megadesk_contracts.factory import AgentFactory, RunHandle, RunStatus
 from megadesk_contracts.discovery import (
     ENTRY_POINT_GROUP,
     backends_for_frontend,
@@ -79,17 +79,17 @@ from megadesk_contracts.supervisor_client import (
 __all__ = [
     "ENTRY_POINT_GROUP",
     "AgentError",
+    "AgentFactory",
     "AgentRunError",
     "AgentStartupError",
     "BeSpec",
     "CloneError",
-    "CloudLaunch",
-    "CloudRuntime",
-    "CloudStatus",
     "FeSpec",
     "Mode",
     "RealtimeEvent",
     "RealtimeTransport",
+    "RunHandle",
+    "RunStatus",
     "DEFAULT_REDIS_URL",
     "REDIS_DB_EPHEMERAL",
     "REDIS_DB_PERSISTENT",

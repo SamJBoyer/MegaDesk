@@ -25,9 +25,16 @@ MegaDesk-Canvas/
 | --- | --- |
 | `graph_window` | Primary window (no title bar) |
 | `graph_bar` | 32px bar above Catalog + editor |
-| `catalog_sidebar` | Catalog; drag payload type `MEGADESK_NODE`, key `megadesk:<name>` |
+| `canvas_body` | Horizontal row: Catalog + editor + Supervisor |
+| `catalog_sidebar` | Left Catalog pane; collapsible |
+| `catalog_sidebar::toggle` | Collapse / expand Catalog |
+| `catalog_sidebar::body` | Catalog palette; drag payload type `MEGADESK_NODE`, key `megadesk:<name>` |
+| `graph_editor_host` | Center pane wrapping the node editor |
 | `graph_editor` | `dpg.node_editor` |
 | `graph_ref_node` | Hidden node used to map screen mouse → editor-grid on drop |
-| `supervisor_panel_window` | Collapsible Supervisor chrome (not a Catalog entry) |
+| `supervisor_panel_window` | Right Supervisor pane; collapsible (not a Catalog entry) |
+| `supervisor_panel_window::toggle` | Collapse / expand Supervisor |
+| `supervisor_panel_window::body` | Supervisor tab contents |
+| `supervisor_panel_window::tabs` | Nodes / Logs tab bar |
 
 Hosted FE tags: `megadesk::{member_id}` (the `dpg.node`) and `megadesk::{member_id}::content` (`tag_prefix` passed to `FeSpec.build`).
