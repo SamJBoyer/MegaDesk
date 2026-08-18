@@ -31,7 +31,7 @@ def test_read_graph_document_rejects_a_missing_file(tmp_path: Path) -> None:
 def test_read_graph_document_rejects_an_unknown_member_type(tmp_path: Path) -> None:
     path = tmp_path / "graph.json"
     path.write_text(
-        json.dumps({"members": {"m1": {"type": "legacy", "node_name": "x"}}}),
+        json.dumps({"members": {"m1": {"type": "unknown", "node_name": "x"}}}),
         encoding="utf-8",
     )
     with pytest.raises(GraphError, match="unknown member type"):

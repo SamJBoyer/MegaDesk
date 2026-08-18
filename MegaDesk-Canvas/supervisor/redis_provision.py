@@ -19,6 +19,10 @@ from typing import Optional
 import redis
 from megadesk_contracts.supervisor_client import (
     DEFAULT_REDIS_URL,
+    KILLREQUEST_STREAM,
+    LAUNCHREQUEST_STREAM,
+    SUPERVISOR_ALIVE_KEY,
+    SUPERVISOR_SINGLETON_KEY,
     resolve_ephemeral_db,
     resolve_persistent_db,
     resolve_redis_url,
@@ -26,26 +30,15 @@ from megadesk_contracts.supervisor_client import (
     redis_connect,
 )
 
-REDIS_CONTAINER = "gbd-redis"
-INSIGHTS_CONTAINER = "gbd-redis-insight"
+REDIS_CONTAINER = "megadesk-redis"
+INSIGHTS_CONTAINER = "megadesk-redis-insight"
 INSIGHTS_PORT = 5540
 
-SUPERVISOR_ALIVE_KEY = "GBD:SUPERVISOR:ALIVE"
-SUPERVISOR_SINGLETON_KEY = "GBD:SUPERVISOR:SINGLETON"
 ALIVE_TTL_SECONDS = 5
 SINGLETON_TTL_SECONDS = 10
 
-LAUNCHREQUEST_STREAM = "LAUNCHREQUEST"
-KILLREQUEST_STREAM = "KILLREQUEST"
-NODEEXIT_STREAM = "NODEEXIT"
 CONSUMER_GROUP = "supervisor"
-RUNNINGNODES_PREFIX = "RUNNINGNODES:"
-
 _LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
-
-
-def running_nodes_key(unique_id: str) -> str:
-    return f"{RUNNINGNODES_PREFIX}{unique_id}"
 
 
 def ping_redis(redis_url: Optional[str] = None, timeout: float = 1.0) -> bool:

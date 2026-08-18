@@ -8,15 +8,13 @@ from megadesk_contracts.agent_errors import (
 from megadesk_contracts.factory import AgentFactory, RunHandle, RunStatus
 from megadesk_contracts.discovery import (
     ENTRY_POINT_GROUP,
-    backends_for_frontend,
     discover_backends,
     discover_frontends,
     get_backend,
-    has_backend,
-    load_exec_spec,
+    load_be_spec,
     load_fe_spec,
 )
-from megadesk_contracts.exec_spec import BeSpec, FeSpec, Mode
+from megadesk_contracts.exec_spec import BeSpec, FeSpec
 from megadesk_contracts import frame_pump, wire
 from megadesk_contracts.node_logging import configure_node_logging
 from megadesk_contracts.node_runtime import (
@@ -109,7 +107,6 @@ __all__ = [
     "BeSpec",
     "CloneError",
     "FeSpec",
-    "Mode",
     "RealtimeEvent",
     "RealtimeTransport",
     "RunHandle",
@@ -127,7 +124,6 @@ __all__ = [
     "SUPERVISOR_NODE_NAME",
     "SUPERVISOR_SINGLETON_KEY",
     "SupervisorClient",
-    "backends_for_frontend",
     "agent_audit_bind_args",
     "attach_log_session",
     "begin_log_session",
@@ -143,11 +139,10 @@ __all__ = [
     "ensure_supervisor_running",
     "frame_pump",
     "get_backend",
-    "has_backend",
     "heartbeat_key",
     "is_clone",
     "is_reported_node_alive",
-    "load_exec_spec",
+    "load_be_spec",
     "load_fe_spec",
     "load_parameter_names",
     "node_should_stop",

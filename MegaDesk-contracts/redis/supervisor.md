@@ -83,7 +83,7 @@ Canvas startup (`MegaDesk-Canvas/main.py`) calls
 `GBD:SUPERVISOR:ALIVE` on DB 1 (default timeout 12s). The BE is **not** launched
 via `LAUNCHREQUEST` and is **not** a Catalog / FeSpec drop.
 
-Redis provision (prefer existing server at `REDIS_URL`, else Docker `gbd-redis` +
+Redis provision (prefer existing server at `REDIS_URL`, else Docker `megadesk-redis` +
 optional Insight on `5540` when the URL host is loopback) happens inside the
 Supervisor BE — see `MegaDesk-Canvas/supervisor/redis_provision.py`.
 
@@ -262,25 +262,8 @@ this key on DB 1.
 |---------|------------|
 | Connection | **`REDIS_URL`** (default `redis://localhost:6379/0`) |
 | Prefer | Attach to existing Redis at that URL |
-| Else (loopback host only) | Docker container `gbd-redis` (`redis:7`, host port from URL) + optional `gbd-redis-insight` on port `5540` |
+| Else (loopback host only) | Docker container `megadesk-redis` (`redis:7`, host port from URL) + optional `megadesk-redis-insight` on port `5540` |
 
 See `MegaDesk-Canvas/supervisor/redis_provision.py`. `SupervisorClient` and
 `ensure_supervisor_running()` also honor `REDIS_URL`.
 
----
-
-## Obsolete names (do not use)
-
-| Old | Replacement |
-|-----|-------------|
-| `Nodes/Supervisor/` Catalog node | Canvas-owned `MegaDesk-Canvas/supervisor/` |
-| `python -m backend` | `python -m supervisor` |
-| `supervisor_frontend` | `supervisor.panel.build_supervisor_panel` |
-| Drop-supervisor FE bootstrap | Canvas startup `ensure_supervisor_running()` |
-| `launch_node:<identity>` Pub/Sub | `LAUNCHREQUEST` stream (DB 0) |
-| `stop_node:<identity>` Pub/Sub | `KILLREQUEST` stream (DB 0) |
-| `acknowledgements:<identity>` | removed (no ack path) |
-| `KILLALL` Pub/Sub | `KILLREQUEST` per instance (or panel stop-all) |
-| `GBD:COMMANDER:ALIVE` | `GBD:SUPERVISOR:ALIVE` (DB 1) |
-| YAML manifests / `PARAMETERS_*` | removed |
-| Alive / RUNNINGNODES on DB 0 | DB 1 |

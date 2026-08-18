@@ -18,7 +18,7 @@ Import as:
 
 ```python
 from megadesk_contracts import (
-    FeSpec, BeSpec, Mode, frame_pump, SupervisorClient,
+    FeSpec, BeSpec, frame_pump, SupervisorClient,
     DEFAULT_REDIS_URL, resolve_redis_url,
 )
 ```
@@ -35,6 +35,7 @@ from megadesk_contracts import (
 | [`megadesk_contracts/agent_audit.py`](megadesk_contracts/agent_audit.py) | Per-run agent audit (`Logs/{session}/agent-{guid}.md` pretty, `agent-{guid}.tokens.md` token stream) — not Redis |
 | [`megadesk_contracts/wire/`](megadesk_contracts/wire/) | `factory`, `machine`, `cloud`, `code_scope`, `voice` — canonical stream field sets with build / parse helpers |
 | [`megadesk_contracts/wire/factory.py`](megadesk_contracts/wire/factory.py) | The status vocabulary both factories report in, and `normalize_status` |
+| [`megadesk_contracts/wire/graph.py`](megadesk_contracts/wire/graph.py) | `GRAPHRUN` / `GRAPHEVENT` — AgentHandler work-graph telemetry |
 | [`megadesk_contracts/repo.py`](megadesk_contracts/repo.py) | `ensure_clone` / `refresh_clone` for disposable read-only clones |
 | [`megadesk_contracts/agent_errors.py`](megadesk_contracts/agent_errors.py) | `AgentStartupError` (never ran, maybe retry) vs `AgentRunError` (ran and failed) |
 | [`megadesk_contracts/realtime.py`](megadesk_contracts/realtime.py) | `RealtimeTransport` — the speech-to-speech surface VoiceDeck is written against |
@@ -42,6 +43,8 @@ from megadesk_contracts import (
 | [`megadesk_contracts/testing/`](megadesk_contracts/testing/) | `CanvasHarness`, `NodeDriver`, `GitFloor`, and the fakes (`FakeGh`, `FakeAgent`, `FakeCodeAgent`, `FakeRealtime`, `FakeCloudFactory`, `FakeMachineFactory`) — imports nothing from any node |
 | [`redis/README.md`](redis/README.md) | Connection defaults, DB split, encoding rules, package index |
 | [`redis/machine-factory-pipeline.md`](redis/machine-factory-pipeline.md) | `WORKORDER` → `AGENTHANDLER:<GUID>` → `FINISHED:<REPO>` |
+| [`redis/work-graph.md`](redis/work-graph.md) | `GRAPHRUN:<GUID>` / `GRAPHEVENT` |
+| [`redis/voice-chain.md`](redis/voice-chain.md) | `CODEQ:*` / `VOICE:*` / `CLOUDORDER` / `CLOUDFINISHED` |
 | [`redis/supervisor.md`](redis/supervisor.md) | Supervisor streams (DB 0), `RUNNINGNODES` / singleton / alive (DB 1) |
 
 ## Modules that speak Redis

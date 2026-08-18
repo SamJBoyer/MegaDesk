@@ -1,13 +1,19 @@
-"""Discover MegaDesk.nodes entry points and resolve FE/BE specs."""
+"""Discover MegaDesk.nodes entry points and resolve FE/BE specs.
+
+Each entry point names the node module. Discovery loads that module and calls
+``get_fe_spec`` / ``get_be_spec``. One entry point serves both halves: return
+``None`` from the function for a mode the node does not implement.
+"""
 
 from __future__ import annotations
 
 import inspect
 import logging
+from importlib.metadata import entry_points
 from types import ModuleType
 from typing import Any, Callable, Mapping, Optional
 
-from megadesk_contracts.exec_spec import BeSpec, FeSpec, Mode
+from megadesk_contracts.exec_spec import BeSpec, FeSpec
 
 log = logging.getLogger("megadesk_contracts.discovery")
 
@@ -15,15 +21,7 @@ ENTRY_POINT_GROUP = "MegaDesk.nodes"
 
 
 def _iter_entry_points():
-    try:
-        from importlib.metadata import entry_points
-    except ImportError:  # pragma: no cover
-        return []
-
-    eps = entry_points()
-    if hasattr(eps, "select"):
-        return list(eps.select(group=ENTRY_POINT_GROUP))
-    return list(eps.get(ENTRY_POINT_GROUP, []))  # type: ignore[arg-type]
+    return list(entry_points().select(group=ENTRY_POINT_GROUP))
 
 
 def _module_of(loaded: object) -> Optional[ModuleType]:
@@ -57,64 +55,52 @@ def _takes_parameters(fn: Callable[..., Any]) -> bool:
 
 def _call_spec_fn(
     fn: Callable[..., Any],
-    args: tuple[Any, ...] = (),
     parameters: Optional[Mapping[str, str]] = None,
 ) -> Any:
     if parameters is not None and _takes_parameters(fn):
-        return fn(*args, parameters=parameters)
-    return fn(*args)
+        return fn(parameters=parameters)
+    return fn()
+
+
+def _load_module(ep) -> Optional[ModuleType]:
+    loaded = ep.load()
+    mod = _module_of(loaded)
+    if mod is None:
+        log.error("MegaDesk.nodes entry %s did not resolve to a module", ep.name)
+    return mod
 
 
 def _call_fe(
     mod: Optional[ModuleType],
-    loaded: object,
-    ep_name: str,
     parameters: Optional[Mapping[str, str]] = None,
 ) -> FeSpec | None:
-    if mod is not None and callable(getattr(mod, "get_fe_spec", None)):
-        spec = _call_spec_fn(mod.get_fe_spec, parameters=parameters)
-        return spec if isinstance(spec, FeSpec) else None
-    if callable(loaded):
-        spec = _call_spec_fn(loaded, ("FE",), parameters=parameters)
-        return spec if isinstance(spec, FeSpec) else None
-    log.error("MegaDesk.nodes entry %s has no get_fe_spec", ep_name)
-    return None
-
-
-def _call_be(mod: Optional[ModuleType], loaded: object, ep_name: str) -> BeSpec | None:
-    if mod is not None and callable(getattr(mod, "get_be_spec", None)):
-        spec = mod.get_be_spec()
-        return spec if isinstance(spec, BeSpec) else None
-    if callable(loaded):
-        spec = loaded("BE")
-        return spec if isinstance(spec, BeSpec) else None
-    return None
-
-
-def load_exec_spec(
-    name: str,
-    mode: Mode,
-    parameters: Optional[Mapping[str, str]] = None,
-) -> FeSpec | BeSpec | None:
-    """Load one entry point by name and return its FE or BE spec."""
-    for ep in _iter_entry_points():
-        if ep.name != name:
-            continue
-        try:
-            loaded = ep.load()
-        except Exception:
-            log.exception("Failed to load MegaDesk.nodes entry point %s", name)
-            return None
-        mod = _module_of(loaded)
-        try:
-            if mode == "FE":
-                return _call_fe(mod, loaded, name, parameters)
-            if mode == "BE":
-                return _call_be(mod, loaded, name)
-        except Exception:
-            log.exception("spec load (%r) failed for %s", mode, name)
-            return None
+    if mod is None or not callable(getattr(mod, "get_fe_spec", None)):
         return None
+    spec = _call_spec_fn(mod.get_fe_spec, parameters=parameters)
+    return spec if isinstance(spec, FeSpec) else None
+
+
+def _call_be(mod: Optional[ModuleType]) -> BeSpec | None:
+    if mod is None or not callable(getattr(mod, "get_be_spec", None)):
+        return None
+    spec = mod.get_be_spec()
+    return spec if isinstance(spec, BeSpec) else None
+
+
+def _scan(name: str, call) -> FeSpec | BeSpec | None:
+    """Load every entry and return the first spec whose name matches ``name``."""
+    entry_list = list(_iter_entry_points())
+    ordered = [ep for ep in entry_list if ep.name == name]
+    ordered += [ep for ep in entry_list if ep.name != name]
+
+    for ep in ordered:
+        try:
+            spec = call(_load_module(ep))
+        except Exception:
+            log.exception("spec load failed for %s", ep.name)
+            continue
+        if spec is not None and name in (ep.name, spec.name):
+            return spec
     return None
 
 
@@ -127,20 +113,18 @@ def load_fe_spec(
     Matches the entry-point name first, then ``FeSpec.name`` — the two differ
     often enough (a graph stores ``FeSpec.name``) that scanning is worth it.
     """
-    entry_points = list(_iter_entry_points())
-    ordered = [ep for ep in entry_points if ep.name == name]
-    ordered += [ep for ep in entry_points if ep.name != name]
 
-    for ep in ordered:
-        try:
-            loaded = ep.load()
-            spec = _call_fe(_module_of(loaded), loaded, ep.name, parameters)
-        except Exception:
-            log.exception("FE spec load failed for %s", ep.name)
-            continue
-        if isinstance(spec, FeSpec) and name in (ep.name, spec.name):
-            return spec
-    return None
+    def call(mod: Optional[ModuleType]) -> FeSpec | None:
+        return _call_fe(mod, parameters)
+
+    spec = _scan(name, call)
+    return spec if isinstance(spec, FeSpec) else None
+
+
+def load_be_spec(name: str) -> BeSpec | None:
+    """Resolve one BE spec by entry-point name or ``BeSpec.name``."""
+    spec = _scan(name, _call_be)
+    return spec if isinstance(spec, BeSpec) else None
 
 
 def discover_frontends() -> dict[str, FeSpec]:
@@ -148,14 +132,12 @@ def discover_frontends() -> dict[str, FeSpec]:
     out: dict[str, FeSpec] = {}
     for ep in _iter_entry_points():
         try:
-            loaded = ep.load()
-            spec = _call_fe(_module_of(loaded), loaded, ep.name)
+            spec = _call_fe(_load_module(ep))
         except Exception:
             log.exception("FE discovery failed for %s", ep.name)
             continue
         if isinstance(spec, FeSpec):
-            key = spec.name or ep.name
-            out[key] = spec
+            out[spec.name or ep.name] = spec
     return out
 
 
@@ -164,32 +146,15 @@ def discover_backends() -> dict[str, BeSpec]:
     out: dict[str, BeSpec] = {}
     for ep in _iter_entry_points():
         try:
-            loaded = ep.load()
-            spec = _call_be(_module_of(loaded), loaded, ep.name)
+            spec = _call_be(_load_module(ep))
         except Exception:
             log.exception("BE discovery failed for %s", ep.name)
             continue
         if isinstance(spec, BeSpec):
-            key = spec.name or ep.name
-            out[key] = spec
+            out[spec.name or ep.name] = spec
     return out
 
 
 def get_backend(name: str) -> Optional[BeSpec]:
     """Resolve a BE spec by node name (entry-point name or BeSpec.name)."""
-    backends = discover_backends()
-    if name in backends:
-        return backends[name]
-    spec = load_exec_spec(name, "BE")
-    return spec if isinstance(spec, BeSpec) else None
-
-
-def has_backend(name: str) -> bool:
-    return get_backend(name) is not None
-
-
-def backends_for_frontend(spec: FeSpec) -> tuple[str, ...]:
-    """LAUNCHREQUEST ``node_endpoint`` values to fire when this FE is hosted."""
-    if spec.backends:
-        return tuple(spec.backends)
-    return ()
+    return load_be_spec(name)

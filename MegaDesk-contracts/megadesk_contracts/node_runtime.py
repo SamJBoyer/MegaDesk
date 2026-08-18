@@ -26,12 +26,6 @@ import threading
 import time
 from datetime import datetime, timezone
 from typing import Optional
-from urllib.parse import urlparse
-
-try:
-    import redis
-except ImportError:  # pragma: no cover
-    redis = None  # type: ignore
 
 from megadesk_contracts.supervisor_client import (
     resolve_persistent_db,
@@ -50,6 +44,7 @@ HEARTBEAT_GRACE_SEC = 20.0
 SHUTDOWN_FORCE_EXIT_SEC = 3.0
 ENV_UNIQUE_ID = "MEGADESK_UNIQUE_ID"
 ENV_NODE = "MEGADESK_NODE"
+ENV_LOG_PATH = "MEGADESK_LOG_PATH"
 
 _CURRENT: Optional["NodeRuntime"] = None
 
@@ -125,7 +120,7 @@ def is_reported_node_alive(
     """
     _ = now
     uid = (entry.get("unique_id") or "").strip()
-    popen_pid = _parse_int(entry.get("PID") or entry.get("pid"))
+    popen_pid = _parse_int(entry.get("PID"))
     hb: dict[str, str] = {}
     if uid and persistent is not None:
         try:
@@ -189,8 +184,6 @@ class NodeRuntime:
         interval: float = HEARTBEAT_INTERVAL_SEC,
         force_exit: bool = True,
     ) -> None:
-        if redis is None:
-            raise RuntimeError("redis package is required for NodeRuntime")
         self.name = (name or "").strip() or "unknown"
         self.unique_id = (unique_id or "").strip()
         self.pid = os.getpid()
@@ -298,35 +291,3 @@ class NodeRuntime:
                 log.warning("NodeRuntime force-exit after shutdown grace")
                 os._exit(0)
             self._stop.wait(self.interval)
-
-
-def persistent_client(redis_url: Optional[str] = None):
-    """Persistent-DB client for kill-switch / heartbeat helpers (scripts and tests)."""
-    if redis is None:
-        raise RuntimeError("redis package is required")
-    url = resolve_redis_url(redis_url)
-    return redis_connect(url, db=resolve_persistent_db(url))
-
-
-def redis_host_reachable(redis_url: Optional[str] = None, timeout: float = 1.0) -> bool:
-    if redis is None:
-        return False
-    url = resolve_redis_url(redis_url)
-    parsed = urlparse(url)
-    client = redis.Redis(
-        host=parsed.hostname or "localhost",
-        port=parsed.port or 6379,
-        db=resolve_persistent_db(url),
-        decode_responses=True,
-        socket_connect_timeout=timeout,
-        socket_timeout=timeout,
-    )
-    try:
-        return bool(client.ping())
-    except Exception:
-        return False
-    finally:
-        try:
-            client.close()
-        except Exception:
-            pass

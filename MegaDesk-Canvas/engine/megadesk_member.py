@@ -89,7 +89,6 @@ class MegaDeskMember:
         self.spec = spec
         self.name = spec.name
         self.nickname = spec.name
-        self.global_guid = TYPE_DISCRIMINATOR
         self.description = spec.description
         self.member_id: str = member_id or str(uuid4())
         self.position: list[float] = list(position or (0.0, 0.0))
@@ -101,11 +100,6 @@ class MegaDeskMember:
         self.height: float = float(self.data.get("height", spec.default_height))
         self._node_tag: Optional[str] = None
         self._pending_delete: bool = False
-
-    @property
-    def window_tag(self) -> Optional[str]:
-        """Alias for the hosted node tag (kept for callers expecting window_tag)."""
-        return self._node_tag
 
     def is_hosted(self) -> bool:
         return bool(self._node_tag and dpg.does_item_exist(self._node_tag))
@@ -169,12 +163,6 @@ class MegaDeskMember:
         self.position[0] = float(pos[0])
         self.position[1] = float(pos[1])
 
-    def on_create(self) -> None:
-        pass
-
-    def on_destroy(self) -> None:
-        self.destroy_node()
-
     def hosted_tag(self) -> str:
         return hosted_node_tag(self.member_id)
 
@@ -186,10 +174,6 @@ class MegaDeskMember:
         tag = self._node_tag or self.hosted_tag()
         destroy_hosted_node(tag)
         self._node_tag = None
-
-    def request_close(self) -> None:
-        """Delete this member's node; caller should also remove from the model."""
-        self.destroy_node()
 
     def open_on_graph(self, *, parent: str = NODE_EDITOR) -> None:
         """Create the live FE node at ``self.position`` (no-op if already hosted)."""

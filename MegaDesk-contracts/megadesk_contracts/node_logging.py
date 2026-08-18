@@ -6,9 +6,7 @@ import logging
 import os
 from typing import Optional
 
-ENV_UNIQUE_ID = "MEGADESK_UNIQUE_ID"
-ENV_NODE = "MEGADESK_NODE"
-ENV_LOG_PATH = "MEGADESK_LOG_PATH"
+from megadesk_contracts.node_runtime import ENV_LOG_PATH, ENV_NODE, ENV_UNIQUE_ID
 
 
 def configure_node_logging(name: Optional[str] = None) -> logging.Logger:

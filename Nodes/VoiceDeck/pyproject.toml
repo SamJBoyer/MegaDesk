@@ -27,7 +27,7 @@ audio = [
 ]
 
 [project.entry-points."MegaDesk.nodes"]
-voice_deck = "voice_deck_node:get_exec_spec"
+voice_deck = "voice_deck_node"
 
 [tool.setuptools]
 py-modules = ["voice_deck_node"]

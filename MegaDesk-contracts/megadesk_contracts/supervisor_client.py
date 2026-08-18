@@ -19,10 +19,7 @@ from pathlib import Path
 from typing import Mapping, Optional
 from urllib.parse import urlparse, urlunparse
 
-try:
-    import redis
-except ImportError:  # pragma: no cover
-    redis = None  # type: ignore
+import redis
 
 
 DEFAULT_REDIS_URL = "redis://localhost:6379/0"
@@ -36,6 +33,7 @@ SUPERVISOR_SINGLETON_KEY = "GBD:SUPERVISOR:SINGLETON"
 SUPERVISOR_NODE_NAME = "supervisor"
 LAUNCHREQUEST_STREAM = "LAUNCHREQUEST"
 KILLREQUEST_STREAM = "KILLREQUEST"
+NODEEXIT_STREAM = "NODEEXIT"
 RUNNINGNODES_PREFIX = "RUNNINGNODES:"
 
 
@@ -121,8 +119,6 @@ def redis_connect(
     redis-py 8 ignores the ``db=`` keyword when the URL already names a
     database, so callers must not pass ``db=`` and a path together.
     """
-    if redis is None:
-        raise RuntimeError("redis package is required")
     url = redis_url_with_db(resolve_redis_url(redis_url), db)
     return redis.Redis.from_url(url, decode_responses=decode_responses, **kwargs)
 
@@ -132,20 +128,11 @@ def running_nodes_key(unique_id: str) -> str:
 
 
 class SupervisorClient:
-    def __init__(
-        self,
-        redis_url: Optional[str] = None,
-        **_ignored: object,
-    ) -> None:
-        if redis is None:
-            raise RuntimeError("redis package is required for SupervisorClient")
-        # caller_identity / legacy host+port kept as ignored kwargs for call-site compat.
+    def __init__(self, redis_url: Optional[str] = None) -> None:
         self.redis_url = resolve_redis_url(redis_url)
         ephemeral_db, persistent_db = resolve_redis_pair(self.redis_url)
         self.ephemeral = redis_connect(self.redis_url, db=ephemeral_db)
         self.persistent = redis_connect(self.redis_url, db=persistent_db)
-        # Back-compat alias: older call sites used ``.client`` for streams.
-        self.client = self.ephemeral
 
     def redis_ok(self) -> bool:
         try:
@@ -247,9 +234,6 @@ def ensure_supervisor_running(
     Supervisor. If one is already alive, the existing ``Logs/CURRENT`` session
     is reused — canvas open does not rotate logs.
     """
-    if redis is None:
-        return False
-
     from megadesk_contracts.log_session import (
         attach_log_session,
         begin_log_session,

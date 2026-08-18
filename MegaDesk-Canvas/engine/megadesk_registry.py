@@ -50,11 +50,6 @@ def get_fe_spec(
     return _FRONTENDS.get(name)
 
 
-def fe_has_backend(name: str) -> bool:
-    spec = _FRONTENDS.get(name)
-    return bool(spec and spec.backends)
-
-
 PALETTE_PREFIX = "megadesk:"
 
 

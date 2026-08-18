@@ -13,8 +13,6 @@ Shared contract lives in the installable `megadesk-contracts` package (`MegaDesk
 
 **Supervisor** is Canvas infrastructure (`MegaDesk-Canvas/supervisor/`), not a Catalog / `MegaDesk.nodes` entry. The BE starts on canvas launch via `megadesk_contracts.ensure_supervisor_running()` (`python -m supervisor`). The operator UI is a right-hand collapsible pane with Nodes and Logs tabs (`supervisor.panel.build_supervisor_panel`), matching the left Catalog — not a droppable FE.
 
-**Naming (MegaDesk vs legacy Executive):** MegaDesk uses `MegaDesk.nodes` + `FeSpec`/`BeSpec` + canvas host class `MegaDeskMember`. That is not the older Executive stack (`executive.nodes` / `BaseNode`).
-
 ---
 
 ## Project layout convention
@@ -34,9 +32,9 @@ Nodes/<Name>/
 
 1. Nodes **must** ship a `pyproject.toml` with a `[project.entry-points."MegaDesk.nodes"]` entry.
 2. Nodes are always installed into the **MegaDesk conda env** (`pip install -e Nodes/<Name>`). Undiscoverable packages are invisible to FE and BE.
-3. Depend on `megadesk-contracts` so the node can import `FeSpec` / `BeSpec` / `Mode`.
+3. Depend on `megadesk-contracts` so the node can import `FeSpec` / `BeSpec`.
 4. FE-only, BE-only, and FE+BE are all valid. Return `None` for the mode you do not support.
-5. `get_fe_spec` / `get_be_spec` must return a ready-to-use launch description — the caller should not need extra setup beyond what the installed package already provides. `get_exec_spec(mode)` remains as a thin wrapper.
+5. `get_fe_spec` / `get_be_spec` must return a ready-to-use launch description — the caller should not need extra setup beyond what the installed package already provides.
 
 ---
 
@@ -44,12 +42,12 @@ Nodes/<Name>/
 
 ```toml
 [project.entry-points."MegaDesk.nodes"]
-my_tool = "my_tool_node:get_exec_spec"
+my_tool = "my_tool_node"
 ```
 
 - The **entry-point name** (`my_tool`) is the package’s discovery key.
 - Prefer making `FeSpec.name` / `BeSpec.name` match that key so FE drop and BE `LAUNCHREQUEST` use the same nickname.
-- One entry point serves both modes. Discovery prefers `get_fe_spec()` / `get_be_spec()` on the module; `get_exec_spec(mode)` is the compatibility wrapper.
+- The value is the node module. Discovery loads it and calls `get_fe_spec()` / `get_be_spec()`. One entry point serves both halves.
 
 Examples in-repo:
 
@@ -61,6 +59,7 @@ Examples in-repo:
 | TicketDispatcher | `ticket_dispatcher` | FE only |
 | CodeScope | `code_scope` | FE + BE |
 | VoiceDeck | `voice_deck` | FE + BE |
+| GraphScope | `graph_scope` | FE only |
 
 Nodes may be nested. Related ones are grouped by folder — `Nodes/Factory/` holds
 the two factories as siblings — and `scripts/refresh_nodes.py` discovers at any
@@ -79,22 +78,13 @@ def get_fe_spec(parameters: Mapping[str, str] | None = None) -> FeSpec | None:
 
 def get_be_spec() -> BeSpec | None:
     ...
-
-def get_exec_spec(
-    mode: Mode, parameters: Mapping[str, str] | None = None
-) -> FeSpec | BeSpec | None:
-    if mode == "FE":
-        return get_fe_spec(parameters)
-    if mode == "BE":
-        return get_be_spec()
-    return None
 ```
 
-`Mode` is `"FE"` | `"BE"`. Discovery calls `get_fe_spec` / `get_be_spec` when they exist. Nodes that do not take parameters may keep a zero-argument `get_fe_spec()`; the caller only passes `parameters=` when the function accepts it.
+Nodes that do not take parameters may keep a zero-argument `get_fe_spec()`; the caller only passes `parameters=` when the function accepts it.
 
 `parameters` are the string kvps a **graph** saved for this member (see *Graph parameters* below). `get_fe_spec` folds them into the returned spec — `build` closes over them, `backend_parameters` is the subset (or rewrite) to drop onto `LAUNCHREQUEST`. The host still calls `build(parent, *, tag_prefix, width, height)` with no parameters kwarg.
 
-### `FeSpec` (mode `"FE"`)
+### `FeSpec`
 
 Front-end description for MegaDesk graph hosting:
 
@@ -125,7 +115,7 @@ FEs that need a per-frame drain should use `megadesk_contracts.frame_pump.regist
 FE-only example pattern:
 
 ```python
-from megadesk_contracts import FeSpec, Mode
+from megadesk_contracts import FeSpec
 
 def get_fe_spec():
     return FeSpec(
@@ -141,7 +131,7 @@ def get_be_spec():
     return None
 ```
 
-### `BeSpec` (mode `"BE"`)
+### `BeSpec`
 
 Back-end launch instruction for the Canvas-owned Supervisor:
 
@@ -173,7 +163,7 @@ both streams into one `{node}.md` per node under the worktree `Logs/{session}/`
 BE-only example pattern:
 
 ```python
-from megadesk_contracts import BeSpec, Mode
+from megadesk_contracts import BeSpec
 
 def get_be_spec():
     return BeSpec(
@@ -196,12 +186,11 @@ Installed entry points are scanned via `importlib.metadata` group `MegaDesk.node
 
 | Function | Returns |
 |----------|---------|
-| `discover_frontends()` | `dict[str, FeSpec]` — every node that returns an `FeSpec` for `"FE"` |
-| `discover_backends()` | `dict[str, BeSpec]` — every node that returns a `BeSpec` for `"BE"` |
-| `load_exec_spec(name, mode, parameters=None)` | One entry point’s result for that mode (matches **entry-point name**) |
+| `discover_frontends()` | `dict[str, FeSpec]` — every node that returns an `FeSpec` |
+| `discover_backends()` | `dict[str, BeSpec]` — every node that returns a `BeSpec` |
 | `load_fe_spec(name, parameters=None)` | One FE spec, rebuilt with graph parameters when given |
+| `load_be_spec(name)` | One BE spec (matches entry-point name or `BeSpec.name`) |
 | `get_backend(name)` | `BeSpec \| None` by nickname (also resolves via discovery keys / `BeSpec.name`) |
-| `has_backend(name)` | Whether a BE exists for that name |
 
 Keys prefer `spec.name`, falling back to the entry-point name.
 
@@ -257,7 +246,7 @@ A Supervisor-launched BE reads the same packet from `MEGADESK_PARAMETERS` (JSON 
 
 ### Graph member persistence
 
-Members are serialized into a graph `.json` (default `Graphs/default.json`; the bar can point at any file). Persistence is **members-only** (`{"members": {...}}`). Discriminator in JSON is **`type: "megadesk"`** (in-memory the host also keeps `global_guid = "megadesk"`). Legacy `canvas.json` fields (`scale`, `parents`, `children`, `canvas_id`, `hierarchy`) are artifacts and are not written.
+Members are serialized into a graph `.json` (default `Graphs/default.json`; the bar can point at any file). Persistence is **members-only** (`{"members": {...}}`). Discriminator in JSON is **`type: "megadesk"`**.
 
 | Field | Role |
 | --- | --- |
@@ -328,6 +317,6 @@ Typical Redis path after an FE drop that also has a BE:
 1. Create `Nodes/<Name>/` with `pyproject.toml` depending on `megadesk-contracts`.
 2. Add `<name>_node.py` with `get_fe_spec()` / `get_be_spec()` returning `FeSpec` and/or `BeSpec`.
 3. Register `[project.entry-points."MegaDesk.nodes"]`.
-4. `pip install -e Nodes/<Name>` (add `[canvas]` / Dear PyGui if the node has an FE), or run `scripts/refresh_nodes.sh`, which picks the new node up automatically.
+4. `pip install -e Nodes/<Name>` (add `[canvas]` / Dear PyGui if the node has an FE), or run `python scripts/refresh_nodes.py`, which picks the new node up automatically.
 5. Restart MegaDesk so entry points are re-scanned (Supervisor BE starts with the canvas).
 6. FE appears in Catalog; BE is launchable by endpoint once the Supervisor BE is alive.

@@ -1,6 +1,6 @@
 <Terms>
 
-MegaDesk-Canvas (MDC/Canvas): This program is the central command center and workspace for a MegaDesk project. The MDC creates the canvas the displays the Node's front ends and allows you to create new graphs. The MDC is also responsible for controlling the supervisor via panel. 
+MegaDesk-Canvas (MDC/Canvas): This program is the central command center and workspace for a MegaDesk project. The MDC creates the canvas that displays the Node's front ends and allows you to create new graphs. The MDC is also responsible for controlling the supervisor via panel. 
 
 Nodes: Programs in MegaDesk that perform some useful action or utility. Nodes can have a front-end (FE) that can be dragged and dropped on the Canvas and/or a backend (BE) that are managed by the Supervisor. 
 

@@ -7,7 +7,6 @@ import os
 import re
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -263,33 +262,3 @@ def create_ticket_worktree(
 
     return ticket_path
 
-
-def setup_from_file(list_file: Path, floor_root: Path | None = None) -> list[Path]:
-    """Legacy helper: prepare repos listed in a txt file."""
-    floor_root = floor_root or default_floor()
-    floor_root.mkdir(parents=True, exist_ok=True)
-    urls: list[str] = []
-    for line in list_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        urls.append(line)
-    if not urls:
-        raise ValueError(f"No repository URLs found in {list_file}")
-
-    prepared: list[Path] = []
-    for url in urls:
-        try:
-            prepared.append(setup_repo(url, floor_root))
-        except subprocess.CalledProcessError as exc:
-            print(
-                f"[floor] ABORT {url}: git failed\n"
-                f"  cmd: {' '.join(exc.cmd)}\n"
-                f"  stderr: {exc.stderr}",
-                file=sys.stderr,
-            )
-            raise SystemExit(1) from exc
-        except ValueError as exc:
-            print(f"[floor] ABORT: {exc}", file=sys.stderr)
-            raise SystemExit(1) from exc
-    return prepared

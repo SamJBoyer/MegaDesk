@@ -1,13 +1,8 @@
 """The WORKORDER / FINISHED wire format itself, independent of any GUI.
 
 TicketDispatcher, MachineFactory and MergeManager all write to this family, and
-all three import it from ``megadesk_contracts.wire.machine``. There used to be a
-copy of it inside two node packages, and tests here pinned the copies together;
-now there is one definition and these tests pin its writers and parsers instead.
-
-The parsers accept aliases (``REPO``, ``ticket``, ``workpath``) for
-backwards-compatibility, but every writer emits canonical names only. Tests
-assert the canonical set so a writer drifting to an alias fails here.
+all three import it from ``megadesk_contracts.wire.machine``. Tests assert the
+canonical field set so a writer drifting off it fails here.
 """
 
 from __future__ import annotations
@@ -79,6 +74,30 @@ def test_finished_round_trips_through_the_parser(machine_wire) -> None:
     assert parsed["ticket_name"] == FINISHED_SAMPLE["ticket_name"]
     assert parsed["wt"] == FINISHED_SAMPLE["wt"]
     assert parsed["agent_dir"] == FINISHED_SAMPLE["agent_dir"]
+
+
+def test_workorder_parser_requires_canonical_field_names(machine_wire) -> None:
+    with pytest.raises(ValueError, match="repo, ticket_name, and instructions"):
+        machine_wire.parse_workorder(
+            {
+                "REPO": "widgets",
+                "ticket": "add-widget-tests",
+                "prompt": "Cover the widget module.",
+                "new_wt": "true",
+            }
+        )
+
+
+def test_finished_parser_requires_canonical_field_names(machine_wire) -> None:
+    with pytest.raises(ValueError):
+        machine_wire.parse_finished(
+            {
+                "ticket": FINISHED_SAMPLE["ticket_name"],
+                "ticket_id": FINISHED_SAMPLE["ticket_id"],
+                "workpath": FINISHED_SAMPLE["wt"],
+                "agent_dir": FINISHED_SAMPLE["agent_dir"],
+            }
+        )
 
 
 def test_conflict_workorder_requires_an_existing_worktree(machine_wire) -> None:

@@ -15,11 +15,11 @@ from megadesk_contracts.node_runtime import (
     is_reported_node_alive,
     request_shutdown,
 )
+from megadesk_contracts.supervisor_client import NODEEXIT_STREAM, running_nodes_key
 
 from supervisor.process_registry import ProcessRegistry, launch_spec
-from supervisor.redis_provision import NODEEXIT_STREAM, running_nodes_key
 
-log = logging.getLogger("gbd.supervisor")
+log = logging.getLogger("megadesk.supervisor")
 
 
 class NodeLaunchError(Exception):

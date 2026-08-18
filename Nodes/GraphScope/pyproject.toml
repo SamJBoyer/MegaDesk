@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.entry-points."MegaDesk.nodes"]
-graph_scope = "graph_scope_node:get_exec_spec"
+graph_scope = "graph_scope_node"
 
 [tool.setuptools]
 py-modules = ["graph_scope_node"]

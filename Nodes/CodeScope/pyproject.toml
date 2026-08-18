@@ -21,7 +21,7 @@ canvas = [
 ]
 
 [project.entry-points."MegaDesk.nodes"]
-code_scope = "code_scope_node:get_exec_spec"
+code_scope = "code_scope_node"
 
 [tool.setuptools]
 py-modules = ["code_scope_node"]

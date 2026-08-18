@@ -28,13 +28,12 @@ from megadesk_contracts.wire._fields import (
     stripped,
     text_field,
 )
+from megadesk_contracts.wire.factory import DEFAULT_MODEL
 
 ASK_STREAM = "CODEQ:ASK"
 ANSWER_STREAM = "CODEQ:ANSWER"
 SESSION_PREFIX = "CODESCOPE:SESSION:"
 ASK_GROUP = "code_scope"
-
-DEFAULT_MODEL = "auto"
 
 # What the asker wants back: prose for a human, or a ready-to-dispatch ticket.
 MODE_ANSWER = "answer"

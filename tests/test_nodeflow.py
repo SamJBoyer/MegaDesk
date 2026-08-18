@@ -81,7 +81,7 @@ def merge_row(harness, redis_client, wire, floor, *, ticket_name: str, wt: Path)
 def test_t1_dispatch_writes_the_canonical_workorder(
     redis_client, fake_gh, harness, workorders
 ) -> None:
-    """Catches field renames and legacy WORKREQUEST / REPO drift."""
+    """Catches field renames and extra or missing WORKORDER keys."""
     fake_gh.add_issue(41, "add-widget-tests", "Cover the widget module with tests.")
 
     dispatcher = connect_dispatcher(harness)

@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from megadesk_contracts import BeSpec, FeSpec, Mode
+from megadesk_contracts import BeSpec, FeSpec
 
 _CLOUD_FACTORY_ROOT = Path(__file__).resolve().parent
 NODE_NAME = "cloud_factory"
@@ -38,10 +38,3 @@ def get_be_spec() -> BeSpec | None:
         cwd=str(_CLOUD_FACTORY_ROOT),
     )
 
-
-def get_exec_spec(mode: Mode) -> FeSpec | BeSpec | None:
-    if mode == "FE":
-        return get_fe_spec()
-    if mode == "BE":
-        return get_be_spec()
-    return None

@@ -16,15 +16,8 @@ from typing import Optional
 from megadesk_contracts.supervisor_client import (
     REDIS_DB_PERSISTENT,
     redis_connect,
-    redis_url_with_db,
     resolve_redis_url,
 )
-
-try:
-    import redis
-except ImportError:  # pragma: no cover
-    redis = None  # type: ignore
-
 
 LANE_LEASE_PREFIX = "MEGADESK:LANE:"
 LANE_BY_RUN_PREFIX = "MEGADESK:LANEBYRUN:"
@@ -47,8 +40,6 @@ def lane_by_run_key(owner: str) -> str:
 
 def live_persistent_client(redis_url: Optional[str] = None):
     """The allocator: this server's db 1, regardless of the process pair."""
-    if redis is None:
-        raise RuntimeError("redis package is required")
     return redis_connect(redis_url, db=REDIS_DB_PERSISTENT)
 
 
@@ -62,8 +53,6 @@ def flush_pair(
         raise ValueError(
             f"refusing to flush live Redis DBs {ephemeral}/{persistent}"
         )
-    if redis is None:
-        raise RuntimeError("redis package is required")
     url = resolve_redis_url(redis_url)
     for db in (ephemeral, persistent):
         client = redis_connect(url, db=db)

@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.entry-points."MegaDesk.nodes"]
-ticket_dispatcher = "ticket_dispatcher_node:get_exec_spec"
+ticket_dispatcher = "ticket_dispatcher_node"
 
 [tool.setuptools]
 py-modules = ["ticket_dispatcher_app", "ticket_dispatcher_node"]

@@ -21,7 +21,7 @@ canvas = [
 ]
 
 [project.entry-points."MegaDesk.nodes"]
-cloud_factory = "cloud_factory_node:get_exec_spec"
+cloud_factory = "cloud_factory_node"
 
 [tool.setuptools]
 py-modules = ["cloud_factory_node"]

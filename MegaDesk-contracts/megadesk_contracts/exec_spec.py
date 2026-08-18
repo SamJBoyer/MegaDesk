@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Literal, Mapping
-
-Mode = Literal["FE", "BE"]
+from typing import Callable, Mapping
 
 
 @dataclass(frozen=True)

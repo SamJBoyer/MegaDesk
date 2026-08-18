@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Mapping, Optional
 
-from megadesk_contracts import BeSpec, FeSpec, Mode, load_parameter_names, normalize_parameters
+from megadesk_contracts import BeSpec, FeSpec, load_parameter_names, normalize_parameters
 
 from ticket_dispatcher_app import build_ui, read_parameters
 
@@ -42,11 +42,3 @@ def get_fe_spec(
 def get_be_spec() -> BeSpec | None:
     return None
 
-
-def get_exec_spec(
-    mode: Mode,
-    parameters: Optional[Mapping[str, str]] = None,
-) -> FeSpec | BeSpec | None:
-    if mode == "FE":
-        return get_fe_spec(parameters)
-    return None

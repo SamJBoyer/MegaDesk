@@ -91,15 +91,5 @@ there. A node shipping its own `redis_packets.py` is a bug, not a shortcut:
 
 Supervisor keys/streams (Canvas-owned BE):
 
-- `MegaDesk-Canvas/supervisor/redis_provision.py`
-- `MegaDesk-Canvas/supervisor/stream_server.py`
-- `MegaDesk-Canvas/supervisor/engine.py`
-- `MegaDesk-contracts/megadesk_contracts/supervisor_client.py`
-
-## Obsolete names (do not use)
-
-Older prompts mentioned `WORKREQUEST` and `MERGEREQUEST:*`. The live contract is **`WORKORDER`** and **`FINISHED:<REPO>`** only.
-
-Older names **Plant** / **PlantManager** / **LiveHarness** and Redis hash **`LIVEHARNESS:<GUID>`** (consumer group `plant`) are replaced by **MachineFactory** / **MachineFactoryManager** / **AgentHandler** and **`AGENTHANDLER:<GUID>`** (consumer group `machine_factory`).
-
-Older Supervisor docs mentioned YAML manifests (`register_manifest` / `execute_manifest` / `PARAMETERS_*`), Pub/Sub `launch_node` / `stop_node` / `acknowledgements` / `KILLALL` / `GBD:COMMANDER:ALIVE`, and a Catalog node under `Nodes/Supervisor/`. The live contract is Canvas-owned Supervisor (`python -m supervisor`) with **`LAUNCHREQUEST`** / **`KILLREQUEST`** / **`NODEEXIT`** on DB 0 and **`RUNNINGNODES:<unique_id>`** / **`GBD:SUPERVISOR:SINGLETON`** / **`GBD:SUPERVISOR:ALIVE`** on DB 1.
+- `MegaDesk-contracts/megadesk_contracts/supervisor_client.py` — stream names, `RUNNINGNODES`, `SupervisorClient`
+- `MegaDesk-Canvas/supervisor/` — the BE that consumes those streams

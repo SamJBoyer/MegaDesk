@@ -6,9 +6,7 @@ and do not have to be named ``graph.json``, so the graph bar can be pointed at
 any file — reading one is therefore a validation step (``read_graph_document``)
 that raises :class:`GraphError`, never a bare ``json.load``.
 
-Persistence is members-only: ``{"members": {member_id: {...}}}``. The legacy
-``canvas.json`` shape (``canvas_id`` / ``scale`` / ``parents`` / ``children`` /
-``hierarchy``) is gone; those fields were artifacts and are not read.
+Persistence is members-only: ``{"members": {member_id: {...}}}``.
 """
 
 from __future__ import annotations
@@ -195,7 +193,6 @@ class GraphModel:
         member = MegaDeskMember(
             spec, position=position, data=data, parameters=parameters
         )
-        member.on_create()
         self.members[member.member_id] = member
         self.save()
         return member
@@ -204,14 +201,14 @@ class GraphModel:
         member = self.members.get(member_id)
         if not member:
             return
-        member.on_destroy()
+        member.destroy_node()
         del self.members[member_id]
         self.save()
 
     def close_all(self) -> None:
         """Tear every hosted FE down without touching the file on disk."""
         for member in list(self.members.values()):
-            member.on_destroy()
+            member.destroy_node()
         self.members.clear()
 
     def move_node(self, member_id: str, dx: float, dy: float) -> None:

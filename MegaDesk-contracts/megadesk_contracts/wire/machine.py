@@ -156,23 +156,10 @@ def workorder_fields(
 
 
 def parse_workorder(fields: Mapping[str, Any]) -> dict[str, Any]:
-    """Parse WORKORDER stream fields into a normalized dict.
-
-    The aliases are read-side only. Anything published through
-    ``workorder_fields`` uses the canonical names; these let a hand-written or
-    older entry still be consumed rather than dropped.
-    """
-    repo = fields.get("repo") or fields.get("REPO")
-    url = fields.get("URL") or fields.get("url") or ""
-    ticket_name = (
-        fields.get("ticket_name") or fields.get("ticket") or fields.get("name")
-    )
-    instructions = (
-        fields.get("instructions")
-        or fields.get("instruction")
-        or fields.get("prompt")
-        or fields.get("text")
-    )
+    """Parse WORKORDER stream fields into a normalized dict."""
+    repo = fields.get("repo")
+    ticket_name = fields.get("ticket_name")
+    instructions = fields.get("instructions")
     if not repo or not ticket_name or not instructions:
         raise ValueError(
             "WORKORDER requires repo, ticket_name, and instructions; "
@@ -184,7 +171,7 @@ def parse_workorder(fields: Mapping[str, Any]) -> dict[str, Any]:
         raise ValueError("WORKORDER with new_wt=false requires wt")
     return {
         "repo": stripped(repo),
-        "URL": stripped(url),
+        "URL": stripped(fields.get("URL")),
         "new_wt": new_wt,
         "wt": wt,
         "ticket_name": stripped(ticket_name),
@@ -229,9 +216,9 @@ def finished_fields(
 
 def parse_finished(fields: Mapping[str, Any]) -> dict[str, str]:
     parsed = {
-        "ticket_name": stripped(fields.get("ticket_name") or fields.get("ticket")),
+        "ticket_name": stripped(fields.get("ticket_name")),
         "ticket_id": stripped(fields.get("ticket_id")),
-        "wt": stripped(fields.get("wt") or fields.get("workpath")),
+        "wt": stripped(fields.get("wt")),
         "agent_dir": stripped(fields.get("agent_dir")),
     }
     require("FINISHED", parsed, tuple(parsed))

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from megadesk_contracts import BeSpec, FeSpec, Mode
+from megadesk_contracts import BeSpec, FeSpec
 
 from graph_scope_frontend.app import build_ui
 
@@ -27,8 +27,3 @@ def get_fe_spec() -> FeSpec | None:
 def get_be_spec() -> BeSpec | None:
     return None
 
-
-def get_exec_spec(mode: Mode) -> FeSpec | BeSpec | None:
-    if mode == "FE":
-        return get_fe_spec()
-    return None

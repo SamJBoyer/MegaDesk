@@ -65,17 +65,6 @@ The Redis stream entry id returned by `XADD` (e.g. `1712345678901-0`) is the **t
 XADD WORKORDER * repo Helmsman URL https://github.com/example/Helmsman.git new_wt true wt "" ticket_name 1 instructions "Create harness-smoke.txt with the text ok" model auto
 ```
 
-### Accepted parse aliases (readers only)
-
-`parse_workorder` tolerates legacy/alternate keys when reading:
-
-- `repo` / `REPO`
-- `URL` / `url`
-- `ticket_name` / `ticket` / `name`
-- `instructions` / `instruction` / `prompt` / `text`
-
-Writers should use the canonical field names in the table above.
-
 ---
 
 ## AGENTHANDLER:\<GUID\>
@@ -126,11 +115,6 @@ Ticket payload (`ticket_name`, `instructions`, `model`, paths) is **not** stored
 ```text
 XRANGE FINISHED:Helmsman - +
 ```
-
-### Accepted parse aliases (readers only)
-
-- `ticket_name` / `ticket`
-- `wt` / `workpath`
 
 ---
 

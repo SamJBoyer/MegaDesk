@@ -22,7 +22,7 @@ from supervisor.redis_provision import (
     release_supervisor_singleton,
 )
 
-log = logging.getLogger("gbd.supervisor")
+log = logging.getLogger("megadesk.supervisor")
 
 _REAP_INTERVAL_S = 1.0
 
@@ -54,13 +54,13 @@ class SupervisorServer:
         ensure_consumer_groups(self.ephemeral)
         mark_supervisor_alive(self.persistent)
         self._heartbeat = threading.Thread(
-            target=self._heartbeat_loop, name="gbd-supervisor-heartbeat", daemon=True
+            target=self._heartbeat_loop, name="megadesk-supervisor-heartbeat", daemon=True
         )
         self._reaper = threading.Thread(
-            target=self._reaper_loop, name="gbd-supervisor-reaper", daemon=True
+            target=self._reaper_loop, name="megadesk-supervisor-reaper", daemon=True
         )
         self._thread = threading.Thread(
-            target=self._listen_loop, name="gbd-supervisor-streams", daemon=True
+            target=self._listen_loop, name="megadesk-supervisor-streams", daemon=True
         )
         self._heartbeat.start()
         self._reaper.start()

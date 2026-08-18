@@ -42,7 +42,7 @@ def _tee_supervisor_file_log() -> None:
 
 
 def main() -> int:
-    log = configure_node_logging("gbd.supervisor")
+    log = configure_node_logging("megadesk.supervisor")
     owner = str(os.getpid())
     spawned_with_session = bool((os.environ.get(ENV_LOGS_DIR) or "").strip())
     if spawned_with_session:

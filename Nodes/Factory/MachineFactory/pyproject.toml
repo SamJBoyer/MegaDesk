@@ -23,7 +23,7 @@ canvas = [
 ]
 
 [project.entry-points."MegaDesk.nodes"]
-machine_factory = "machine_factory_node:get_exec_spec"
+machine_factory = "machine_factory_node"
 
 [tool.setuptools]
 py-modules = ["machine_factory_node"]
