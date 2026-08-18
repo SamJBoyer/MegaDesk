@@ -1,5 +1,23 @@
 {
   "members": {
+    "c3e1d0a4-7b2f-4a91-9e4c-1f8b6d2a0c55": {
+      "member_id": "c3e1d0a4-7b2f-4a91-9e4c-1f8b6d2a0c55",
+      "type": "megadesk",
+      "nickname": "ticket_dispatcher",
+      "node_name": "ticket_dispatcher",
+      "position": [
+        -650.0,
+        130.0
+      ],
+      "parameters": {
+        "GIT_URL": "https://github.com/SamJBoyer/SMOKETESTREPO.git"
+      },
+      "data": {
+        "width": 480.0,
+        "height": 160.0,
+        "node_name": "ticket_dispatcher"
+      }
+    },
     "e1582bb2-5f65-48ad-a56a-c1aeecc75486": {
       "member_id": "e1582bb2-5f65-48ad-a56a-c1aeecc75486",
       "type": "megadesk",

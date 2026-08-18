@@ -15,6 +15,11 @@ from urllib.parse import urlparse
 import dearpygui.dearpygui as dpg
 import redis
 from megadesk_contracts import DEFAULT_REDIS_URL, coerce_parameters, frame_pump
+from megadesk_contracts.wire.cloud import (
+    CLOUDORDER_STREAM,
+    cloudorder_fields,
+    new_order_id,
+)
 from megadesk_contracts.wire.machine import (
     DEFAULT_MODEL,
     WORKORDER_STREAM,
@@ -419,14 +424,23 @@ class TicketDispatcher:
             model = (dpg.get_value(model_tag) or "").strip() or DEFAULT_MODEL
 
         status = self._tag("status_text")
+        instructions = ticket.body or ticket.name
         try:
-            fields = workorder_fields(
+            machine_fields = workorder_fields(
                 repo=repo_name,
                 url=repo_url,
                 new_wt=True,
                 ticket_name=ticket.name,
-                instructions=ticket.body or ticket.name,
+                instructions=instructions,
                 model=model,
+            )
+            cloud_fields = cloudorder_fields(
+                order_id=new_order_id(),
+                repo_url=repo_url,
+                title=ticket.name,
+                instructions=instructions,
+                model=model,
+                auto_pr=True,
             )
         except ValueError as exc:
             if dpg.does_item_exist(status):
@@ -444,12 +458,13 @@ class TicketDispatcher:
             return
 
         try:
-            entry_id = self._redis.xadd(WORKORDER_STREAM, fields)
+            self._redis.xadd(WORKORDER_STREAM, machine_fields)
+            self._redis.xadd(CLOUDORDER_STREAM, cloud_fields)
             self._dispatched.add(issue_id)
             if dpg.does_item_exist(status):
                 dpg.set_value(
                     status,
-                    f"Dispatched #{issue_id} → Redis stream {WORKORDER_STREAM} ({entry_id})",
+                    f"Dispatched #{issue_id} → {WORKORDER_STREAM} + {CLOUDORDER_STREAM}",
                 )
                 dpg.configure_item(status, color=COLOR_BLUE)
         except redis.RedisError as exc:

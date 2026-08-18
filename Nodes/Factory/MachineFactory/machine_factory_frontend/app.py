@@ -1,4 +1,7 @@
-"""MachineFactory Floor — canvas monitor for the order queue, live sandboxes, and Floor."""
+"""MachineFactory Floor — canvas monitor for processed orders, live agents, and sandboxes.
+
+Logs live in the Supervisor Logs tab, not here.
+"""
 
 from __future__ import annotations
 
@@ -79,20 +82,11 @@ class MachineFactoryFloor:
         self._containers: list[str] = []
         self._pending = 0
         self._stream_len = 0
-        self._log_lines: list[str] = []
         self._selected_agent_handler: Optional[str] = None
         self._selected_repo: Optional[str] = None
 
     def _tag(self, suffix: str) -> str:
         return f"{self._root_tag}::{suffix}"
-
-    def _append_log(self, text: str) -> None:
-        stamp = time.strftime("%H:%M:%S")
-        self._log_lines.append(f"[{stamp}] {text}")
-        self._log_lines = self._log_lines[-60:]
-        tag = self._tag("log")
-        if dpg.does_item_exist(tag):
-            dpg.set_value(tag, "\n".join(self._log_lines))
 
     def _connect_redis(self) -> Optional[redis.Redis]:
         if self._redis is not None:
@@ -388,7 +382,7 @@ class MachineFactoryFloor:
         *,
         tag_prefix: str,
         width: int = 520,
-        height: int = 400,
+        height: int = 320,
     ) -> None:
         """Fill the host content parent with MachineFactory Floor widgets."""
         self._root_tag = tag_prefix
@@ -414,11 +408,6 @@ class MachineFactoryFloor:
                     label="Open",
                     width=44,
                     callback=lambda: self._on_open_floor(),
-                )
-                dpg.add_button(
-                    label="Clear",
-                    width=48,
-                    callback=lambda: self._on_clear_log(),
                 )
 
             dpg.add_text("", tag=self._tag("floor_path"), color=COLOR_MUTED, wrap=480)
@@ -470,17 +459,8 @@ class MachineFactoryFloor:
                 width=-1,
                 height=52,
             )
-            dpg.add_input_text(
-                tag=self._tag("log"),
-                default_value="",
-                multiline=True,
-                readonly=True,
-                width=-1,
-                height=-1,
-            )
 
         dpg.set_item_user_data(parent, self.shutdown)
-        self._append_log(f"Monitoring floor={self._floor}")
         self._poll(force=True)
         if not self._frame_registered:
             frame_pump.register(self._on_frame)
@@ -501,20 +481,19 @@ class MachineFactoryFloor:
 
     def _on_refresh(self) -> None:
         self._poll(force=True)
-        self._append_log("Refreshed")
 
-    def _on_clear_log(self) -> None:
-        self._log_lines.clear()
-        tag = self._tag("log")
+    def _set_status(self, text: str) -> None:
+        self._status = text
+        tag = self._tag("status_lbl")
         if dpg.does_item_exist(tag):
-            dpg.set_value(tag, "")
+            dpg.set_value(tag, text)
 
     def _on_open_floor(self) -> None:
         path = self._floor
         try:
             path.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
-            self._append_log(f"Open Floor failed: {exc}")
+            self._set_status(f"Open Floor failed: {exc}")
             return
         try:
             if os.name == "nt":
@@ -525,9 +504,8 @@ class MachineFactoryFloor:
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
-            self._append_log(f"Opened {path}")
         except OSError as exc:
-            self._append_log(f"Open Floor failed: {exc}")
+            self._set_status(f"Open Floor failed: {exc}")
 
     def _on_queue_select(self, _sender, app_data, _user_data=None) -> None:
         label = str(app_data if app_data is not None else "").strip()
@@ -573,7 +551,7 @@ def build_ui(
     *,
     tag_prefix: str,
     width: int = 520,
-    height: int = 400,
+        height: int = 320,
 ) -> None:
     """Module-level builder for FeSpec / MegaDesk canvas hosting."""
     MachineFactoryFloor().build_ui(

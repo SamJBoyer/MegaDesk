@@ -1,1 +1,5 @@
-"""CloudFactory FE: drafts to approve, runs to watch, pull requests to open."""
+"""CloudFactory FE: processed orders, live agents, drafts to approve."""
+
+from cloud_factory_frontend.app import build_ui
+
+__all__ = ["build_ui"]

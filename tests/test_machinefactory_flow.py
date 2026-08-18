@@ -252,3 +252,45 @@ def test_cancelling_a_run_that_does_not_exist_says_so(
 ) -> None:
     assert machine_factory.cancel("no-such-guid") is False
     assert fake_machine_factory.cancelled == []
+
+
+# --- the frontend ----------------------------------------------------------
+
+
+@pytest.mark.canvas
+def test_the_monitor_shows_orders_live_agents_and_sandboxes_not_logs(
+    harness, redis_client, machine_wire
+) -> None:
+    redis_client.xadd(
+        WORKORDER_STREAM,
+        machine_wire.workorder_fields(
+            repo="widgets",
+            url="https://github.com/acme/widgets.git",
+            new_wt=True,
+            ticket_name=TICKET,
+            instructions=INSTRUCTIONS,
+        ),
+    )
+    redis_client.hset(
+        machine_wire.agent_handler_key("live-guid-01"),
+        mapping=machine_wire.agent_handler_fields(
+            ticket_id="1-0",
+            status=wire.STATUS_RUNNING,
+        ),
+    )
+    fe = harness.drop("machine_factory")
+
+    assert fe.exists("queue_list")
+    assert fe.exists("live_list")
+    assert fe.exists("docker_list")
+    assert not fe.exists("log")
+
+    harness.wait_until(
+        lambda: any(TICKET in item for item in fe.items("queue_list")),
+        message="the processed work order to appear",
+    )
+    harness.wait_until(
+        lambda: "live=1" in fe.get("status_lbl"),
+        message="the live agent to appear",
+    )
+    assert any("running" in item for item in fe.items("live_list"))

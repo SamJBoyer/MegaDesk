@@ -15,9 +15,9 @@ Individual modules:
 - Nodes (`Nodes/`): productivity nodes installed via `pip install -e Nodes/<name>` (or `.[canvas]` where noted).
   - Factories (`Nodes/Factory/`): the two nodes that deploy agents. Same three verbs, same status words, same shape — one runs them here, one runs them in the cloud, and a graph should be able to choose without the choice changing what an agent can do. See [`Nodes/Factory/README.md`](Nodes/Factory/README.md).
     - MachineFactory: FE + BE node — Redis WORKORDER poller that launches Docker agent sandboxes against git worktrees, plus a Floor monitor panel. Hands back a worktree for MergeManager to merge.
-    - CloudFactory: FE + BE node — sends Cursor **cloud** agents to work on a repo and open a PR, and surfaces their runs and links. Voice can only create drafts here; opening a PR takes a click.
+    - CloudFactory: FE + BE node — follows Cursor **cloud** agents to a PR. Orders come from TicketDispatcher (or VoiceDeck drafts); this panel does not take a GitHub URL or issue text.
   - MergeManager: FE-only Dear PyGui tool that merges finished worktrees into the agents branch.
-  - TicketDispatcher: FE-only Dear PyGui tool that lists `agent-ready` GitHub issues and publishes WORKORDERs.
+  - TicketDispatcher: FE-only Dear PyGui tool that lists `agent-ready` GitHub issues and publishes WORKORDERs and CLOUDORDERs.
   - CodeScope: FE + BE node — clones a repo into `Scope/` and answers questions about it with a warm local Cursor agent. The agent's own search and file-read tools are the retrieval layer, so there is no index, no embeddings, and no RAG pipeline.
   - VoiceDeck: FE + BE node — a speech-to-speech loop (OpenAI Realtime) that calls into CodeScope and CloudFactory by tool call. Audio stays inside the BE; only transcripts and control messages cross Redis. Needs `[audio]` (PortAudio) and `OPENAI_API_KEY`.
 

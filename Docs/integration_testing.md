@@ -332,6 +332,7 @@ Ordered by seam. Each names the bug class it catches.
 | # | Scenario | Catches |
 |---|---|---|
 | T1 | With `FakeGh` serving one issue, click the ticket row. Assert `WORKORDER` gained one entry with exactly the seven canonical fields, `new_wt="true"`, `wt=""`. | Field renames, legacy `WORKREQUEST`/`REPO` drift |
+| T1c | Same click also writes a canonical `CLOUDORDER`. | CloudFactory starved of tickets while MachineFactory is fed |
 | T2 | Set the row's model combo to `grok-4.5`, then dispatch. Assert `model="grok-4.5"`. | Per-row widget → payload wiring |
 | T3 | Dispatch, then let `FakeAgent` consume. Assert the `machine_factory` group has zero pending after ack, and `FINISHED:{repo}` carries the four canonical fields with absolute paths. | Consumer-group and ack semantics; path relativization |
 | T4 | `XADD FINISHED:{repo}`, pump. Assert row widgets `name::{repo}\|{id}` and `merge::{repo}\|{id}` exist and the merge button is visible. | Stream → GUI population; frame-pump drain |
@@ -509,10 +510,14 @@ fakes differ only where the infrastructure does: `FakeMachineFactory` takes its 
 off the order (the manager mints it so the hash exists before the sandbox reads it) and
 can be told to `stop()` a sandbox silently, which is how the reaper gets tested.
 
-One cut sits higher than the network: `CursorCloudFactory._sdk` is patched in
-`test_the_cloud_runtime_asks_for_a_pr_and_never_runs_locally`, because the bug worth
-guarding against there is a missing keyword argument — the SDK runs an agent *locally*
-when neither `local=` nor `cloud=` is passed — not a bad response.
+One cut sits higher than the network: `CursorCloudFactory._async_launch` is
+patched in
+`test_the_cloud_runtime_asks_for_a_pr_and_never_runs_locally`, because the bug
+worth guarding against there is a missing keyword argument — the SDK runs an
+agent *locally* when neither `local=` nor `cloud=` is passed — not a bad
+response. The production runtime uses `AsyncClient.launch_bridge` rather than
+sync `Agent.create`, because the latter `select()`s a pipe and raises
+`WinError 10038` on Windows.
 
 ### Persistent state, and why db 1 is never flushed
 

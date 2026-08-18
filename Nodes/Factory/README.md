@@ -56,6 +56,14 @@ Both keep the two failure modes apart, because they need different fixes.
 the only one retried, on the provider's own advice. A run that started and failed
 reports `error`, and the transcript is what to look at.
 
+The FEs follow the same split. Both show **processed work orders** and **live
+agents**. MachineFactory also shows Floor repos and active sandboxes. Node logs
+are in the Supervisor Logs tab, not on the factory.
+
+Both take their orders from TicketDispatcher. One click on an agent-ready issue
+writes `WORKORDER` and `CLOUDORDER`; neither factory has its own GitHub URL or
+issue-text input.
+
 ## Where they honestly differ
 
 - **Who mints the run key.** MachineFactory mints a guid and writes

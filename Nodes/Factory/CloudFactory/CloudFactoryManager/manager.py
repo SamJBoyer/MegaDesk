@@ -344,17 +344,22 @@ class CloudFactoryManager:
         )
         from megadesk_contracts import node_should_stop
 
-        while not node_should_stop():
-            try:
-                self.poll_once()
-                time.sleep(self.poll_interval)
-            except KeyboardInterrupt:
-                log.info("Interrupted; shutting down")
-                return
-            except Exception:  # noqa: BLE001 - a long-lived BE outlives Redis restarts
-                log.exception("Poll failed; retrying in %.1fs", RECONNECT_WAIT_SEC)
-                self._group_ready = False
-                time.sleep(RECONNECT_WAIT_SEC)
+        try:
+            while not node_should_stop():
+                try:
+                    self.poll_once()
+                    time.sleep(self.poll_interval)
+                except KeyboardInterrupt:
+                    log.info("Interrupted; shutting down")
+                    return
+                except Exception:  # noqa: BLE001 - a long-lived BE outlives Redis restarts
+                    log.exception("Poll failed; retrying in %.1fs", RECONNECT_WAIT_SEC)
+                    self._group_ready = False
+                    time.sleep(RECONNECT_WAIT_SEC)
+        finally:
+            closer = getattr(self._runtime, "close", None)
+            if callable(closer):
+                closer()
 
     def _ack(self, entry_id: str) -> None:
         self.ephemeral.xack(wire.CLOUDORDER_STREAM, self.group, entry_id)

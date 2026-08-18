@@ -12,9 +12,14 @@ Two consequences shape everything below:
 * **The agent sees the pushed remote, not your working tree.** Uncommitted work
   is invisible to it, which is why the manager never sends a local path.
 * **The run outlives this process.** ``bc-`` ids are durable, so a restarted BE
-  reattaches with ``Agent.get`` rather than losing track of a running agent. The
-  local factory has the opposite problem: a container nobody is watching is a
-  container nobody reaps.
+  reattaches by id rather than losing track of a running agent. The local factory
+  has the opposite problem: a container nobody is watching is a container nobody
+  reaps.
+
+We drive the SDK through ``AsyncClient.launch_bridge`` on a dedicated event-loop
+thread. The sync ``Agent.create`` path launches the bridge by ``select()``-ing
+its stderr pipe, which raises ``WinError 10038`` on Windows (pipes are not
+sockets). CodeScope already takes this path for the same reason.
 
 ``cursor_sdk`` is imported lazily so the FE, the wire tests, and the manager's own
 logic can all import this module without the SDK installed.
@@ -22,8 +27,10 @@ logic can all import this module without the SDK installed.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import threading
 from typing import Any, Mapping, Optional
 
 from megadesk_contracts import (
@@ -80,6 +87,9 @@ class CursorCloudFactory:
             api_key if api_key is not None else os.environ.get("CURSOR_API_KEY")
         )
         self.model = (model or DEFAULT_MODEL).strip() or DEFAULT_MODEL
+        self._client: Any = None
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop_thread: Optional[threading.Thread] = None
 
     # --- launching ---
 
@@ -96,7 +106,7 @@ class CursorCloudFactory:
         auto_pr = bool(order.get("auto_pr", True))
         ref = str(order.get("ref") or "")
 
-        Agent, CloudAgentOptions = self._sdk()
+        CloudAgentOptions = self._options_cls()
         options: dict[str, Any] = {
             "repos": [repo_url],
             # Unattended runs must not page a human, and a run with no PR is a
@@ -110,12 +120,35 @@ class CursorCloudFactory:
         chosen = str(order.get("model") or self.model).strip() or DEFAULT_MODEL
         log.info("Launching cloud agent model=%s repo=%s", chosen, repo_url)
         try:
-            agent = Agent.create(
-                model=chosen,
+            return self._run(
+                self._async_launch(
+                    model=chosen,
+                    cloud=CloudAgentOptions(**options),
+                    instructions=instructions,
+                    title=title,
+                )
+            )
+        except AgentError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise self._startup_error(exc, "cloud agent could not be created") from exc
+
+    async def _async_launch(
+        self,
+        *,
+        model: str,
+        cloud: Any,
+        instructions: str,
+        title: str,
+    ) -> RunHandle:
+        client = await self._ensure_client()
+        try:
+            agent = await client.agents.create(
+                model=model,
                 api_key=self.api_key,
                 # Always explicit: with neither runtime set the SDK quietly runs
                 # locally, which would run a "cloud" job on this machine.
-                cloud=CloudAgentOptions(**options),
+                cloud=cloud,
             )
         except Exception as exc:  # noqa: BLE001
             raise self._startup_error(exc, "cloud agent could not be created") from exc
@@ -125,11 +158,11 @@ class CursorCloudFactory:
             raise AgentStartupError("Cursor returned an agent with no id")
 
         try:
-            run = agent.send(prompt_for(instructions=instructions, title=title))
+            run = await agent.send(prompt_for(instructions=instructions, title=title))
         except Exception as exc:  # noqa: BLE001
             # The agent exists but has no work: cancel it rather than leaving a
             # billable idle VM behind.
-            self._quiet_cancel(agent)
+            await self._quiet_cancel(agent)
             raise self._startup_error(exc, f"agent {agent_id} would not accept work")
 
         run_id = _first_attr(run, "id", "run_id", "runId")
@@ -140,7 +173,10 @@ class CursorCloudFactory:
 
     def poll(self, run_key: str) -> RunStatus:
         """Where the run is now. Reattaches by id, so a restart loses nothing."""
-        agent = self._get(run_key)
+        try:
+            agent = self._run(self._async_get(run_key))
+        except Exception as exc:  # noqa: BLE001
+            raise AgentRunError(f"Could not read agent {run_key}: {exc}") from exc
         status = normalize_status(
             _first_attr(agent, "status", "state") or self._run_status(agent)
         )
@@ -156,11 +192,28 @@ class CursorCloudFactory:
         )
 
     def cancel(self, run_key: str) -> None:
-        agent = self._get(run_key)
+        try:
+            self._run(self._async_cancel(run_key))
+        except AgentError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise AgentRunError(f"Cursor agent {run_key} cannot be cancelled") from exc
+
+    async def _async_get(self, agent_id: str) -> Any:
+        client = await self._ensure_client()
+        return await client.agents.get(agent_id, api_key=self.api_key)
+
+    async def _async_cancel(self, run_key: str) -> None:
+        client = await self._ensure_client()
+        agent = await client.agents.resume(
+            run_key, {"api_key": self.api_key} if self.api_key else None
+        )
         for name in ("cancel", "stop", "close"):
             method = getattr(agent, name, None)
             if callable(method):
-                method()
+                result = method()
+                if asyncio.iscoroutine(result):
+                    await result
                 log.info("Cancelled cloud agent %s via %s()", run_key, name)
                 return
         raise AgentRunError(f"Cursor agent {run_key} cannot be cancelled")
@@ -168,23 +221,21 @@ class CursorCloudFactory:
     # --- models ---
 
     def models(self) -> list[str]:
-        """Model ids the account can use, for the FE combo.
+        """Model ids the account can use, for the CLI.
 
         Empty on any failure: an unreachable model list is a cosmetic problem,
         and hardcoding ids is how a combo ends up offering models that were
         retired months ago.
         """
         try:
-            from cursor_sdk import Cursor
-        except ImportError:
-            return []
-        try:
-            client = Cursor(api_key=self.api_key)
-            listed = client.models.list()
+            return self._run(self._async_models())
         except Exception:  # noqa: BLE001
             log.debug("Could not list models", exc_info=True)
             return []
 
+    async def _async_models(self) -> list[str]:
+        client = await self._ensure_client()
+        listed = await client.models.list(api_key=self.api_key)
         raw = getattr(listed, "models", None) or listed
         names: list[str] = []
         for item in raw or []:
@@ -195,21 +246,88 @@ class CursorCloudFactory:
 
     # --- plumbing ---
 
-    def _sdk(self) -> tuple[Any, Any]:
+    def _options_cls(self) -> Any:
         try:
-            from cursor_sdk import Agent, CloudAgentOptions
+            from cursor_sdk import CloudAgentOptions
         except ImportError as exc:
             raise AgentStartupError(
                 "cursor-sdk is not installed in this environment"
             ) from exc
-        return Agent, CloudAgentOptions
+        return CloudAgentOptions
 
-    def _get(self, agent_id: str) -> Any:
-        Agent, _options = self._sdk()
+    async def _ensure_client(self) -> Any:
+        if self._client is not None:
+            return self._client
         try:
-            return Agent.get(agent_id, api_key=self.api_key)
-        except Exception as exc:  # noqa: BLE001
-            raise AgentRunError(f"Could not read agent {agent_id}: {exc}") from exc
+            from cursor_sdk.asyncio import AsyncClient
+        except ImportError as exc:
+            raise AgentStartupError(
+                "cursor-sdk is not installed in this environment"
+            ) from exc
+        self._client = await AsyncClient.launch_bridge(workspace=os.getcwd())
+        return self._client
+
+    def _ensure_loop(self) -> None:
+        if self._loop is not None:
+            return
+        loop = asyncio.new_event_loop()
+        ready = threading.Event()
+
+        def _run_forever() -> None:
+            asyncio.set_event_loop(loop)
+            ready.set()
+            loop.run_forever()
+
+        thread = threading.Thread(
+            target=_run_forever,
+            name="cloud-factory-sdk",
+            daemon=True,
+        )
+        thread.start()
+        if not ready.wait(timeout=5):
+            raise AgentStartupError("SDK event loop failed to start")
+        self._loop = loop
+        self._loop_thread = thread
+
+    def _run(self, coro: Any) -> Any:
+        self._ensure_loop()
+        assert self._loop is not None
+        return asyncio.run_coroutine_threadsafe(coro, self._loop).result()
+
+    def close(self) -> None:
+        client = self._client
+        self._client = None
+
+        async def _shutdown() -> None:
+            if client is None:
+                return
+            closer = getattr(client, "aclose", None) or getattr(client, "close", None)
+            if callable(closer):
+                result = closer()
+                if asyncio.iscoroutine(result):
+                    await result
+
+        try:
+            if self._loop is not None and client is not None:
+                self._run(_shutdown())
+        except Exception:  # noqa: BLE001
+            log.debug("SDK client close failed", exc_info=True)
+        loop = self._loop
+        thread = self._loop_thread
+        self._loop = None
+        self._loop_thread = None
+        if loop is None:
+            return
+        try:
+            loop.call_soon_threadsafe(loop.stop)
+        except Exception:  # noqa: BLE001
+            pass
+        if thread is not None:
+            thread.join(timeout=5)
+        try:
+            loop.close()
+        except Exception:  # noqa: BLE001
+            pass
 
     @staticmethod
     def _run_status(agent: Any) -> str:
@@ -239,12 +357,14 @@ class CursorCloudFactory:
         )
 
     @staticmethod
-    def _quiet_cancel(agent: Any) -> None:
+    async def _quiet_cancel(agent: Any) -> None:
         for name in ("cancel", "stop", "close"):
             method = getattr(agent, name, None)
             if callable(method):
                 try:
-                    method()
+                    result = method()
+                    if asyncio.iscoroutine(result):
+                        await result
                 except Exception:  # noqa: BLE001
                     log.debug("Could not clean up a half-started agent", exc_info=True)
                 return

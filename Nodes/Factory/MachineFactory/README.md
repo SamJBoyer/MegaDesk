@@ -30,7 +30,7 @@ publishes conflict-resolution orders (`new_wt=false`) and consumes
 
 | Half | What it does |
 |------|--------------|
-| FE (`machine_factory_frontend/app.py`) | The WORKORDER queue, live sandboxes, Floor repos |
+| FE (`machine_factory_frontend/app.py`) | Processed WORKORDERs, live agents, Floor repos, sandboxes |
 | BE (`MachineFactoryManager/`) | Consume `WORKORDER`, prepare Floor, start and follow sandboxes |
 
 ## The handshake, and why the order matters
@@ -135,7 +135,7 @@ Floor/
 | `MachineFactoryManager/` | WORKORDER loop, Floor setup, run reaping |
 | `MachineFactoryManager/runtime.py` | `AgentFactory` over Docker: launch, poll, cancel |
 | `AgentHandler/` | Inside the sandbox: hash → order → Cursor agent → FINISHED |
-| `machine_factory_frontend/` | Canvas monitor (read-only; never consumes WORKORDER) |
+| `machine_factory_frontend/` | Canvas monitor (read-only; never consumes WORKORDER). Logs are in the Supervisor Logs tab. |
 | `Dockerfile` | Sandbox image; entrypoint `python -m AgentHandler` |
 | `Floor/` | Local bare clones and worktrees (gitignored) |
 

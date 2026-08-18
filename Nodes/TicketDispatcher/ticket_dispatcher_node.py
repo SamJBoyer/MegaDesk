@@ -29,7 +29,7 @@ def get_fe_spec(
 
     return FeSpec(
         name="ticket_dispatcher",
-        description="Dispatch agent-ready GitHub issues onto the WORKORDER stream.",
+        description="Dispatch agent-ready GitHub issues to both factories.",
         icon=icon,
         default_width=480,
         default_height=160,

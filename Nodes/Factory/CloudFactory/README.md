@@ -10,7 +10,7 @@ two share, and where they honestly differ, is in [Factory](../README.md).
 
 | Half | What it does |
 |------|--------------|
-| FE (`cloud_factory_frontend/app.py`) | Type an order, approve drafts, watch runs, open the PR |
+| FE (`cloud_factory_frontend/app.py`) | Processed CLOUDORDERs, live agents, drafts to approve |
 | BE (`CloudFactoryManager/`) | Consume `CLOUDORDER`, launch cloud agents, follow them, publish `CLOUDFINISHED` |
 
 ## How a cloud agent differs from a local one
@@ -29,21 +29,21 @@ the result. A cloud agent is the opposite of that in every way that matters:
   not owning the machine: less control over the loop, and minutes rather than
   milliseconds to get going.
 
-The whole runtime difference is one keyword:
+TicketDispatcher publishes `CLOUDORDER` the same way it publishes `WORKORDER`:
+one click on an agent-ready issue feeds both factories. This node does not take
+a GitHub URL or issue text of its own.
+
+The whole runtime difference is one keyword. Production talks to the SDK through
+``AsyncClient.launch_bridge`` (the sync ``Agent.create`` path ``select()``s a
+pipe and raises ``WinError 10038`` on Windows):
 
 ```python
-# local, as MachineFactory's AgentHandler does
-Agent.create(model=model, api_key=key, local=LocalAgentOptions(cwd=workspace))
-
-# cloud, as this node does
-Agent.create(model=model, api_key=key,
-             cloud=CloudAgentOptions(repos=[url], auto_create_pr=True,
-                                     skip_reviewer_request=True))
+agent = await client.agents.create(
+    model=model, api_key=key,
+    cloud=CloudAgentOptions(repos=[url], auto_create_pr=True,
+                            skip_reviewer_request=True),
+)
 ```
-
-Always pass exactly one of `local` / `cloud` explicitly. With neither set the SDK
-quietly defaults to local, which would run a "cloud" job on your own machine — the
-kind of bug that costs an afternoon to notice.
 
 ## Wire
 
@@ -66,12 +66,11 @@ status is what makes `CLOUDFINISHED` fire exactly once.
 
 A draft is an order nobody has agreed to yet. VoiceDeck writes one rather than
 publishing `CLOUDORDER`, because a misheard sentence should not be able to open a
-pull request; the FE shows it as a row with a `go` button and nothing happens until
-it is pressed. Pressing it publishes the stored fields and deletes the hash
-immediately, so an impatient second click cannot mean two PRs.
-
-Typing an order into the FE skips the draft step, because typing the instructions
-*is* the confirmation.
+pull request; the FE shows it in Drafts and nothing happens until `go` is
+pressed. Pressing it publishes the stored fields and deletes the hash
+immediately, so an impatient second click cannot mean two PRs. Issue text and
+the repo URL come from TicketDispatcher or from the voice draft, not from this
+panel.
 
 ## The two failure modes, kept apart
 
@@ -90,15 +89,15 @@ a second pull request.
 
 `python -m CloudFactoryManager models` lists the models the account can use — the
 fastest way to check the key works. `python -m CloudFactoryManager runs` prints the
-registry, which is what the FE renders. The model combo is populated from the same
-call rather than hardcoded, and only when a key is present.
+registry, which is what the FE renders.
 
 ## Testing
 
 `FakeCloudFactory` returns `bc-` ids and a canned PR URL, so
 `tests/test_cloudfactory_flow.py` exercises the real consumer group, the real
 registry and the real canvas without a VM or a pull request. The cut for the launch
-options themselves is one level higher — `CursorCloudFactory._sdk` — since the bug
-worth guarding against there is a missing keyword argument, not a bad response.
+options themselves is one level higher — `CursorCloudFactory._async_launch` / the
+`cloud=` options — since the bug worth guarding against there is a missing
+keyword argument, not a bad response.
 
 `tests/test_machinefactory_flow.py` is the same suite against the other factory.

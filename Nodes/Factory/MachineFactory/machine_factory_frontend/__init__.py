@@ -1,4 +1,4 @@
-"""MachineFactory FE: Floor monitor for the order queue, live sandboxes and Floor."""
+"""MachineFactory FE: processed orders, live agents, Floor, and sandboxes."""
 
 from machine_factory_frontend.app import build_ui
 

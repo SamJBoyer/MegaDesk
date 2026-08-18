@@ -51,10 +51,12 @@ def test_every_writer_shares_one_definition() -> None:
     """
     import merge_manager_app
     import ticket_dispatcher_app
-    from megadesk_contracts.wire import machine
+    from megadesk_contracts.wire import cloud, machine
 
     assert ticket_dispatcher_app.WORKORDER_STREAM == machine.WORKORDER_STREAM
     assert ticket_dispatcher_app.workorder_fields is machine.workorder_fields
+    assert ticket_dispatcher_app.CLOUDORDER_STREAM == cloud.CLOUDORDER_STREAM
+    assert ticket_dispatcher_app.cloudorder_fields is cloud.cloudorder_fields
     assert merge_manager_app.FINISHED_PREFIX == machine.FINISHED_PREFIX
     assert merge_manager_app.workorder_fields is machine.workorder_fields
 

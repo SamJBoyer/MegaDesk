@@ -76,11 +76,12 @@ def seed_run(
     status: str = wire.STATUS_RUNNING,
     pr_url: str = "",
     title: str = TITLE,
+    order_id: str = "",
 ) -> str:
     persistent_client.hset(
         wire.cloudrun_key(agent_id),
         mapping=wire.cloudrun_fields(
-            order_id=wire.new_order_id(),
+            order_id=order_id or wire.new_order_id(),
             repo_url=REPO_URL,
             title=title,
             status=status,
@@ -307,45 +308,38 @@ def test_cancelling_a_run_stops_it_and_says_so(
 # --- the real runtime's cloud options --------------------------------------
 
 
-class _StubOptions:
-    """Stands in for ``CloudAgentOptions``, recording what it was handed."""
-
-    def __init__(self, **kwargs) -> None:
-        self.kwargs = kwargs
-
-
-class _StubRun:
-    id = "run-1"
-
-
-class _StubAgent:
-    agent_id = "bc-stub001"
-    created: dict = {}
-    prompts: list[str] = []
-
-    @classmethod
-    def create(cls, **kwargs):
-        cls.created = kwargs
-        return cls()
-
-    def send(self, prompt: str):
-        type(self).prompts.append(prompt)
-        return _StubRun()
-
-
 def test_the_cloud_runtime_asks_for_a_pr_and_never_runs_locally(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The SDK defaults to local when neither runtime is set, which would be silent.
 
     Cut above ``cursor_sdk`` rather than at the network, because the bug this
-    guards against is a missing keyword argument, not a bad response.
+    guards against is a missing keyword argument, not a bad response. The
+    production path is async (Windows cannot ``select()`` a pipe); this test
+    still inspects the ``cloud=`` options the runtime would pass.
     """
-    from CloudFactoryManager.runtime import CursorCloudFactory
+    import asyncio
 
-    _StubAgent.created, _StubAgent.prompts = {}, []
+    from CloudFactoryManager.runtime import CursorCloudFactory, prompt_for
+    from megadesk_contracts import RunHandle
+
+    created: dict = {}
+    prompts: list[str] = []
+
+    class _StubOptions:
+        def __init__(self, **kwargs) -> None:
+            self.kwargs = kwargs
+
+    async def fake_launch(*, model, cloud, instructions, title):
+        created["model"] = model
+        created["cloud"] = cloud
+        prompts.append(prompt_for(instructions=instructions, title=title))
+        return RunHandle(run_key="bc-stub001", run_id="run-1")
+
     runtime = CursorCloudFactory(api_key="key")
-    monkeypatch.setattr(runtime, "_sdk", lambda: (_StubAgent, _StubOptions))
+    monkeypatch.setattr(runtime, "_options_cls", lambda: _StubOptions)
+    monkeypatch.setattr(runtime, "_async_launch", fake_launch)
+    monkeypatch.setattr(runtime, "_run", lambda coro: asyncio.run(coro))
 
     handle = runtime.launch(
         {
@@ -358,15 +352,12 @@ def test_the_cloud_runtime_asks_for_a_pr_and_never_runs_locally(
 
     assert handle.run_key == "bc-stub001"
     assert handle.run_id == "run-1"
-    created = _StubAgent.created
-    assert "local" not in created, "a 'cloud' job must not run on this machine"
     options = created["cloud"].kwargs
     assert options["repos"] == [REPO_URL]
     assert options["auto_create_pr"] is True
-    # An unattended run that pages a human at 3am is worse than no run.
     assert options["skip_reviewer_request"] is True
-    assert INSTRUCTIONS in _StubAgent.prompts[0]
-    assert TITLE in _StubAgent.prompts[0]
+    assert INSTRUCTIONS in prompts[0]
+    assert TITLE in prompts[0]
 
 
 def test_an_unknown_status_is_treated_as_still_running() -> None:
@@ -399,13 +390,19 @@ def test_a_launch_failure_keeps_cursors_retry_advice() -> None:
 # --- the frontend ----------------------------------------------------------
 
 
+def _item_with(fe, suffix: str, needle: str) -> str:
+    return next(item for item in fe.items(suffix) if needle in item)
+
+
 @pytest.mark.canvas
-def test_typing_an_order_publishes_a_canonical_cloudorder(
-    harness, redis_client, read_stream
+def test_ticket_dispatcher_publishes_a_canonical_cloudorder(
+    harness, redis_client, fake_gh, read_stream
 ) -> None:
-    fe = harness.drop("cloud_factory")
-    fe.set("repo_url", REPO_URL)
-    fe.type_into("instructions", INSTRUCTIONS)
+    fake_gh.add_issue(41, TITLE, INSTRUCTIONS)
+    dispatcher = harness.drop("ticket_dispatcher")
+    dispatcher.type_into("git_url", REPO_URL)
+    harness.wait_for_widget(dispatcher, "ticket_btn_41")
+    dispatcher.click("ticket_btn_41")
 
     orders = read_stream(wire.CLOUDORDER_STREAM)
     assert len(orders) == 1
@@ -413,20 +410,14 @@ def test_typing_an_order_publishes_a_canonical_cloudorder(
     assert set(order) == set(CLOUDORDER_CANONICAL_FIELDS)
     assert order["repo_url"] == REPO_URL
     assert order["instructions"] == INSTRUCTIONS
+    assert order["title"] == TITLE
     assert order["auto_pr"] == "true"
-    assert order["title"], "a PR needs a title, so one is derived"
-    assert fe.get("instructions") == "", "the input clears once the order is sent"
 
-
-@pytest.mark.canvas
-def test_an_order_with_no_repository_is_refused(
-    harness, redis_client, read_stream
-) -> None:
     fe = harness.drop("cloud_factory")
-    fe.type_into("instructions", INSTRUCTIONS)
-
-    assert read_stream(wire.CLOUDORDER_STREAM) == []
-    assert "repository" in fe.get("status_text")
+    harness.wait_until(
+        lambda: any(TITLE in item for item in fe.items("queue_list")),
+        message="the processed order to reach the CloudFactory queue",
+    )
 
 
 @pytest.mark.canvas
@@ -438,22 +429,24 @@ def test_a_draft_becomes_an_order_on_one_click(
     fe = harness.drop("cloud_factory")
 
     harness.wait_until(
-        lambda: fe.exists(f"draft_text_{order_id}"),
+        lambda: any(TITLE in item for item in fe.items("draft_list")),
         message="the draft row to appear",
     )
-    assert fe.get(f"draft_text_{order_id}") == TITLE
+    fe.select("draft_list", _item_with(fe, "draft_list", TITLE))
     assert read_stream(wire.CLOUDORDER_STREAM) == [], "a draft on its own does nothing"
 
-    fe.click(f"draft_go_{order_id}")
+    fe.click("draft_go")
 
     orders = read_stream(wire.CLOUDORDER_STREAM)
     assert len(orders) == 1
     assert orders[0][1]["order_id"] == order_id
     assert set(orders[0][1]) == set(CLOUDORDER_CANONICAL_FIELDS)
-    # Gone from both the row and db 1, so an impatient second click cannot
+    # Gone from both the list and db 1, so an impatient second click cannot
     # produce a second pull request.
-    assert not fe.exists(f"draft_go_{order_id}")
+    assert all(TITLE not in item for item in fe.items("draft_list"))
     assert persistent_client.exists(wire.clouddraft_key(order_id)) == 0
+    fe.click("draft_go")
+    assert len(read_stream(wire.CLOUDORDER_STREAM)) == 1
 
 
 @pytest.mark.canvas
@@ -463,28 +456,57 @@ def test_discarding_a_draft_publishes_nothing(
     order_id = seed_draft(persistent_client)
     fe = harness.drop("cloud_factory")
     harness.wait_until(
-        lambda: fe.exists(f"draft_del_{order_id}"), message="the draft row to appear"
+        lambda: any(TITLE in item for item in fe.items("draft_list")),
+        message="the draft row to appear",
     )
 
-    fe.click(f"draft_del_{order_id}")
+    fe.select("draft_list", _item_with(fe, "draft_list", TITLE))
+    fe.click("draft_del")
 
     assert read_stream(wire.CLOUDORDER_STREAM) == []
     assert persistent_client.exists(wire.clouddraft_key(order_id)) == 0
-    assert not fe.exists(f"draft_row_{order_id}")
+    assert all(TITLE not in item for item in fe.items("draft_list"))
+
+
+@pytest.mark.canvas
+def test_processed_orders_and_live_agents_share_the_machine_factory_layout(
+    harness, redis_client, persistent_client
+) -> None:
+    place_order(redis_client)
+    seed_run(persistent_client)
+    fe = harness.drop("cloud_factory")
+
+    harness.wait_until(
+        lambda: any(TITLE in item for item in fe.items("queue_list")),
+        message="the processed order to appear",
+    )
+    harness.wait_until(
+        lambda: any(wire.STATUS_RUNNING in item for item in fe.items("live_list")),
+        message="the live agent to appear",
+    )
+    assert fe.exists("queue_list")
+    assert fe.exists("live_list")
+    assert fe.exists("draft_list")
+    assert not fe.exists("docker_list")
+    assert not fe.exists("send_btn")
+    assert not fe.exists("repo_url")
+    assert not fe.exists("instructions")
+    assert not fe.exists("git_url")
 
 
 @pytest.mark.canvas
 def test_a_run_shows_its_status_and_offers_its_pr_when_there_is_one(
     harness, redis_client, persistent_client, opened_urls: list[str]
 ) -> None:
-    agent_id = seed_run(persistent_client)
+    order_id = place_order(redis_client)
+    agent_id = seed_run(persistent_client, order_id=order_id)
     fe = harness.drop("cloud_factory")
 
     harness.wait_until(
-        lambda: fe.exists(f"run_text_{agent_id}"), message="the run row to appear"
+        lambda: any(wire.STATUS_RUNNING in item for item in fe.items("live_list")),
+        message="the live agent to appear",
     )
-    assert wire.STATUS_RUNNING in fe.get(f"run_text_{agent_id}")
-    assert not fe.shown(f"run_pr_{agent_id}"), "there is no PR to open yet"
+    assert not fe.shown("pr_btn"), "there is no PR to open yet"
 
     pr_url = "https://github.com/acme/widgets/pull/7"
     persistent_client.hset(
@@ -493,11 +515,14 @@ def test_a_run_shows_its_status_and_offers_its_pr_when_there_is_one(
     )
 
     harness.wait_until(
-        lambda: fe.shown(f"run_pr_{agent_id}"), message="the PR button to appear"
+        lambda: any(wire.STATUS_FINISHED in item for item in fe.items("queue_list")),
+        message="the processed order to show finished",
     )
-    assert wire.STATUS_FINISHED in fe.get(f"run_text_{agent_id}")
+    assert all(wire.STATUS_RUNNING not in item for item in fe.items("live_list"))
+    fe.select("queue_list", _item_with(fe, "queue_list", TITLE))
+    assert fe.shown("pr_btn")
 
-    fe.click(f"run_pr_{agent_id}")
+    fe.click("pr_btn")
     assert opened_urls == [pr_url]
 
 
@@ -537,13 +562,13 @@ def test_a_draft_spoken_into_voicedeck_reaches_a_cloud_agent(
     voice_session.pump_events()
 
     harness.wait_until(
-        lambda: bool(fe.suffixes(r"^draft_go_")),
+        lambda: any(TITLE in item for item in fe.items("draft_list")),
         message="the spoken draft to reach the dispatcher",
     )
     assert read_stream(wire.CLOUDORDER_STREAM) == [], "voice alone opens nothing"
 
-    (suffix,) = fe.suffixes(r"^draft_go_")
-    fe.click(suffix)
+    fe.select("draft_list", _item_with(fe, "draft_list", TITLE))
+    fe.click("draft_go")
     assert cloud_factory.poll_orders() == 1
 
     launch = fake_cloud_factory.launches[0]
@@ -567,6 +592,6 @@ def test_a_run_that_never_started_says_what_to_check(
     )
 
     harness.wait_until(
-        lambda: "CURSOR_API_KEY" in fe.get("status_text"),
+        lambda: "CURSOR_API_KEY" in fe.get("status_lbl"),
         message="the FE to name the likely cause",
     )

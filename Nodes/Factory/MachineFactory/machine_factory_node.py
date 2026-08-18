@@ -1,6 +1,6 @@
 """MegaDesk.nodes entry point for MachineFactory (FE + BE).
 
-FE: Dear PyGui Floor monitor — WORKORDER queue, live sandboxes (``[canvas]``).
+FE: Dear PyGui Floor monitor — processed orders, live agents, sandboxes (``[canvas]``).
 BE: MachineFactoryManager, which turns orders into local sandboxed agents.
 """
 
@@ -22,10 +22,10 @@ def get_fe_spec() -> FeSpec | None:
     icon = _ICON if Path(_ICON).is_file() else None
     return FeSpec(
         name=NODE_NAME,
-        description="Run agents in local sandboxes — order queue, live runs, Floor repos.",
+        description="Run agents in local sandboxes — processed orders, live agents, sandboxes.",
         icon=icon,
         default_width=520,
-        default_height=400,
+        default_height=320,
         build=build_ui,
         backends=(NODE_NAME,),
     )

@@ -47,7 +47,7 @@ from megadesk_contracts import (
 
 | Module | Role |
 |--------|------|
-| **TicketDispatcher** | Publishes `WORKORDER` (`new_wt=true`) on DB 0 |
+| **TicketDispatcher** | Publishes `WORKORDER` (`new_wt=true`) and `CLOUDORDER` on DB 0 |
 | **MachineFactory / MachineFactoryManager** | Consumes `WORKORDER`; writes `AGENTHANDLER:<GUID>` on DB 0, and reaps the ones whose sandbox is gone |
 | **MachineFactory / AgentHandler** | Reads `AGENTHANDLER:<GUID>` + `WORKORDER`; publishes `FINISHED:<REPO>` on DB 0 |
 | **MergeManager** | Consumes `FINISHED:<REPO>`; may republish conflict `WORKORDER`s (`new_wt=false`) on DB 0 |

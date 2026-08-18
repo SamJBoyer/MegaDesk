@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 from conftest import (
+    CLOUDORDER_CANONICAL_FIELDS,
     FINISHED_CANONICAL_FIELDS,
     FINISHED_GROUP,
     WORKORDER_CANONICAL_FIELDS,
@@ -103,6 +104,28 @@ def test_t1_dispatch_writes_the_canonical_workorder(
     assert fields["model"] == "auto"
 
 
+def test_t1c_dispatch_also_writes_a_canonical_cloudorder(
+    redis_client, fake_gh, harness, read_stream
+) -> None:
+    """Both factories take their orders from TicketDispatcher."""
+    from megadesk_contracts.wire import cloud as cloud_wire
+
+    fake_gh.add_issue(41, "add-widget-tests", "Cover the widget module with tests.")
+
+    dispatcher = connect_dispatcher(harness)
+    dispatch(harness, dispatcher, 41)
+
+    orders = read_stream(cloud_wire.CLOUDORDER_STREAM)
+    assert len(orders) == 1, f"expected one CLOUDORDER, got {orders}"
+    _entry_id, fields = orders[0]
+    assert set(fields) == set(CLOUDORDER_CANONICAL_FIELDS)
+    assert fields["repo_url"] == REPO_URL
+    assert fields["title"] == "add-widget-tests"
+    assert fields["instructions"] == "Cover the widget module with tests."
+    assert fields["auto_pr"] == "true"
+    assert fields["model"] == "auto"
+
+
 def test_t1b_issue_without_a_body_falls_back_to_its_title(
     redis_client, fake_gh, harness, workorders
 ) -> None:
@@ -116,9 +139,11 @@ def test_t1b_issue_without_a_body_falls_back_to_its_title(
 
 
 def test_t2_per_row_model_combo_reaches_the_payload(
-    redis_client, fake_gh, harness, workorders
+    redis_client, fake_gh, harness, workorders, read_stream
 ) -> None:
     """Catches per-row widget → payload wiring."""
+    from megadesk_contracts.wire import cloud as cloud_wire
+
     fake_gh.add_issue(42, "pick-a-model", "Use the fast model.")
 
     dispatcher = connect_dispatcher(harness)
@@ -126,6 +151,8 @@ def test_t2_per_row_model_combo_reaches_the_payload(
 
     _entry_id, fields = workorders()[0]
     assert fields["model"] == "grok-4.5"
+    orders = read_stream(cloud_wire.CLOUDORDER_STREAM)
+    assert orders[0][1]["model"] == "grok-4.5"
 
 
 def test_t2b_gh_failure_surfaces_in_the_status_widget(

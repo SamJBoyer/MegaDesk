@@ -1,5 +1,23 @@
 {
   "members": {
+    "c3e1d0a4-7b2f-4a91-9e4c-1f8b6d2a0c55": {
+      "member_id": "c3e1d0a4-7b2f-4a91-9e4c-1f8b6d2a0c55",
+      "type": "megadesk",
+      "nickname": "ticket_dispatcher",
+      "node_name": "ticket_dispatcher",
+      "position": [
+        -180.0,
+        200.0
+      ],
+      "parameters": {
+        "GIT_URL": "https://github.com/SamJBoyer/SMOKETESTREPO.git"
+      },
+      "data": {
+        "width": 480.0,
+        "height": 160.0,
+        "node_name": "ticket_dispatcher"
+      }
+    },
     "ba56ef04-10b6-4292-ab89-f0bbfa6dee5a": {
       "member_id": "ba56ef04-10b6-4292-ab89-f0bbfa6dee5a",
       "type": "megadesk",
@@ -22,14 +40,30 @@
       "nickname": "machine_factory",
       "node_name": "machine_factory",
       "position": [
-        361.0,
-        535.0
+        358.0,
+        537.0
       ],
       "parameters": {},
       "data": {
         "width": 520.0,
         "height": 400.0,
         "node_name": "machine_factory"
+      }
+    },
+    "51d38f56-fd09-41e8-98d0-b06390ac7285": {
+      "member_id": "51d38f56-fd09-41e8-98d0-b06390ac7285",
+      "type": "megadesk",
+      "nickname": "merge_manager",
+      "node_name": "merge_manager",
+      "position": [
+        510.0,
+        431.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 640.0,
+        "height": 220.0,
+        "node_name": "merge_manager"
       }
     }
   }
