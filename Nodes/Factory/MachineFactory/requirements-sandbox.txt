@@ -3,3 +3,4 @@
 # here, because it is a path dependency rather than something on an index.
 cursor-sdk>=0.1.0
 redis>=5.0.0
+langgraph>=1.2.11,<2

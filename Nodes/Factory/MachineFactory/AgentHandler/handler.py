@@ -1,4 +1,13 @@
-"""AgentHandler: AGENTHANDLER:<GUID> → WORKORDER lookup → agent → FINISHED:<REPO>."""
+"""AgentHandler: AGENTHANDLER:<GUID> → WORKORDER lookup → work graph → FINISHED:<REPO>.
+
+This module is now the run's plumbing rather than its plot. It connects Redis,
+opens the audit trail, and hands both to the LangGraph work graph in
+``AgentHandler.graph``, which is where the five steps of a run actually live.
+
+``run_agent`` stays here because it is the single place the Cursor SDK is
+driven; every agent node in the graph calls back into it, so there is still
+exactly one implementation of "talk to an agent and record what it said".
+"""
 
 from __future__ import annotations
 
@@ -11,24 +20,16 @@ from typing import Any
 from cursor_sdk import Agent, CursorAgentError, LocalAgentOptions
 from megadesk_contracts import redis_connect, resolve_ephemeral_db, resolve_factory_redis_url
 from megadesk_contracts.agent_audit import AgentAuditLog
+from megadesk_contracts.wire.graph import WORK_GRAPH
 from megadesk_contracts.wire.machine import (
-    DEFAULT_MODEL,
     STATUS_ERROR,
-    STATUS_FINISHED,
-    STATUS_RUNNING,
     agent_handler_fields,
-    agent_handler_key,
     finished_fields,
     finished_stream,
-    load_workorder,
-    normalize_status,
-    parse_agent_handler,
 )
 from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import TimeoutError as RedisTimeoutError
-
-from AgentHandler.worktree_bind import WorktreeGitBind
 
 log = logging.getLogger("agent_handler")
 
@@ -56,21 +57,6 @@ def connect_redis(redis_url: str) -> Redis:
             "Start a local Redis server and retry."
         ) from exc
     return client
-
-
-def _with_commit_guidance(instruction: str, *, repo: str, ticket: str) -> str:
-    """Append commit-message requirements for the agent."""
-    work_name = ticket or repo or "unknown"
-    lines = [
-        instruction.rstrip(),
-        "",
-        "When you commit your work, write a detailed commit message that:",
-        f"- Names the ticket/work: {work_name}",
-        f"- Includes the ticket name: {ticket or '(none provided)'}",
-        "- Includes the original instructions for this task (summarize if very long)",
-        "- Describes the work done to implement the feature in enough detail for a reviewer",
-    ]
-    return "\n".join(lines)
 
 
 _RESULT_LOG_MAX = 2000
@@ -205,7 +191,7 @@ def set_agent_handler_status(
 
 
 class AgentHandler:
-    """One-shot worker: resolve WORKORDER via AGENTHANDLER ticket_id, run agent, finish."""
+    """One-shot worker: read the environment, then run the work graph once."""
 
     def __init__(self) -> None:
         self.redis_url = resolve_factory_redis_url()
@@ -214,166 +200,53 @@ class AgentHandler:
         self.repo = os.environ.get("REPO_NAME", "unknown")
         self.ticket = os.environ.get("TICKET", "")
         self.guid = _env("GUID")
+        self.bare_mount = os.environ.get("BARE_MOUNT", "/bare")
+        self.model = os.environ.get("CURSOR_MODEL", "")
         # Host absolute paths for FINISHED (MergeManager consumes these).
         self.host_wt = os.environ.get("HOST_WT", "")
         self.host_agent_dir = os.environ.get("HOST_AGENT_DIR", "")
         self.env_ticket_id = os.environ.get("TICKET_ID", "")
 
     def run_once(self) -> int:
-        key = agent_handler_key(self.guid)
         redis = connect_redis(self.redis_url)
-        audit = AgentAuditLog.for_run(
-            self.guid, repo=self.repo, ticket=self.ticket
-        )
+        audit = AgentAuditLog.for_run(self.guid, repo=self.repo, ticket=self.ticket)
         try:
-            return self._run_once(redis, key, audit)
+            audit.header()
+            audit.event("handler-start", f"guid={self.guid} cwd={self.workspace}")
+            final = self.run_graph(redis, audit)
+            return int(final.get("exit_code", 1))
         finally:
             audit.close()
 
-    def _run_once(self, redis: Redis, key: str, audit: AgentAuditLog) -> int:
-        audit.header()
-        audit.event(
-            "handler-start",
-            f"key={key} cwd={self.workspace}",
-        )
+    def run_graph(self, redis: Redis, audit: AgentAuditLog) -> dict[str, Any]:
+        """Assemble this run's context and hand it to the graph."""
+        from AgentHandler.graph import GraphReporter, RunContext, run_work_graph
 
-        data = redis.hgetall(key)
-        if not data:
-            log.error("Hash %s is empty or missing", key)
-            audit.event("error", f"hash {key} is empty or missing")
-            ticket_id = self.env_ticket_id or "missing"
-            ticket_name = self.ticket or "unknown"
-            if self.host_wt and self.host_agent_dir:
-                publish_finished(
-                    redis,
-                    repo=self.repo,
-                    ticket_name=ticket_name,
-                    ticket_id=ticket_id,
-                    wt=self.host_wt,
-                    agent_dir=self.host_agent_dir,
-                    handler_key=key,
-                )
-            return 1
-
-        try:
-            parsed = parse_agent_handler(data)
-        except ValueError as exc:
-            log.error("%s", exc)
-            audit.event("error", str(exc))
-            set_agent_handler_status(
-                redis,
-                key,
-                ticket_id=self.env_ticket_id or "missing",
-                status=STATUS_ERROR,
-                error=str(exc),
-            )
-            return 1
-
-        ticket_id = parsed["ticket_id"]
-        try:
-            order = load_workorder(redis, ticket_id)
-        except LookupError as exc:
-            log.error("%s", exc)
-            audit.event("error", str(exc))
-            set_agent_handler_status(
-                redis,
-                key,
-                ticket_id=ticket_id,
-                status=STATUS_ERROR,
-                error=str(exc),
-            )
-            return 1
-        except ValueError as exc:
-            log.error("Bad WORKORDER %s: %s", ticket_id, exc)
-            audit.event("error", f"bad WORKORDER {ticket_id}: {exc}")
-            set_agent_handler_status(
-                redis,
-                key,
-                ticket_id=ticket_id,
-                status=STATUS_ERROR,
-                error=str(exc),
-            )
-            return 1
-
-        ticket_name = order["ticket_name"]
-        instruction = order["instructions"]
-        model = order["model"] or os.environ.get("CURSOR_MODEL", DEFAULT_MODEL) or DEFAULT_MODEL
-        repo = order["repo"] or self.repo
-        audit.repo = repo
-        audit.ticket = ticket_name
-        audit.model = model
-        audit.event(
-            "order",
-            f"ticket_id={ticket_id} ticket={ticket_name} model={model}",
-        )
-
-        # Prefer host paths from env (set by MachineFactoryManager); fall back to WORKORDER.wt.
-        wt = self.host_wt or order.get("wt") or ""
-        agent_dir = self.host_agent_dir
-        if not wt or not agent_dir:
-            err = "Missing HOST_WT / HOST_AGENT_DIR for FINISHED publish"
-            log.error("%s", err)
-            audit.event("error", err)
-            set_agent_handler_status(
-                redis, key, ticket_id=ticket_id, status=STATUS_ERROR, error=err
-            )
-            return 1
-
-        set_agent_handler_status(redis, key, ticket_id=ticket_id, status=STATUS_RUNNING)
-
-        guided = _with_commit_guidance(instruction, repo=repo, ticket=ticket_name)
-        bare_mount = os.environ.get("BARE_MOUNT", "/bare")
-        try:
-            with WorktreeGitBind(
-                self.workspace,
-                bare_mount=bare_mount,
-                ticket=self.ticket or ticket_name,
-            ):
-                outcome = run_agent(
-                    instruction=guided,
-                    cwd=self.workspace,
-                    api_key=self.api_key,
-                    model=model,
-                    audit=audit,
-                )
-        except (FileNotFoundError, RuntimeError, OSError) as exc:
-            log.error("Worktree git bind failed: %s", exc)
-            audit.event("error", f"worktree git bind failed: {exc}")
-            outcome = {
-                "status": STATUS_ERROR,
-                "error": f"worktree git bind failed: {exc}",
-            }
-
-        # The SDK's spelling is not ours, and the hash only accepts ours.
-        status = normalize_status(outcome.get("status"))
-        error = str(outcome.get("error") or "")
-        set_agent_handler_status(
+        reporter = GraphReporter(
             redis,
-            key,
-            ticket_id=ticket_id,
-            status=status,
-            error=error,
+            guid=self.guid,
+            spec=WORK_GRAPH,
+            audit=audit,
+            ticket_id=self.env_ticket_id,
+            ticket_name=self.ticket,
+            repo=self.repo,
         )
-
-        publish_finished(
-            redis,
-            repo=repo,
-            ticket_name=ticket_name,
-            ticket_id=ticket_id,
-            wt=wt,
-            agent_dir=agent_dir,
-            handler_key=key,
+        context = RunContext(
+            guid=self.guid,
+            redis=redis,
+            audit=audit,
+            reporter=reporter,
+            api_key=self.api_key,
+            workspace=self.workspace,
+            bare_mount=self.bare_mount,
+            ticket=self.ticket,
+            repo=self.repo,
+            host_wt=self.host_wt,
+            host_agent_dir=self.host_agent_dir,
+            env_ticket_id=self.env_ticket_id,
+            default_model=self.model,
         )
-
-        if status == STATUS_FINISHED:
-            audit.event("done", f"ticket_id={ticket_id}")
-            return 0
-
-        audit.event(
-            "failed",
-            f"status={status} error={_truncate(error) if error else '(none)'}",
-        )
-        return 1
+        return run_work_graph(context)
 
 
 def _configure_logging() -> None:

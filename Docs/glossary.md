@@ -17,8 +17,12 @@ Factory: a Node that deploys agents — it reads orders, builds somewhere for an
 
 Floor: MachineFactory's local repo farm (`Nodes/Factory/MachineFactory/Floor/`) — one bare clone per repo plus the `dev`, `agents` and `tickets/*` worktrees agents actually work in. 
 
-AgentHandler: the harness that runs inside a MachineFactory sandbox: it reads its own run hash, loads the order, runs the Cursor agent, and publishes the outcome. There is no cloud equivalent — the SDK is the harness there. 
+AgentHandler: the harness that runs inside a MachineFactory sandbox. It reads its own run hash, loads the order, and executes the work graph (startup → pathfinder → workhorse → git → teardown) before publishing the outcome. There is no cloud equivalent — the SDK is the harness there.
 
-Run: one agent doing one order. A Factory tracks it by a **run key** (a sandbox guid locally, a `bc-` agent id in the cloud) and reports one of `draft`, `queued`, `running`, `finished`, `error`, `cancelled`, `startup_error`. 
+Work graph: the LangGraph AgentHandler runs inside a sandbox. Five nodes in a straight line, with every node able to skip ahead to teardown so FINISHED is always published.
+
+GraphScope: FE-only canvas node that draws a live work-graph run from `GRAPHRUN:<guid>` and `GRAPHEVENT`.
+
+Run: one agent doing one order. A Factory tracks it by a **run key** (a sandbox guid locally, a `bc-` agent id in the cloud) and reports one of `draft`, `queued`, `running`, `finished`, `error`, `cancelled`, `startup_error`.
 
 </Terms>

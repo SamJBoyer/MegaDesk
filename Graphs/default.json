@@ -6,8 +6,8 @@
       "nickname": "ticket_dispatcher",
       "node_name": "ticket_dispatcher",
       "position": [
-        -180.0,
-        200.0
+        -35.0,
+        -293.0
       ],
       "parameters": {
         "GIT_URL": "https://github.com/SamJBoyer/SMOKETESTREPO.git"
@@ -18,52 +18,52 @@
         "node_name": "ticket_dispatcher"
       }
     },
-    "ba56ef04-10b6-4292-ab89-f0bbfa6dee5a": {
-      "member_id": "ba56ef04-10b6-4292-ab89-f0bbfa6dee5a",
-      "type": "megadesk",
-      "nickname": "cloud_factory",
-      "node_name": "cloud_factory",
-      "position": [
-        360.0,
-        200.0
-      ],
-      "parameters": {},
-      "data": {
-        "width": 520.0,
-        "height": 260.0,
-        "node_name": "cloud_factory"
-      }
-    },
-    "20e1bf62-f70b-4801-88e2-3960ed54e98c": {
-      "member_id": "20e1bf62-f70b-4801-88e2-3960ed54e98c",
-      "type": "megadesk",
-      "nickname": "machine_factory",
-      "node_name": "machine_factory",
-      "position": [
-        358.0,
-        537.0
-      ],
-      "parameters": {},
-      "data": {
-        "width": 520.0,
-        "height": 400.0,
-        "node_name": "machine_factory"
-      }
-    },
     "51d38f56-fd09-41e8-98d0-b06390ac7285": {
       "member_id": "51d38f56-fd09-41e8-98d0-b06390ac7285",
       "type": "megadesk",
       "nickname": "merge_manager",
       "node_name": "merge_manager",
       "position": [
-        -326.0,
-        449.0
+        -167.0,
+        -18.0
       ],
       "parameters": {},
       "data": {
         "width": 640.0,
         "height": 220.0,
         "node_name": "merge_manager"
+      }
+    },
+    "0cb0944c-4d1d-45b4-8ac0-6f7978a28736": {
+      "member_id": "0cb0944c-4d1d-45b4-8ac0-6f7978a28736",
+      "type": "megadesk",
+      "nickname": "graph_scope",
+      "node_name": "graph_scope",
+      "position": [
+        506.0,
+        -353.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 480.0,
+        "height": 240.0,
+        "node_name": "graph_scope"
+      }
+    },
+    "49b6d375-4125-4f28-89a0-966311a7ab10": {
+      "member_id": "49b6d375-4125-4f28-89a0-966311a7ab10",
+      "type": "megadesk",
+      "nickname": "machine_factory",
+      "node_name": "machine_factory",
+      "position": [
+        505.0,
+        -19.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 520.0,
+        "height": 320.0,
+        "node_name": "machine_factory"
       }
     }
   }

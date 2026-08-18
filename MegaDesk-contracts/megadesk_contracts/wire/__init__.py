@@ -14,13 +14,15 @@ legitimately define the same names (``DEFAULT_MODEL``, ``parse_*``)::
     wire.cloud.cloudorder_fields(...)
     wire.code_scope.ask_fields(...)
     wire.voice.event_fields(...)
+    wire.graph.graph_run_fields(...)
 
 ``wire.factory`` holds what the two Factory families share — the run statuses —
 so ``wire.machine`` and ``wire.cloud`` can stay separate without inventing two
-words for the same outcome.
+words for the same outcome. ``wire.graph`` reuses those same statuses one level
+down, for the nodes inside a single run.
 """
 
-from megadesk_contracts.wire import cloud, code_scope, factory, machine, voice
+from megadesk_contracts.wire import cloud, code_scope, factory, graph, machine, voice
 from megadesk_contracts.wire._fields import BOOL_FALSE, BOOL_TRUE, bool_field, is_true
 
 __all__ = [
@@ -30,6 +32,7 @@ __all__ = [
     "cloud",
     "code_scope",
     "factory",
+    "graph",
     "is_true",
     "machine",
     "voice",

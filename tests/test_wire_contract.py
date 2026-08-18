@@ -13,7 +13,12 @@ assert the canonical set so a writer drifting to an alias fails here.
 from __future__ import annotations
 
 import pytest
-from conftest import FINISHED_CANONICAL_FIELDS, WORKORDER_CANONICAL_FIELDS
+from conftest import (
+    FINISHED_CANONICAL_FIELDS,
+    GRAPHEVENT_CANONICAL_FIELDS,
+    GRAPHRUN_CANONICAL_FIELDS,
+    WORKORDER_CANONICAL_FIELDS,
+)
 
 WORKORDER_SAMPLE = {
     "repo": "widgets",
@@ -114,3 +119,80 @@ def test_merge_instructions_carry_both_absolute_paths(machine_wire) -> None:
     assert FINISHED_SAMPLE["wt"] in text
     assert FINISHED_SAMPLE["agent_dir"] in text
     assert "new_wt is false" in text
+
+
+GRAPHRUN_SAMPLE = {
+    "guid": "run-1",
+    "graph": "work",
+    "spec": "",
+    "nodes": "",
+    "status": "running",
+    "ticket_id": "1700000000000-0",
+    "ticket_name": "add-widget-tests",
+    "repo": "widgets",
+    "current": "workhorse_node",
+    "started": "2026-08-18T18:00:00+00:00",
+    "updated": "2026-08-18T18:01:00+00:00",
+    "error": "",
+}
+
+GRAPHEVENT_SAMPLE = {
+    "guid": "run-1",
+    "graph": "work",
+    "node": "workhorse_node",
+    "status": "running",
+    "detail": "ticket work",
+    "ts": "2026-08-18T18:01:00+00:00",
+}
+
+
+def test_graph_run_writer_emits_only_canonical_fields(graph_wire) -> None:
+    spec = graph_wire.encode_spec(graph_wire.WORK_GRAPH)
+    nodes = graph_wire.encode_nodes(graph_wire.initial_nodes(graph_wire.WORK_GRAPH))
+    fields = graph_wire.graph_run_fields(
+        **{**GRAPHRUN_SAMPLE, "spec": spec, "nodes": nodes}
+    )
+    assert set(fields) == set(GRAPHRUN_CANONICAL_FIELDS)
+    assert all(isinstance(v, str) for v in fields.values())
+
+
+def test_graph_event_writer_emits_only_canonical_fields(graph_wire) -> None:
+    fields = graph_wire.graph_event_fields(**GRAPHEVENT_SAMPLE)
+    assert set(fields) == set(GRAPHEVENT_CANONICAL_FIELDS)
+    assert all(isinstance(v, str) for v in fields.values())
+
+
+def test_graph_run_round_trips_through_the_parser(graph_wire) -> None:
+    spec = graph_wire.encode_spec(graph_wire.WORK_GRAPH)
+    nodes = graph_wire.encode_nodes(graph_wire.initial_nodes(graph_wire.WORK_GRAPH))
+    parsed = graph_wire.parse_graph_run(
+        graph_wire.graph_run_fields(
+            **{**GRAPHRUN_SAMPLE, "spec": spec, "nodes": nodes}
+        )
+    )
+    decoded = graph_wire.decode_spec(parsed["spec"])
+    assert decoded.node_names() == graph_wire.WORK_GRAPH.node_names()
+    assert decoded.edges == graph_wire.WORK_GRAPH.edges
+    assert parsed["current"] == "workhorse_node"
+    assert parsed["status"] == "running"
+
+
+def test_graph_event_round_trips_through_the_parser(graph_wire) -> None:
+    parsed = graph_wire.parse_graph_event(
+        graph_wire.graph_event_fields(**GRAPHEVENT_SAMPLE)
+    )
+    assert parsed["node"] == "workhorse_node"
+    assert parsed["guid"] == "run-1"
+
+
+def test_graph_run_rejects_a_status_outside_the_shared_vocabulary(graph_wire) -> None:
+    spec = graph_wire.encode_spec(graph_wire.WORK_GRAPH)
+    nodes = graph_wire.encode_nodes(graph_wire.initial_nodes(graph_wire.WORK_GRAPH))
+    with pytest.raises(ValueError):
+        graph_wire.graph_run_fields(
+            guid="run-1",
+            graph="work",
+            spec=spec,
+            nodes=nodes,
+            status="almost-done",
+        )

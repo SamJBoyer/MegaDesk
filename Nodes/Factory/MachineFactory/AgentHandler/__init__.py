@@ -1,9 +1,12 @@
-"""AgentHandler: one-shot AGENTHANDLER hash -> Cursor SDK agent on a mounted worktree.
+"""AgentHandler: one-shot AGENTHANDLER hash -> work graph on a mounted worktree.
 
 MachineFactory's harness, and the reason a local run is worth having: everything
 between the order and the commit is ours to change. A cloud run has no equivalent
 seam — Cursor owns that VM — which is the one asymmetry the two Factory nodes
 cannot design away.
+
+A run is now a LangGraph: startup, pathfinder, workhorse, git, teardown. The
+Cursor SDK is still driven from ``handler.run_agent``; the graph is the plot.
 """
 
 from __future__ import annotations

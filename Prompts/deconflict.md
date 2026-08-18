@@ -13,3 +13,10 @@ We use 2 dbs inside of Redis. The 0th is ephermeral message bus and the 1st stor
 0 and 1 db are the live dbs, and every other db from 2+ can be used as a temporary db for agents testing MegaDesk. For example, db 2 and db 3 belong to Agent 1 where db 2 is ephermeral and db 3 is persistent... db 4 and db 5 belong to Agent 2.... etc.
 
 Db 1 should keep a master log of which dbs are currently in use by agents, and agents should be responsible for marking when their runs are done and the db is free.
+
+</context>
+<command>
+
+Evaluate my proposal. Search for the most elegant fix to this problem. 
+
+</command>

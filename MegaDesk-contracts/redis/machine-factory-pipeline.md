@@ -21,7 +21,9 @@ TicketDispatcher / MergeManager
         │  HGETALL + XRANGE WORKORDER by ticket_id
         ▼
    AgentHandler
-        │  XADD + DEL hash
+        │  work graph (startup → pathfinder → workhorse → git → teardown)
+        │  HSET GRAPHRUN:<GUID> / XADD GRAPHEVENT
+        │  XADD + DEL hashes
         ▼
    FINISHED:<REPO> (stream)
         │  XREADGROUP group=merge_manager

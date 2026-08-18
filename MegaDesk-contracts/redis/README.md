@@ -39,7 +39,7 @@ Default Redis has indexes 0–15. Live MegaDesk never leaves 0/1. MachineFactory
 
 | DB | Use | Constants |
 |----|-----|-----------|
-| **0** (live ephemeral) | Default realtime traffic: MachineFactory `WORKORDER` / `AGENTHANDLER` / `FINISHED`; Supervisor streams `LAUNCHREQUEST` / `KILLREQUEST` / `NODEEXIT`; voice chain `CODEQ:*` / `VOICE:*` / `CLOUD*` | `REDIS_DB_EPHEMERAL` |
+| **0** (live ephemeral) | Default realtime traffic: MachineFactory `WORKORDER` / `AGENTHANDLER` / `FINISHED` / `GRAPHRUN` / `GRAPHEVENT`; Supervisor streams `LAUNCHREQUEST` / `KILLREQUEST` / `NODEEXIT`; voice chain `CODEQ:*` / `VOICE:*` / `CLOUD*` | `REDIS_DB_EPHEMERAL` |
 | **1** (live persistent) | `GBD:SUPERVISOR:SINGLETON`, `GBD:SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>`, `CODESCOPE:SESSION:<id>`, `CLOUDRUN:<agent_id>`, `CLOUDDRAFT:<order_id>`, `MEGADESK:LANE:*` | `REDIS_DB_PERSISTENT` |
 | **2/3 … 12/13** | Agent lanes (six concurrent). Sandbox `REDIS_URL` names the even half. | `AGENT_LANE_EPHEMERAL_DBS` |
 | **14/15** | Host pytest pair. Never allocated to an agent. | `HOST_PYTEST_EPHEMERAL_DB` / `HOST_PYTEST_PERSISTENT_DB` |
@@ -57,6 +57,8 @@ Default Redis has indexes 0–15. Live MegaDesk never leaves 0/1. MachineFactory
 |---------|------------|---------------|----|-----|
 | `WORKORDER` | stream | `WORKORDER` | 0 | [machine-factory-pipeline.md](machine-factory-pipeline.md#workorder) |
 | `AGENTHANDLER` | hash | `AGENTHANDLER:<GUID>` | 0 | [machine-factory-pipeline.md](machine-factory-pipeline.md#agenthandlerguid) |
+| `GRAPHRUN` | hash | `GRAPHRUN:<GUID>` | 0 | [work-graph.md](work-graph.md#graphrunguid) |
+| `GRAPHEVENT` | stream | `GRAPHEVENT` | 0 | [work-graph.md](work-graph.md#graphevent) |
 | `FINISHED` | stream | `FINISHED:<REPO>` | 0 | [machine-factory-pipeline.md](machine-factory-pipeline.md#finishedrepo) |
 | `LAUNCHREQUEST` | stream | `LAUNCHREQUEST` | 0 | [supervisor.md](supervisor.md#launchrequest) |
 | `KILLREQUEST` | stream | `KILLREQUEST` | 0 | [supervisor.md](supervisor.md#killrequest) |
@@ -82,6 +84,7 @@ there. A node shipping its own `redis_packets.py` is a bug, not a shortcut:
 
 - `MegaDesk-contracts/megadesk_contracts/wire/factory.py` — status vocabulary shared by both factories
 - `MegaDesk-contracts/megadesk_contracts/wire/machine.py` — `WORKORDER`, `AGENTHANDLER`, `FINISHED`
+- `MegaDesk-contracts/megadesk_contracts/wire/graph.py` — `GRAPHRUN`, `GRAPHEVENT`, `WORK_GRAPH`
 - `MegaDesk-contracts/megadesk_contracts/wire/cloud.py` — `CLOUDORDER`, `CLOUDFINISHED`, `CLOUDRUN`, `CLOUDDRAFT`
 - `MegaDesk-contracts/megadesk_contracts/wire/code_scope.py`
 - `MegaDesk-contracts/megadesk_contracts/wire/voice.py`

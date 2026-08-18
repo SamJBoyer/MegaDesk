@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "graph-scope"
+version = "0.1.0"
+description = "MegaDesk FE node: live view of AgentHandler work-graph runs"
+requires-python = ">=3.10"
+dependencies = [
+    "dearpygui>=1.11.1",
+    "redis>=5.0.0",
+    "megadesk-contracts",
+]
+
+[project.entry-points."MegaDesk.nodes"]
+graph_scope = "graph_scope_node:get_exec_spec"
+
+[tool.setuptools]
+py-modules = ["graph_scope_node"]
+
+[tool.setuptools.packages.find]
+include = ["graph_scope_frontend*"]

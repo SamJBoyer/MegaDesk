@@ -30,6 +30,7 @@ sys.path[:0] = [
         "Nodes/VoiceDeck",
         "Nodes/Factory/MachineFactory",
         "Nodes/Factory/CloudFactory",
+        "Nodes/GraphScope",
     )
 ]
 
@@ -99,6 +100,25 @@ CLOUDFINISHED_CANONICAL_FIELDS = frozenset(
 CLOUDRUN_CANONICAL_FIELDS = frozenset(
     {"order_id", "repo_url", "title", "status", "pr_url", "run_id"}
 )
+GRAPHRUN_CANONICAL_FIELDS = frozenset(
+    {
+        "guid",
+        "graph",
+        "spec",
+        "nodes",
+        "current",
+        "status",
+        "ticket_id",
+        "ticket_name",
+        "repo",
+        "started",
+        "updated",
+        "error",
+    }
+)
+GRAPHEVENT_CANONICAL_FIELDS = frozenset(
+    {"guid", "graph", "node", "status", "detail", "ts"}
+)
 
 WORKORDER_STREAM = "WORKORDER"
 WORKORDER_GROUP = "machine_factory"
@@ -124,6 +144,14 @@ def machine_wire() -> ModuleType:
     from megadesk_contracts.wire import machine
 
     return machine
+
+
+@pytest.fixture(scope="session")
+def graph_wire() -> ModuleType:
+    """The one definition of GRAPHRUN / GRAPHEVENT."""
+    from megadesk_contracts.wire import graph
+
+    return graph
 
 
 @pytest.fixture(scope="session")
@@ -243,6 +271,7 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
     import ticket_dispatcher_app
     from cloud_factory_frontend import app as cloud_factory_app
     from code_scope_frontend import app as code_scope_app
+    from graph_scope_frontend import app as graph_scope_app
     from machine_factory_frontend import app as machine_factory_app
     from voice_deck_frontend import app as voice_deck_app
 
@@ -253,6 +282,7 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
         voice_deck_app,
         cloud_factory_app,
         machine_factory_app,
+        graph_scope_app,
     ):
         monkeypatch.setattr(module, "POLL_INTERVAL_SEC", FAST_POLL_SEC)
 

@@ -2,8 +2,9 @@
 
 Runs agents on this machine. **MachineFactoryManager** reads Redis stream
 `WORKORDER`, prepares a git worktree under `Floor/`, and starts a one-shot
-**AgentHandler** Docker sandbox against it. AgentHandler loads the order it was
-sent for, runs the agent, publishes `FINISHED:<repo>` and deletes its own hash.
+**AgentHandler** Docker sandbox against it. AgentHandler runs a LangGraph work
+graph — startup, pathfinder, workhorse, git, teardown — then publishes
+`FINISHED:<repo>` and deletes its hashes.
 
 The cloud counterpart is [CloudFactory](../CloudFactory/README.md); what the two
 share, and where they honestly differ, is in [Factory](../README.md).
@@ -14,8 +15,9 @@ WORKORDER (new_wt=true)
     → Floor/<repo>/wt/tickets/<ticket_name>  (branch ticket/<ticket_name> from agents)
     → HSET AGENTHANDLER:<guid> {ticket_id, status, error}
     → Docker sandbox mounts the ticket worktree
-    → AgentHandler loads WORKORDER via ticket_id, runs the agent
-    → XADD FINISHED:<repo>, DEL hash, exits
+    → AgentHandler loads WORKORDER via ticket_id
+    → work graph: startup → pathfinder → workhorse → git → teardown
+    → XADD FINISHED:<repo>, DEL AGENTHANDLER + GRAPHRUN, exits
 
 WORKORDER (new_wt=false)
     → mount the existing absolute wt (no new worktree)
@@ -93,11 +95,16 @@ python -m MachineFactoryManager        # same as: run
 
 Defined once in `megadesk_contracts.wire.machine` and imported by every writer —
 this node, TicketDispatcher and MergeManager. Consumer group `machine_factory`.
+Per-node progress is a second family, `megadesk_contracts.wire.graph`
+(`GRAPHRUN` / `GRAPHEVENT`); see
+[`work-graph.md`](../../../MegaDesk-contracts/redis/work-graph.md).
 
 | Where | Key | Carries |
 |-------|-----|---------|
 | db 0 stream | `WORKORDER` | `repo`, `URL`, `new_wt`, `wt`, `ticket_name`, `instructions`, `model` |
 | db 0 hash | `AGENTHANDLER:<guid>` | `ticket_id`, `status`, `error` |
+| db 0 hash | `GRAPHRUN:<guid>` | live work-graph progress (`spec`, `nodes`, `current`, …) |
+| db 0 stream | `GRAPHEVENT` | per-node timeline (`guid`, `node`, `status`, `detail`, `ts`) |
 | db 0 stream | `FINISHED:<repo>` | `ticket_name`, `ticket_id`, `wt`, `agent_dir` |
 
 `new_wt=true` creates a ticket worktree from `agents` and requires `URL`;
@@ -134,7 +141,7 @@ Floor/
 |------|------|
 | `MachineFactoryManager/` | WORKORDER loop, Floor setup, run reaping |
 | `MachineFactoryManager/runtime.py` | `AgentFactory` over Docker: launch, poll, cancel |
-| `AgentHandler/` | Inside the sandbox: hash → order → Cursor agent → FINISHED. Streams SDK progress into `Logs/{session}/agent-{guid}.md`. |
+| `AgentHandler/` | Inside the sandbox: hash → order → work graph → FINISHED. Streams SDK progress into `Logs/{session}/agent-{guid}.md`. |
 | `machine_factory_frontend/` | Canvas monitor (read-only; never consumes WORKORDER). Logs are in the Supervisor Logs tab. |
 | `Dockerfile` | Sandbox image; entrypoint `python -m AgentHandler` |
 | `Floor/` | Local bare clones and worktrees (gitignored) |
