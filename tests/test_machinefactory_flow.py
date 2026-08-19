@@ -283,14 +283,20 @@ def test_the_monitor_shows_orders_live_agents_and_sandboxes_not_logs(
     assert fe.exists("queue_list")
     assert fe.exists("live_list")
     assert fe.exists("docker_list")
+    assert fe.exists("floor_list")
+    assert fe.exists("error_lamp")
     assert not fe.exists("log")
+    assert not fe.exists("status_lbl")
+    assert not fe.exists("redis_dot")
+    assert not fe.exists("docker_dot")
+    assert not fe.exists("floor_path")
+    assert not fe.exists("detail")
 
     harness.wait_until(
         lambda: any(TICKET in item for item in fe.items("queue_list")),
         message="the processed work order to appear",
     )
     harness.wait_until(
-        lambda: "live=1" in fe.get("status_lbl"),
+        lambda: any("running" in item for item in fe.items("live_list")),
         message="the live agent to appear",
     )
-    assert any("running" in item for item in fe.items("live_list"))

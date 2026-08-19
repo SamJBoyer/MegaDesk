@@ -457,16 +457,6 @@ def machine_factory(redis_client, git_floor, fake_machine_factory):
 
 
 @pytest.fixture
-def opened_urls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Catch PR links the FE would open, so no browser appears mid-test."""
-    from cloud_factory_frontend import app as cloud_factory_app
-
-    opened: list[str] = []
-    monkeypatch.setattr(cloud_factory_app, "open_url", opened.append)
-    return opened
-
-
-@pytest.fixture
 def fake_realtime():
     """A scripted realtime socket: no microphone, no websocket, no API key."""
     from megadesk_contracts.testing import FakeRealtime
@@ -479,7 +469,7 @@ def voice_session(redis_client, persistent_client, fake_realtime):
     """The real VoiceDeck BE with its transport swapped out.
 
     Everything around the socket stays real: the tool router, the CODEQ payloads,
-    the draft-versus-order decision, and the injection path.
+    and the injection path.
     """
     from VoiceDeckManager.session import VoiceSession
 

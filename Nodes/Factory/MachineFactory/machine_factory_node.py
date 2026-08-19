@@ -24,8 +24,8 @@ def get_fe_spec() -> FeSpec | None:
         name=NODE_NAME,
         description="Run agents in local sandboxes — processed orders, live agents, sandboxes.",
         icon=icon,
-        default_width=520,
-        default_height=320,
+        default_width=420,
+        default_height=220,
         build=build_ui,
         backends=(NODE_NAME,),
     )

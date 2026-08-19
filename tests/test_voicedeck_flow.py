@@ -2,8 +2,8 @@
 
 The cut is the socket. ``FakeRealtime`` scripts what the model says and asks for;
 everything else is the production article — the real tool router, the real
-CODEQ:ASK payloads, the real draft-versus-order decision, and the real injection
-that keeps a thirty-second code question from stalling a sub-second voice loop.
+CODEQ:ASK payloads, and the real injection that keeps a thirty-second code
+question from stalling a sub-second voice loop.
 
 The two halves are tested apart because they fail apart: the FE is a control
 surface that must publish canonical VOICE:CONTROL and render VOICE:EVENT, and the
@@ -256,7 +256,7 @@ def test_asking_with_nothing_loaded_fails_the_tool_instead_of_the_stream(
 
 
 @pytest.mark.git
-def test_voice_writes_a_draft_rather_than_opening_a_pull_request(
+def test_voice_publishes_a_cloudorder(
     voice_session,
     fake_realtime,
     redis_client,
@@ -264,9 +264,7 @@ def test_voice_writes_a_draft_rather_than_opening_a_pull_request(
     read_stream,
     git_floor,
 ) -> None:
-    """A spoken sentence must not be able to open a PR by itself."""
-    # A real clone with a real remote: the order's repo_url is read off disk, not
-    # off the model's word for it, since the model cannot know the URL.
+    """A spoken dispatch is a CLOUDORDER. The URL is read off the clone, not said."""
     seed_scope_session(persistent_client, repo="widgets", clone_path=git_floor.dev_dir)
     voice_session.start()
 
@@ -277,47 +275,16 @@ def test_voice_writes_a_draft_rather_than_opening_a_pull_request(
     voice_session.pump_events()
 
     result = fake_realtime.result_for(call_id)
-    assert result["status"] == cloud_wire.STATUS_DRAFT
-    assert read_stream(cloud_wire.CLOUDORDER_STREAM) == [], "nothing may run unasked"
-
-    keys = list(persistent_client.scan_iter(match=f"{cloud_wire.CLOUDDRAFT_PREFIX}*"))
-    assert len(keys) == 1
-    draft = persistent_client.hgetall(keys[0])
-    # Stored verbatim as the order, so pressing dispatch adds nothing of its own.
-    assert set(draft) == set(CLOUDORDER_CANONICAL_FIELDS)
-    assert draft["title"] == "Document the frame pump"
-    assert draft["order_id"] == result["order_id"]
-    assert draft["auto_pr"] == "true"
-    assert events_of(read_stream, wire.KIND_DISPATCH) == [
-        f"{cloud_wire.STATUS_DRAFT}: Document the frame pump"
-    ]
-
-
-@pytest.mark.git
-def test_auto_dispatch_publishes_the_order_and_keeps_no_draft(
-    voice_session,
-    fake_realtime,
-    redis_client,
-    persistent_client,
-    read_stream,
-    git_floor,
-) -> None:
-    """The rail is removable, but only deliberately and only from the FE."""
-    seed_scope_session(persistent_client, repo="widgets", clone_path=git_floor.dev_dir)
-    voice_session.start()
-    voice_session.apply_control(wire.ACTION_AUTO_DISPATCH, "true")
-
-    call_id = fake_realtime.call_tool(
-        TOOL_DISPATCH_DOC_AGENT,
-        {"title": "Document the frame pump", "instructions": "Explain reset in README."},
-    )
-    voice_session.pump_events()
-
-    assert fake_realtime.result_for(call_id)["status"] == cloud_wire.STATUS_QUEUED
+    assert result["status"] == cloud_wire.STATUS_QUEUED
     orders = read_stream(cloud_wire.CLOUDORDER_STREAM)
     assert len(orders) == 1
     assert set(orders[0][1]) == set(CLOUDORDER_CANONICAL_FIELDS)
-    assert list(persistent_client.scan_iter(f"{cloud_wire.CLOUDDRAFT_PREFIX}*")) == []
+    assert orders[0][1]["title"] == "Document the frame pump"
+    assert orders[0][1]["order_id"] == result["order_id"]
+    assert orders[0][1]["auto_pr"] == "true"
+    assert events_of(read_stream, wire.KIND_DISPATCH) == [
+        f"{cloud_wire.STATUS_QUEUED}: Document the frame pump"
+    ]
 
 
 def test_dispatching_without_a_loaded_repo_is_refused(
@@ -331,7 +298,6 @@ def test_dispatching_without_a_loaded_repo_is_refused(
 
     assert fake_realtime.result_for(call_id)["status"] == "error"
     assert read_stream(cloud_wire.CLOUDORDER_STREAM) == []
-    assert list(persistent_client.scan_iter(f"{cloud_wire.CLOUDDRAFT_PREFIX}*")) == []
 
 
 # --- the rest of the router ------------------------------------------------
@@ -652,14 +618,13 @@ def test_every_control_the_frontend_sends_is_canonical(
     deck = harness.drop("voice_deck")
     deck.click("talk_btn")
     deck.click("mute_btn")
-    deck.check("auto_dispatch")
 
     published = read_stream(wire.CONTROL_STREAM)
-    assert len(published) == 3
+    assert len(published) == 2
     for _entry_id, fields in published:
         assert set(fields) == set(VOICE_CONTROL_CANONICAL_FIELDS)
         assert fields["action"] in wire.CONTROL_ACTIONS
-    assert published[-1][1] == {"action": wire.ACTION_AUTO_DISPATCH, "value": "true"}
+    assert published[-1][1] == {"action": wire.ACTION_MUTE, "value": ""}
     assert deck.label("mute_btn") == "live", "the button says what pressing it does"
 
 

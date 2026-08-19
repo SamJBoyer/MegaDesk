@@ -185,7 +185,6 @@ class CloudFactoryManager:
                 run_id=handle.run_id,
             ),
         )
-        self.persistent.delete(wire.clouddraft_key(order_id))
         self._attempts.pop(order_id, None)
         self._blocked_until.pop(order_id, None)
         self._ack(entry_id)

@@ -118,12 +118,6 @@ class VoiceDeck:
                     tag=self._tag("mute_btn"),
                     callback=self._on_mute,
                 )
-                dpg.add_checkbox(
-                    label="auto",
-                    tag=self._tag("auto_dispatch"),
-                    default_value=False,
-                    callback=self._on_auto_dispatch,
-                )
                 dpg.add_combo(
                     items=[],
                     width=-20,
@@ -190,17 +184,6 @@ class VoiceDeck:
         self._muted = not self._muted
         self._send(wire.ACTION_MUTE if self._muted else wire.ACTION_UNMUTE)
         self._label("mute_btn", "live" if self._muted else "mute")
-
-    def _on_auto_dispatch(self, sender=None, app_data=None, user_data=None) -> None:
-        tag = self._tag("auto_dispatch")
-        enabled = bool(dpg.get_value(tag)) if dpg.does_item_exist(tag) else False
-        self._send(wire.ACTION_AUTO_DISPATCH, "true" if enabled else "false")
-        self._add_line(
-            "auto-dispatch on: agents will open PRs without a click"
-            if enabled
-            else "auto-dispatch off: dispatch needs a click",
-            COLOR_AMBER,
-        )
 
     def _on_target(self, sender=None, app_data=None, user_data=None) -> None:
         tag = self._tag("repo_target")

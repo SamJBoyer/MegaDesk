@@ -58,5 +58,5 @@ from megadesk_contracts import (
 | **Supervisor** (Canvas-owned, `MegaDesk-Canvas/supervisor/`) | Consumes `SUPERVISOR:LAUNCHREQUEST` / `SUPERVISOR:KILLREQUEST` on DB 0; writes `RUNNINGNODES:<unique_id>` + singleton/alive on DB 1. Bootstrapped by canvas startup via `ensure_supervisor_running()` — not a Catalog node. |
 | **MegaDesk canvas (`MegaDesk-Canvas/`)** | On graph drop/open of a MegaDesk FE that also exposes a BE, `XADD`s `SUPERVISOR:LAUNCHREQUEST` with `FeSpec.backend_parameters` |
 | **CodeScope** | Consumes `CODEQ:ASK`, publishes `CODEQ:ANSWER` on DB 0; owns `CODESCOPE:SESSION:<id>` on DB 1 |
-| **VoiceDeck** | `VOICE:CONTROL` / `VOICE:EVENT` on DB 0; publishes `CODEQ:ASK`, writes `CLOUDDRAFT:<order_id>` on DB 1. Never puts audio on Redis |
+| **VoiceDeck** | `VOICE:CONTROL` / `VOICE:EVENT` on DB 0; publishes `CODEQ:ASK` and `CLOUDORDER`. Never puts audio on Redis |
 | **CloudFactory** | Consumes `CLOUDORDER`, publishes `CLOUDFINISHED` on DB 0; owns `CLOUDRUN:<agent_id>` on DB 1 |

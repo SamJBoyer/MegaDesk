@@ -23,6 +23,6 @@ Work graph: the LangGraph AgentHandler runs inside a sandbox. Five nodes in a st
 
 GraphScope: FE-only canvas node that draws a live work-graph run from `GRAPHRUN:<guid>` and `GRAPHEVENT`.
 
-Run: one agent doing one order. A Factory tracks it by a **run key** (a sandbox guid locally, a `bc-` agent id in the cloud) and reports one of `draft`, `queued`, `running`, `finished`, `error`, `cancelled`, `startup_error`.
+Run: one agent doing one order. A Factory tracks it by a **run key** (a sandbox guid locally, a `bc-` agent id in the cloud) and reports one of `queued`, `running`, `finished`, `error`, `cancelled`, `startup_error`.
 
 </Terms>

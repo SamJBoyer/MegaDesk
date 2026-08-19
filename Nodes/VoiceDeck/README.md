@@ -9,7 +9,7 @@ CloudFactory for documentation agents.
 
 | Half | What it does |
 |------|--------------|
-| FE (`voice_deck_frontend/app.py`) | Push-to-talk, mute, auto-dispatch toggle, repo target, state dot, rolling transcript |
+| FE (`voice_deck_frontend/app.py`) | Push-to-talk, mute, repo target, state dot, rolling transcript |
 | BE (`VoiceDeckManager/`) | Microphone and speaker, realtime websocket, tool router, answer relay |
 
 **Audio never crosses Redis.** Only control messages (`VOICE:CONTROL`) and text
@@ -44,14 +44,12 @@ wait for the user to speak again.
 | Tool | Effect |
 |------|--------|
 | `ask_codebase(question)` | `CODEQ:ASK` to CodeScope; returns `searching` |
-| `dispatch_doc_agent(title, instructions, target)` | A **draft** in CloudFactory, unless auto-dispatch is on |
+| `dispatch_doc_agent(title, instructions, target)` | Publishes `CLOUDORDER` to CloudFactory |
 | `set_repo(repo)` | Switch which loaded repo questions are about |
 | `end_session()` | Close the socket |
 
-**Voice cannot open a pull request by itself.** `dispatch_doc_agent` writes a
-`CLOUDDRAFT:<order_id>` hash that CloudFactory shows as a row with a button;
-nothing runs until someone presses it. Flipping the `auto` checkbox in the FE
-changes that, deliberately and visibly.
+`dispatch_doc_agent` publishes a `CLOUDORDER` the same way TicketDispatcher does.
+The repo URL is read off the loaded CodeScope clone, not spoken.
 
 ## Turn-taking
 

@@ -1,4 +1,4 @@
-"""CloudFactory FE: processed orders, live agents, drafts to approve."""
+"""CloudFactory FE: queued CLOUDORDERs and live agents."""
 
 from cloud_factory_frontend.app import build_ui
 

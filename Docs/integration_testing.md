@@ -216,7 +216,7 @@ live in `megadesk_contracts.wire`.
 `FakeCodeAgent` has two faces: `run_once()` as a stand-in BE for FE tests, and
 `runner_factory` feeding canned chunks to the real `CodeScopeManager`.
 
-`CODESCOPE:SESSION:<id>`, `CLOUDRUN:<agent_id>`, `CLOUDDRAFT:<order_id>` live
+`CODESCOPE:SESSION:<id>`, `CLOUDRUN:<agent_id>` live
 on the **persistent** DB. Host pytest owns 14/15 and flushes both.
 
 Two timing rules the suite pins:

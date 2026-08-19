@@ -9,14 +9,6 @@
 (HASH, db1) CLOUDRUN:<agent_id>
   - order_id, repo_url, title, status, pr_url, run_id
 
-(HASH, db1) CLOUDDRAFT:<order_id>
-  - the CLOUDORDER field set, held back rather than published
-
-A draft is an order nobody has agreed to yet. VoiceDeck writes one instead of
-publishing CLOUDORDER, because a spoken sentence should not be able to open a
-pull request on its own; pressing dispatch in the FE turns the hash into the
-stream entry unchanged, which is why it carries exactly the order's fields.
-
 The machine family's counterpart is ``wire.machine``, and the shape is the same:
 an order stream, a hash per live run, a finished stream. The statuses are shared
 outright — see ``wire.factory`` — so a graph can watch a run without knowing
@@ -49,7 +41,6 @@ from megadesk_contracts.wire.factory import (
     DEFAULT_MODEL,
     RUN_STATUSES,
     STATUS_CANCELLED,
-    STATUS_DRAFT,
     STATUS_ERROR,
     STATUS_FINISHED,
     STATUS_QUEUED,
@@ -63,7 +54,6 @@ from megadesk_contracts.wire.factory import (
 CLOUDORDER_STREAM = "CLOUDORDER"
 CLOUDFINISHED_STREAM = "CLOUDFINISHED"
 CLOUDRUN_PREFIX = "CLOUDRUN:"
-CLOUDDRAFT_PREFIX = "CLOUDDRAFT:"
 CLOUDORDER_GROUP = "cloud_factory"
 
 CLOUD_AGENT_ID_PREFIX = "bc-"
@@ -71,7 +61,6 @@ CLOUD_AGENT_ID_PREFIX = "bc-"
 # The shared statuses are re-exported so a caller working in one family can spell
 # every status it needs off one module.
 __all__ = [
-    "CLOUDDRAFT_PREFIX",
     "CLOUDFINISHED_STREAM",
     "CLOUDORDER_GROUP",
     "CLOUDORDER_STREAM",
@@ -80,7 +69,6 @@ __all__ = [
     "DEFAULT_MODEL",
     "RUN_STATUSES",
     "STATUS_CANCELLED",
-    "STATUS_DRAFT",
     "STATUS_ERROR",
     "STATUS_FINISHED",
     "STATUS_QUEUED",
@@ -88,7 +76,6 @@ __all__ = [
     "STATUS_STARTUP_ERROR",
     "TERMINAL_STATUSES",
     "agent_id_from_key",
-    "clouddraft_key",
     "cloudfinished_fields",
     "cloudorder_fields",
     "cloudrun_fields",
@@ -97,7 +84,6 @@ __all__ = [
     "is_terminal",
     "new_order_id",
     "normalize_status",
-    "order_id_from_draft_key",
     "parse_cloudfinished",
     "parse_cloudorder",
     "parse_cloudrun",
@@ -118,22 +104,6 @@ def agent_id_from_key(key: str) -> str:
     if not agent_id:
         raise ValueError(f"Empty agent_id in key {key!r}")
     return agent_id
-
-
-def clouddraft_key(order_id: str) -> str:
-    text = stripped(order_id)
-    if not text:
-        raise ValueError("CLOUDDRAFT requires an order_id")
-    return f"{CLOUDDRAFT_PREFIX}{text}"
-
-
-def order_id_from_draft_key(key: str) -> str:
-    if not key.startswith(CLOUDDRAFT_PREFIX):
-        raise ValueError(f"Key {key!r} is not a {CLOUDDRAFT_PREFIX}* hash")
-    order_id = key[len(CLOUDDRAFT_PREFIX) :]
-    if not order_id:
-        raise ValueError(f"Empty order_id in key {key!r}")
-    return order_id
 
 
 def new_order_id() -> str:

@@ -10,7 +10,7 @@ Three families share that pair:
 
 1. **MachineFactory pipeline** (streams + short-lived hashes on **ephemeral**) — TicketDispatcher, MachineFactory, MergeManager
 2. **Supervisor** (streams on **ephemeral**; RUNNINGNODES / singleton / alive on **persistent**) — Canvas-owned Supervisor BE and launched BE nodes
-3. **Voice chain** (streams on **ephemeral**; session / run / draft hashes on **persistent**) — CodeScope, VoiceDeck, CloudFactory
+3. **Voice chain** (streams on **ephemeral**; session / run hashes on **persistent**) — CodeScope, VoiceDeck, CloudFactory
 
 Families 1 and 3 carry the two factories, and they are the same shape on purpose:
 an order stream, one hash per live run, a finished stream. See
@@ -42,7 +42,7 @@ Default Redis has indexes 0–15. Live MegaDesk never leaves 0/1. MachineFactory
 | DB | Use | Constants |
 |----|-----|-----------|
 | **0** (live ephemeral) | Default realtime traffic: MachineFactory `WORKORDER` / `AGENTHANDLER` / `FINISHED` / `GRAPHRUN` / `GRAPHEVENT`; Supervisor streams `SUPERVISOR:LAUNCHREQUEST` / `SUPERVISOR:KILLREQUEST` / `NODEEXIT`; voice chain `CODEQ:*` / `VOICE:*` / `CLOUD*` | `REDIS_DB_EPHEMERAL` |
-| **1** (live persistent) | `SUPERVISOR:SINGLETON`, `SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>`, `CODESCOPE:SESSION:<id>`, `CLOUDRUN:<agent_id>`, `CLOUDDRAFT:<order_id>`, `MEGADESK:LANE:*` | `REDIS_DB_PERSISTENT` |
+| **1** (live persistent) | `SUPERVISOR:SINGLETON`, `SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>`, `CODESCOPE:SESSION:<id>`, `CLOUDRUN:<agent_id>`, `MEGADESK:LANE:*` | `REDIS_DB_PERSISTENT` |
 | **2/3 … 12/13** | Agent lanes (six concurrent). Sandbox `REDIS_URL` names the even half. | `AGENT_LANE_EPHEMERAL_DBS` |
 | **14/15** | Host pytest pair. Never allocated to an agent. | `HOST_PYTEST_EPHEMERAL_DB` / `HOST_PYTEST_PERSISTENT_DB` |
 
@@ -76,7 +76,6 @@ Default Redis has indexes 0–15. Live MegaDesk never leaves 0/1. MachineFactory
 | `CLOUDFINISHED` | stream | `CLOUDFINISHED` | 0 | [voice-chain.md](voice-chain.md#cloudfinished) |
 | CodeScope session | hash | `CODESCOPE:SESSION:<id>` | 1 | [voice-chain.md](voice-chain.md#hashes-db-1) |
 | Cloud run | hash | `CLOUDRUN:<agent_id>` | 1 | [voice-chain.md](voice-chain.md#hashes-db-1) |
-| Cloud draft | hash | `CLOUDDRAFT:<order_id>` | 1 | [voice-chain.md](voice-chain.md#hashes-db-1) |
 | Agent lane lease | string (TTL) | `MEGADESK:LANE:<even>` / `MEGADESK:LANEBYRUN:<run_key>` | 1 | MachineFactory allocator; never agent-written |
 
 ## Code references
@@ -87,7 +86,7 @@ there. A node shipping its own `redis_packets.py` is a bug, not a shortcut:
 - `MegaDesk-contracts/megadesk_contracts/wire/factory.py` — status vocabulary shared by both factories
 - `MegaDesk-contracts/megadesk_contracts/wire/machine.py` — `WORKORDER`, `AGENTHANDLER`, `FINISHED`
 - `MegaDesk-contracts/megadesk_contracts/wire/graph.py` — `GRAPHRUN`, `GRAPHEVENT`, `WORK_GRAPH`
-- `MegaDesk-contracts/megadesk_contracts/wire/cloud.py` — `CLOUDORDER`, `CLOUDFINISHED`, `CLOUDRUN`, `CLOUDDRAFT`
+- `MegaDesk-contracts/megadesk_contracts/wire/cloud.py` — `CLOUDORDER`, `CLOUDFINISHED`, `CLOUDRUN`
 - `MegaDesk-contracts/megadesk_contracts/wire/code_scope.py`
 - `MegaDesk-contracts/megadesk_contracts/wire/voice.py`
 

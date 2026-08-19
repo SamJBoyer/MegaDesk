@@ -24,7 +24,6 @@ from typing import Any
 
 DEFAULT_MODEL = "auto"
 
-STATUS_DRAFT = "draft"
 STATUS_QUEUED = "queued"
 STATUS_RUNNING = "running"
 STATUS_FINISHED = "finished"
@@ -34,7 +33,6 @@ STATUS_STARTUP_ERROR = "startup_error"
 
 RUN_STATUSES = frozenset(
     {
-        STATUS_DRAFT,
         STATUS_QUEUED,
         STATUS_RUNNING,
         STATUS_FINISHED,

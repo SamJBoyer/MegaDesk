@@ -10,7 +10,7 @@ two share, and where they honestly differ, is in [Factory](../README.md).
 
 | Half | What it does |
 |------|--------------|
-| FE (`cloud_factory_frontend/app.py`) | Processed CLOUDORDERs, live agents, drafts to approve |
+| FE (`cloud_factory_frontend/app.py`) | Queued CLOUDORDERs, live agents, error lamp |
 | BE (`CloudFactoryManager/`) | Consume `CLOUDORDER`, launch cloud agents, follow them, publish `CLOUDFINISHED` |
 
 ## How a cloud agent differs from a local one
@@ -30,8 +30,9 @@ the result. A cloud agent is the opposite of that in every way that matters:
   milliseconds to get going.
 
 TicketDispatcher publishes `CLOUDORDER` the same way it publishes `WORKORDER`:
-one click on an agent-ready issue feeds both factories. This node does not take
-a GitHub URL or issue text of its own.
+one click on an agent-ready issue feeds both factories. VoiceDeck can also
+publish `CLOUDORDER`. This node does not take a GitHub URL or issue text of its
+own.
 
 The whole runtime difference is one keyword. Production talks to the SDK through
 ``AsyncClient.launch_bridge`` (the sync ``Agent.create`` path ``select()``s a
@@ -52,7 +53,6 @@ agent = await client.agents.create(
 | db 0 stream | `CLOUDORDER` | `order_id`, `repo_url`, `ref`, `title`, `instructions`, `model`, `auto_pr` |
 | db 0 stream | `CLOUDFINISHED` | `agent_id`, `order_id`, `status`, `pr_url` |
 | db 1 hash | `CLOUDRUN:<agent_id>` | `order_id`, `repo_url`, `title`, `status`, `pr_url`, `run_id` |
-| db 1 hash | `CLOUDDRAFT:<order_id>` | the `CLOUDORDER` field set, held back |
 
 All defined once in `megadesk_contracts.wire.cloud`, on the shared status
 vocabulary in `megadesk_contracts.wire.factory`, and imported by both halves.
@@ -61,16 +61,6 @@ The registry on db 1 is the source of truth, not anything held in memory. Orders
 launch in under a second; the runs they start take minutes and outlive any process
 here, so `CLOUDRUN:<agent_id>` is written **before** the order is acked and its
 status is what makes `CLOUDFINISHED` fire exactly once.
-
-## Drafts
-
-A draft is an order nobody has agreed to yet. VoiceDeck writes one rather than
-publishing `CLOUDORDER`, because a misheard sentence should not be able to open a
-pull request; the FE shows it in Drafts and nothing happens until `go` is
-pressed. Pressing it publishes the stored fields and deletes the hash
-immediately, so an impatient second click cannot mean two PRs. Issue text and
-the repo URL come from TicketDispatcher or from the voice draft, not from this
-panel.
 
 ## The two failure modes, kept apart
 

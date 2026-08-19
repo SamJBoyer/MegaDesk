@@ -1,6 +1,6 @@
 """MegaDesk.nodes entry point for CloudFactory (FE + BE).
 
-FE: processed orders, live agents, drafts (requires ``[canvas]``).
+FE: queued CLOUDORDERs and live agents (requires ``[canvas]``).
 BE: CloudFactoryManager, which launches Cursor cloud agents and follows them.
 """
 
@@ -22,10 +22,10 @@ def get_fe_spec() -> FeSpec | None:
     icon = _ICON if Path(_ICON).is_file() else None
     return FeSpec(
         name=NODE_NAME,
-        description="Run agents in the cloud — processed orders, live agents, drafts.",
+        description="Run agents in the cloud — queued orders and live agents.",
         icon=icon,
-        default_width=520,
-        default_height=320,
+        default_width=420,
+        default_height=140,
         build=build_ui,
         backends=(NODE_NAME,),
     )

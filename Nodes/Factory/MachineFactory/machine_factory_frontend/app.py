@@ -1,7 +1,4 @@
-"""MachineFactory Floor — canvas monitor for processed orders, live agents, and sandboxes.
-
-Logs live in the Supervisor Logs tab, not here.
-"""
+"""MachineFactory Floor — queued orders, live agents, sandboxes, and repos."""
 
 from __future__ import annotations
 
@@ -15,6 +12,7 @@ import dearpygui.dearpygui as dpg
 import redis
 from megadesk_contracts import frame_pump, redis_connect, resolve_ephemeral_db, resolve_redis_url
 from megadesk_contracts.wire import machine as wire
+from megadesk_contracts.wire.factory import STATUS_ERROR, STATUS_STARTUP_ERROR
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
 from redis.exceptions import TimeoutError as RedisTimeoutError
@@ -29,7 +27,6 @@ AGENT_HANDLER_SCAN_COUNT = 100
 COLOR_OK = (80, 200, 80, 255)
 COLOR_ERR = (220, 70, 70, 255)
 COLOR_DIM = (140, 140, 140, 255)
-COLOR_MUTED = (100, 100, 110, 255)
 
 _LIVE: dict[str, "MachineFactoryFloor"] = {}
 
@@ -49,7 +46,6 @@ class AgentHandlerRow:
     guid: str
     ticket_id: str
     status: str
-    error: str
     label: str
 
 
@@ -72,18 +68,12 @@ class MachineFactoryFloor:
         self._root_tag = "primary"
         self._frame_registered = False
         self._last_poll = 0.0
-        self._redis_ok = False
-        self._docker_ok = False
+        self._has_error = False
         self._floor = default_floor()
-        self._status = ""
         self._workorders: list[WorkorderRow] = []
         self._agent_handlers: list[AgentHandlerRow] = []
         self._repos: list[FloorRepo] = []
         self._containers: list[str] = []
-        self._pending = 0
-        self._stream_len = 0
-        self._selected_agent_handler: Optional[str] = None
-        self._selected_repo: Optional[str] = None
 
     def _tag(self, suffix: str) -> str:
         return f"{self._root_tag}::{suffix}"
@@ -169,18 +159,13 @@ class MachineFactoryFloor:
                 except ValueError:
                     continue
                 status = parsed["status"] or "?"
-                err = parsed["error"]
                 short = guid if len(guid) <= 8 else guid[:8]
                 label = f"{short}…  {status}  ticket={parsed['ticket_id']}"
-                if err:
-                    err_short = err if len(err) <= 40 else err[:37] + "…"
-                    label = f"{label}  ! {err_short}"
                 rows.append(
                     AgentHandlerRow(
                         guid=guid,
                         ticket_id=parsed["ticket_id"],
                         status=status,
-                        error=err,
                         label=label,
                     )
                 )
@@ -188,20 +173,6 @@ class MachineFactoryFloor:
                 break
         rows.sort(key=lambda r: (r.status, r.guid))
         return rows
-
-    def _pending_count(self, client: redis.Redis) -> int:
-        try:
-            info = client.xpending(wire.WORKORDER_STREAM, wire.WORKORDER_GROUP)
-        except RedisError:
-            return 0
-        if isinstance(info, dict):
-            return int(info.get("pending") or 0)
-        if isinstance(info, (list, tuple)) and info:
-            try:
-                return int(info[0])
-            except (TypeError, ValueError):
-                return 0
-        return 0
 
     def _recent_workorders(self, client: redis.Redis) -> list[WorkorderRow]:
         try:
@@ -275,50 +246,37 @@ class MachineFactoryFloor:
         self._last_poll = now
 
         client = self._connect_redis()
-        self._redis_ok = client is not None
-        self._docker_ok = self._probe_docker()
+        docker_ok = self._probe_docker()
         self._floor = default_floor()
         self._repos = self._scan_floor()
-        self._containers = self._list_sandbox_containers() if self._docker_ok else []
+        self._containers = self._list_sandbox_containers() if docker_ok else []
 
         if client is None:
             self._workorders = []
             self._agent_handlers = []
-            self._pending = 0
-            self._stream_len = 0
-            self._status = "Redis unreachable"
+            self._has_error = True
             self._refresh_widgets()
             return
 
         try:
-            self._stream_len = int(client.xlen(wire.WORKORDER_STREAM))
-            self._pending = self._pending_count(client)
             self._workorders = self._recent_workorders(client)
             self._agent_handlers = self._scan_agent_handlers(client)
-            self._status = (
-                f"queue={self._stream_len}  pending={self._pending}  "
-                f"live={len(self._agent_handlers)}  floor={len(self._repos)}  "
-                f"docker={len(self._containers)}"
+            error_statuses = {STATUS_ERROR, STATUS_STARTUP_ERROR}
+            self._has_error = any(
+                h.status in error_statuses for h in self._agent_handlers
             )
-        except RedisError as exc:
-            self._redis_ok = False
+        except RedisError:
             self._redis = None
-            self._status = f"Redis error: {exc}"
+            self._has_error = True
 
         self._refresh_widgets()
 
-    def _dot(self, ok: bool) -> tuple[int, int, int, int]:
-        return COLOR_OK if ok else COLOR_ERR
-
     def _refresh_widgets(self) -> None:
-        if dpg.does_item_exist(self._tag("redis_dot")):
-            dpg.configure_item(self._tag("redis_dot"), color=self._dot(self._redis_ok))
-        if dpg.does_item_exist(self._tag("docker_dot")):
-            dpg.configure_item(self._tag("docker_dot"), color=self._dot(self._docker_ok))
-        if dpg.does_item_exist(self._tag("status_lbl")):
-            dpg.set_value(self._tag("status_lbl"), self._status)
-        if dpg.does_item_exist(self._tag("floor_path")):
-            dpg.set_value(self._tag("floor_path"), str(self._floor))
+        lamp = self._tag("error_lamp")
+        if dpg.does_item_exist(lamp):
+            color = COLOR_ERR if self._has_error else COLOR_OK
+            dpg.configure_item(lamp, fill=color, color=color)
+            dpg.set_item_user_data(lamp, self._has_error)
 
         queue = self._tag("queue_list")
         if dpg.does_item_exist(queue):
@@ -340,78 +298,20 @@ class MachineFactoryFloor:
             items = self._containers or [f"(no {CONTAINER_NAME_PREFIX}* containers)"]
             dpg.configure_item(dock, items=items)
 
-        detail = self._tag("detail")
-        if dpg.does_item_exist(detail):
-            dpg.set_value(detail, self._detail_text())
-
-    def _detail_text(self) -> str:
-        if self._selected_agent_handler:
-            for h in self._agent_handlers:
-                if h.guid == self._selected_agent_handler:
-                    err = h.error or "(none)"
-                    return (
-                        f"AGENTHANDLER:{h.guid}\n"
-                        f"status: {h.status}\n"
-                        f"ticket_id: {h.ticket_id}\n"
-                        f"error: {err}"
-                    )
-        if self._selected_repo:
-            for r in self._repos:
-                if r.name == self._selected_repo:
-                    tickets = "\n".join(f"  · {t}" for t in r.tickets) or "  (none)"
-                    path = self._floor / r.name
-                    return (
-                        f"Floor/{r.name}\n"
-                        f"path: {path}\n"
-                        f"tickets ({len(r.tickets)}):\n{tickets}"
-                    )
-        if self._workorders:
-            w = self._workorders[0]
-            return (
-                f"Latest WORKORDER {w.entry_id}\n"
-                f"repo: {w.repo}\n"
-                f"ticket: {w.ticket_name}\n"
-                f"new_wt: {w.new_wt}\n"
-                f"model: {w.model}"
-            )
-        return ""
-
     def build_ui(
         self,
         parent: str,
         *,
         tag_prefix: str,
-        width: int = 520,
-        height: int = 320,
+        width: int = 420,
+        height: int = 220,
     ) -> None:
         """Fill the host content parent with MachineFactory Floor widgets."""
         self._root_tag = tag_prefix
         _ = width, height
-        col_w = 250
+        col_w = 190
 
         with dpg.group(parent=parent):
-            with dpg.group(horizontal=True):
-                dpg.add_text("R")
-                dpg.add_text("*", tag=self._tag("redis_dot"), color=COLOR_ERR)
-                dpg.add_spacer(width=6)
-                dpg.add_text("D")
-                dpg.add_text("*", tag=self._tag("docker_dot"), color=COLOR_ERR)
-                dpg.add_spacer(width=8)
-                dpg.add_text("", tag=self._tag("status_lbl"), wrap=280, color=COLOR_DIM)
-                dpg.add_spacer(width=6)
-                dpg.add_button(
-                    label="Refresh",
-                    width=58,
-                    callback=lambda: self._on_refresh(),
-                )
-                dpg.add_button(
-                    label="Open",
-                    width=44,
-                    callback=lambda: self._on_open_floor(),
-                )
-
-            dpg.add_text("", tag=self._tag("floor_path"), color=COLOR_MUTED, wrap=480)
-
             with dpg.group(horizontal=True):
                 with dpg.group():
                     dpg.add_text("Queue", color=COLOR_DIM)
@@ -420,7 +320,6 @@ class MachineFactoryFloor:
                         tag=self._tag("queue_list"),
                         num_items=2,
                         width=col_w,
-                        callback=self._on_queue_select,
                     )
                 with dpg.group():
                     dpg.add_text("Live", color=COLOR_DIM)
@@ -429,18 +328,31 @@ class MachineFactoryFloor:
                         tag=self._tag("live_list"),
                         num_items=2,
                         width=-1,
-                        callback=self._on_live_select,
+                    )
+                with dpg.drawlist(width=16, height=16):
+                    dpg.draw_circle(
+                        (8, 8),
+                        6,
+                        fill=COLOR_ERR,
+                        color=COLOR_ERR,
+                        tag=self._tag("error_lamp"),
                     )
 
             with dpg.group(horizontal=True):
                 with dpg.group():
-                    dpg.add_text("Floor", color=COLOR_DIM)
+                    with dpg.group(horizontal=True):
+                        dpg.add_text("Floor", color=COLOR_DIM)
+                        dpg.add_button(
+                            label="Open",
+                            width=44,
+                            height=20,
+                            callback=lambda: self._on_open_floor(),
+                        )
                     dpg.add_listbox(
                         items=["(loading…)"],
                         tag=self._tag("floor_list"),
                         num_items=2,
                         width=col_w,
-                        callback=self._on_floor_select,
                     )
                 with dpg.group():
                     dpg.add_text("Docker", color=COLOR_DIM)
@@ -450,15 +362,6 @@ class MachineFactoryFloor:
                         num_items=2,
                         width=-1,
                     )
-
-            dpg.add_input_text(
-                tag=self._tag("detail"),
-                default_value="",
-                multiline=True,
-                readonly=True,
-                width=-1,
-                height=52,
-            )
 
         dpg.set_item_user_data(parent, self.shutdown)
         self._poll(force=True)
@@ -479,23 +382,10 @@ class MachineFactoryFloor:
         self._redis = None
         _LIVE.pop(self._root_tag, None)
 
-    def _on_refresh(self) -> None:
-        self._poll(force=True)
-
-    def _set_status(self, text: str) -> None:
-        self._status = text
-        tag = self._tag("status_lbl")
-        if dpg.does_item_exist(tag):
-            dpg.set_value(tag, text)
-
     def _on_open_floor(self) -> None:
         path = self._floor
         try:
             path.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            self._set_status(f"Open Floor failed: {exc}")
-            return
-        try:
             if os.name == "nt":
                 os.startfile(str(path))  # type: ignore[attr-defined]
             else:
@@ -504,54 +394,17 @@ class MachineFactoryFloor:
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                 )
-        except OSError as exc:
-            self._set_status(f"Open Floor failed: {exc}")
-
-    def _on_queue_select(self, _sender, app_data, _user_data=None) -> None:
-        label = str(app_data if app_data is not None else "").strip()
-        self._selected_agent_handler = None
-        self._selected_repo = None
-        for w in self._workorders:
-            if w.label == label:
-                detail = self._tag("detail")
-                if dpg.does_item_exist(detail):
-                    dpg.set_value(
-                        detail,
-                        f"WORKORDER {w.entry_id}\n"
-                        f"repo: {w.repo}\n"
-                        f"ticket: {w.ticket_name}\n"
-                        f"new_wt: {w.new_wt}\n"
-                        f"model: {w.model}",
-                    )
-                return
-
-    def _on_live_select(self, _sender, app_data, _user_data=None) -> None:
-        label = str(app_data if app_data is not None else "").strip()
-        self._selected_repo = None
-        for h in self._agent_handlers:
-            if h.label == label:
-                self._selected_agent_handler = h.guid
-                self._refresh_widgets()
-                return
-        self._selected_agent_handler = None
-
-    def _on_floor_select(self, _sender, app_data, _user_data=None) -> None:
-        label = str(app_data if app_data is not None else "").strip()
-        self._selected_agent_handler = None
-        for r in self._repos:
-            if r.label == label:
-                self._selected_repo = r.name
-                self._refresh_widgets()
-                return
-        self._selected_repo = None
+        except OSError:
+            self._has_error = True
+            self._refresh_widgets()
 
 
 def build_ui(
     parent: str,
     *,
     tag_prefix: str,
-    width: int = 520,
-        height: int = 320,
+    width: int = 420,
+    height: int = 220,
 ) -> None:
     """Module-level builder for FeSpec / MegaDesk canvas hosting."""
     MachineFactoryFloor().build_ui(

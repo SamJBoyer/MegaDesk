@@ -65,6 +65,22 @@
         "height": 200.0,
         "node_name": "voice_deck"
       }
+    },
+    "6dcad465-d3e3-4454-a91b-129e0d142ec3": {
+      "member_id": "6dcad465-d3e3-4454-a91b-129e0d142ec3",
+      "type": "megadesk",
+      "nickname": "machine_factory",
+      "node_name": "machine_factory",
+      "position": [
+        422.0,
+        147.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 420.0,
+        "height": 220.0,
+        "node_name": "machine_factory"
+      }
     }
   }
 }

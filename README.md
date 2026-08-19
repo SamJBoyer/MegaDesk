@@ -15,7 +15,7 @@ Individual modules:
 - Nodes (`Nodes/`): productivity nodes installed via `pip install -e Nodes/<name>` (or `.[canvas]` where noted).
   - Factories (`Nodes/Factory/`): the two nodes that deploy agents. Same three verbs, same status words, same shape — one runs them here, one runs them in the cloud, and a graph should be able to choose without the choice changing what an agent can do. See [`Nodes/Factory/README.md`](Nodes/Factory/README.md).
     - MachineFactory: FE + BE node — Redis WORKORDER poller that launches Docker agent sandboxes against git worktrees, plus a Floor monitor panel. Hands back a worktree for MergeManager to merge.
-    - CloudFactory: FE + BE node — follows Cursor **cloud** agents to a PR. Orders come from TicketDispatcher (or VoiceDeck drafts); this panel does not take a GitHub URL or issue text.
+    - CloudFactory: FE + BE node — follows Cursor **cloud** agents to a PR. Orders come from TicketDispatcher or VoiceDeck; this panel does not take a GitHub URL or issue text.
   - MergeManager: FE-only Dear PyGui tool that merges finished worktrees into the agents branch.
   - TicketDispatcher: FE-only Dear PyGui tool that lists `agent-ready` GitHub issues and publishes WORKORDERs and CLOUDORDERs.
   - CodeScope: FE + BE node — clones a repo into `Scope/` and answers questions about it with a warm local Cursor agent. The agent's own search and file-read tools are the retrieval layer, so there is no index, no embeddings, and no RAG pipeline.

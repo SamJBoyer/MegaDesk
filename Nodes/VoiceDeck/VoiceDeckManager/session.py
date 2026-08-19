@@ -66,12 +66,10 @@ class VoiceSession:
         transport_factory: Optional[TransportFactory] = None,
         session_id: str = "",
         repo: str = "",
-        auto_dispatch: bool = False,
     ) -> None:
         self.redis_url = resolve_redis_url(redis_url)
         self.session_id = session_id or scope_wire.new_session_id()
         self.target_repo = repo
-        self.auto_dispatch = bool(auto_dispatch)
         self.state = wire.STATE_OFF
         self.transport: Any = None
         self._transport_factory = transport_factory or self._default_transport
@@ -177,9 +175,6 @@ class VoiceSession:
         elif action == wire.ACTION_TARGET:
             self.target_repo = value.strip()
             self._publish(wire.KIND_TARGET, self.target_repo or "(none)")
-        elif action == wire.ACTION_AUTO_DISPATCH:
-            self.auto_dispatch = wire.is_true(value)
-            log.info("auto-dispatch is now %s", self.auto_dispatch)
 
     # --- realtime events ---
 
@@ -320,26 +315,14 @@ class VoiceSession:
             instructions=instructions,
             auto_pr=True,
         )
-        if self.auto_dispatch:
-            self.ephemeral.xadd(cloud_wire.CLOUDORDER_STREAM, order)
-            status = cloud_wire.STATUS_QUEUED
-        else:
-            # A draft, not an order: voice must not open a pull request on its
-            # own. It shows up in CloudFactory as a row with a button, and the
-            # stored fields are the order verbatim, so dispatching adds nothing.
-            self.persistent.hset(cloud_wire.clouddraft_key(order_id), mapping=order)
-            status = cloud_wire.STATUS_DRAFT
+        self.ephemeral.xadd(cloud_wire.CLOUDORDER_STREAM, order)
 
-        self._publish(wire.KIND_DISPATCH, f"{status}: {title}")
+        self._publish(wire.KIND_DISPATCH, f"{cloud_wire.STATUS_QUEUED}: {title}")
         return {
-            "status": status,
+            "status": cloud_wire.STATUS_QUEUED,
             "order_id": order_id,
             "title": title,
-            "detail": (
-                "Queued to run."
-                if status == cloud_wire.STATUS_QUEUED
-                else "Saved as a draft; tell the user to press dispatch."
-            ),
+            "detail": "Queued to run.",
         }
 
     def _tool_set_repo(self, arguments: dict, call_id: str) -> dict:

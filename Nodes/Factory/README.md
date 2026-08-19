@@ -46,7 +46,7 @@ a machine order names a `repo` on the Floor and a `wt`, while a cloud order name
 a `repo_url`, a `ref` and `auto_pr`.
 
 Status words come from `megadesk_contracts.wire.factory` and mean the same thing
-on both sides: `draft`, `queued`, `running`, `finished`, `error`, `cancelled`,
+on both sides: `queued`, `running`, `finished`, `error`, `cancelled`,
 `startup_error`. `normalize_status` maps provider vocabulary onto them, and an
 unknown word reads as `running` — guessing `finished` would close a run that is
 still writing to a branch.
@@ -56,13 +56,14 @@ Both keep the two failure modes apart, because they need different fixes.
 the only one retried, on the provider's own advice. A run that started and failed
 reports `error`, and the transcript is what to look at.
 
-The FEs follow the same split. Both show **processed work orders** and **live
-agents**. MachineFactory also shows Floor repos and active sandboxes. Node logs
+The FEs follow the same split. Both show **queued work orders** and **live
+agents**, plus a corner lamp that turns red if an error has been thrown.
+MachineFactory also shows Floor repos and active sandboxes. Node logs
 are in the Supervisor Logs tab, not on the factory.
 
-Both take their orders from TicketDispatcher. One click on an agent-ready issue
-writes `WORKORDER` and `CLOUDORDER`; neither factory has its own GitHub URL or
-issue-text input.
+Both take their orders from TicketDispatcher (and VoiceDeck can also publish
+`CLOUDORDER`). One click on an agent-ready issue writes `WORKORDER` and
+`CLOUDORDER`; neither factory has its own GitHub URL or issue-text input.
 
 ## Where they honestly differ
 

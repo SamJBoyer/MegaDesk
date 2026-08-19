@@ -2,11 +2,11 @@
 
 ``FakeCloudFactory`` stands in for Cursor's VM; everything either side of it is
 real — the CLOUDORDER consumer group, the run registry on db 1, the CLOUDFINISHED
-payloads, and the canvas widgets that turn a draft into an order.
+payloads, and the canvas widgets that list queued orders and live agents.
 
 The assertions cluster around one risk. Every other failure here is cosmetic, but
-launching twice for one order means two pull requests, so duplicate suppression,
-the retry rules, and the draft's single click get tested harder than the rest.
+launching twice for one order means two pull requests, so duplicate suppression
+and the retry rules get tested harder than the rest.
 """
 
 from __future__ import annotations
@@ -49,21 +49,6 @@ def place_order(
             title=title,
             instructions=instructions,
             auto_pr=auto_pr,
-        ),
-    )
-    return order_id
-
-
-def seed_draft(persistent_client, *, order_id: str = "", title: str = TITLE) -> str:
-    """Write the draft VoiceDeck would write: an order nobody agreed to yet."""
-    order_id = order_id or wire.new_order_id()
-    persistent_client.hset(
-        wire.clouddraft_key(order_id),
-        mapping=wire.cloudorder_fields(
-            order_id=order_id,
-            repo_url=REPO_URL,
-            title=title,
-            instructions=INSTRUCTIONS,
         ),
     )
     return order_id
@@ -146,17 +131,6 @@ def test_the_same_order_twice_still_launches_once(
 
     assert len(fake_cloud_factory.launches) == 1
     assert len(runs_on(persistent_client)) == 1
-
-
-def test_the_draft_is_cleared_once_its_order_runs(
-    cloud_factory, redis_client, persistent_client
-) -> None:
-    order_id = seed_draft(persistent_client)
-    place_order(redis_client, order_id=order_id)
-
-    cloud_factory.poll_orders()
-
-    assert persistent_client.exists(wire.clouddraft_key(order_id)) == 0
 
 
 def test_an_unusable_order_is_acked_rather_than_retried_forever(
@@ -390,10 +364,6 @@ def test_a_launch_failure_keeps_cursors_retry_advice() -> None:
 # --- the frontend ----------------------------------------------------------
 
 
-def _item_with(fe, suffix: str, needle: str) -> str:
-    return next(item for item in fe.items(suffix) if needle in item)
-
-
 @pytest.mark.canvas
 def test_ticket_dispatcher_publishes_a_canonical_cloudorder(
     harness, redis_client, fake_gh, read_stream
@@ -421,54 +391,6 @@ def test_ticket_dispatcher_publishes_a_canonical_cloudorder(
 
 
 @pytest.mark.canvas
-def test_a_draft_becomes_an_order_on_one_click(
-    harness, redis_client, persistent_client, read_stream
-) -> None:
-    """This is the rail that keeps a misheard sentence from opening a PR."""
-    order_id = seed_draft(persistent_client)
-    fe = harness.drop("cloud_factory")
-
-    harness.wait_until(
-        lambda: any(TITLE in item for item in fe.items("draft_list")),
-        message="the draft row to appear",
-    )
-    fe.select("draft_list", _item_with(fe, "draft_list", TITLE))
-    assert read_stream(wire.CLOUDORDER_STREAM) == [], "a draft on its own does nothing"
-
-    fe.click("draft_go")
-
-    orders = read_stream(wire.CLOUDORDER_STREAM)
-    assert len(orders) == 1
-    assert orders[0][1]["order_id"] == order_id
-    assert set(orders[0][1]) == set(CLOUDORDER_CANONICAL_FIELDS)
-    # Gone from both the list and db 1, so an impatient second click cannot
-    # produce a second pull request.
-    assert all(TITLE not in item for item in fe.items("draft_list"))
-    assert persistent_client.exists(wire.clouddraft_key(order_id)) == 0
-    fe.click("draft_go")
-    assert len(read_stream(wire.CLOUDORDER_STREAM)) == 1
-
-
-@pytest.mark.canvas
-def test_discarding_a_draft_publishes_nothing(
-    harness, redis_client, persistent_client, read_stream
-) -> None:
-    order_id = seed_draft(persistent_client)
-    fe = harness.drop("cloud_factory")
-    harness.wait_until(
-        lambda: any(TITLE in item for item in fe.items("draft_list")),
-        message="the draft row to appear",
-    )
-
-    fe.select("draft_list", _item_with(fe, "draft_list", TITLE))
-    fe.click("draft_del")
-
-    assert read_stream(wire.CLOUDORDER_STREAM) == []
-    assert persistent_client.exists(wire.clouddraft_key(order_id)) == 0
-    assert all(TITLE not in item for item in fe.items("draft_list"))
-
-
-@pytest.mark.canvas
 def test_processed_orders_and_live_agents_share_the_machine_factory_layout(
     harness, redis_client, persistent_client
 ) -> None:
@@ -486,17 +408,22 @@ def test_processed_orders_and_live_agents_share_the_machine_factory_layout(
     )
     assert fe.exists("queue_list")
     assert fe.exists("live_list")
-    assert fe.exists("draft_list")
+    assert fe.exists("error_lamp")
+    assert not fe.exists("draft_list")
     assert not fe.exists("docker_list")
     assert not fe.exists("send_btn")
     assert not fe.exists("repo_url")
     assert not fe.exists("instructions")
     assert not fe.exists("git_url")
+    assert not fe.exists("status_lbl")
+    assert not fe.exists("redis_dot")
+    assert not fe.exists("detail")
+    assert not fe.exists("pr_btn")
 
 
 @pytest.mark.canvas
-def test_a_run_shows_its_status_and_offers_its_pr_when_there_is_one(
-    harness, redis_client, persistent_client, opened_urls: list[str]
+def test_a_run_shows_its_status_in_the_queue(
+    harness, redis_client, persistent_client
 ) -> None:
     order_id = place_order(redis_client)
     agent_id = seed_run(persistent_client, order_id=order_id)
@@ -506,7 +433,6 @@ def test_a_run_shows_its_status_and_offers_its_pr_when_there_is_one(
         lambda: any(wire.STATUS_RUNNING in item for item in fe.items("live_list")),
         message="the live agent to appear",
     )
-    assert not fe.shown("pr_btn"), "there is no PR to open yet"
 
     pr_url = "https://github.com/acme/widgets/pull/7"
     persistent_client.hset(
@@ -519,16 +445,11 @@ def test_a_run_shows_its_status_and_offers_its_pr_when_there_is_one(
         message="the processed order to show finished",
     )
     assert all(wire.STATUS_RUNNING not in item for item in fe.items("live_list"))
-    fe.select("queue_list", _item_with(fe, "queue_list", TITLE))
-    assert fe.shown("pr_btn")
-
-    fe.click("pr_btn")
-    assert opened_urls == [pr_url]
 
 
 @pytest.mark.canvas
 @pytest.mark.git
-def test_a_draft_spoken_into_voicedeck_reaches_a_cloud_agent(
+def test_a_spoken_order_reaches_a_cloud_agent(
     harness,
     voice_session,
     fake_realtime,
@@ -539,11 +460,7 @@ def test_a_draft_spoken_into_voicedeck_reaches_a_cloud_agent(
     read_stream,
     git_floor,
 ) -> None:
-    """The whole voice path, with only the model and the VM faked.
-
-    Three nodes have to agree on one hash for this to work, which is the reason
-    the draft's fields are exactly CLOUDORDER's rather than a shape of their own.
-    """
+    """The whole voice path, with only the model and the VM faked."""
     from megadesk_contracts.wire import code_scope as scope_wire
     from VoiceDeckManager.tools import TOOL_DISPATCH_DOC_AGENT
 
@@ -562,13 +479,9 @@ def test_a_draft_spoken_into_voicedeck_reaches_a_cloud_agent(
     voice_session.pump_events()
 
     harness.wait_until(
-        lambda: any(TITLE in item for item in fe.items("draft_list")),
-        message="the spoken draft to reach the dispatcher",
+        lambda: any(TITLE in item for item in fe.items("queue_list")),
+        message="the spoken order to reach the CloudFactory queue",
     )
-    assert read_stream(wire.CLOUDORDER_STREAM) == [], "voice alone opens nothing"
-
-    fe.select("draft_list", _item_with(fe, "draft_list", TITLE))
-    fe.click("draft_go")
     assert cloud_factory.poll_orders() == 1
 
     launch = fake_cloud_factory.launches[0]
@@ -580,7 +493,7 @@ def test_a_draft_spoken_into_voicedeck_reaches_a_cloud_agent(
 
 
 @pytest.mark.canvas
-def test_a_run_that_never_started_says_what_to_check(
+def test_a_run_that_never_started_turns_the_lamp_red(
     harness, redis_client, read_stream
 ) -> None:
     fe = harness.drop("cloud_factory")
@@ -592,6 +505,6 @@ def test_a_run_that_never_started_says_what_to_check(
     )
 
     harness.wait_until(
-        lambda: "CURSOR_API_KEY" in fe.get("status_lbl"),
-        message="the FE to name the likely cause",
+        lambda: fe.user_data("error_lamp") is True,
+        message="the error lamp to turn red",
     )

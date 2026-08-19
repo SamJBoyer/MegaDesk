@@ -1,6 +1,6 @@
 # Voice chain: CodeScope → VoiceDeck → CloudFactory
 
-Three nodes, five streams, three hashes, each with exactly **one** definition in
+Three nodes, five streams, two hashes, each with exactly **one** definition in
 [`megadesk_contracts/wire/`](../megadesk_contracts/wire/) — `code_scope.py`,
 `voice.py`, `cloud.py` — imported by both halves of every node.
 
@@ -10,7 +10,7 @@ contract, and deliberately mirror `WORKORDER` / `FINISHED` / `AGENTHANDLER` in
 vocabulary in `wire/factory.py`. See
 [`Nodes/Factory/README.md`](../../Nodes/Factory/README.md).
 
-Streams use the process ephemeral DB (`REDIS_URL`, 0 on the live pair). The three hashes live on
+Streams use the process ephemeral DB (`REDIS_URL`, 0 on the live pair). The two hashes live on
 the persistent half of that pair, because they have to outlive the stream traffic and the processes.
 
 ```mermaid
@@ -30,8 +30,7 @@ sequenceDiagram
     VD->>RT: conversation.item.create + response.create
     VD->>VDFE: VOICE:EVENT answer
     RT->>VD: tool call dispatch_doc_agent
-    VD->>VD: HSET CLOUDDRAFT:<order_id> (DB 1)
-    Note over CD: a click in the FE turns the draft into an order
+    VD->>CD: XADD CLOUDORDER
     CD->>CD: HSET CLOUDRUN:bc-xxx status=running (DB 1)
     CD->>VDFE: XADD CLOUDFINISHED (agent_id, status, pr_url)
 ```
@@ -67,8 +66,8 @@ Stream, DB 0. FE → BE, plain `XREAD` from the tail.
 
 | Field | Values |
 |---|---|
-| `action` | `start`, `stop`, `mute`, `unmute`, `target`, `auto_dispatch` |
-| `value` | Repo name for `target`, `"true"` / `"false"` for `auto_dispatch`, else `""` |
+| `action` | `start`, `stop`, `mute`, `unmute`, `target` |
+| `value` | Repo name for `target`, else `""` |
 
 The BE reads from the stream's tail at boot, so a `start` published before it woke up is
 ignored — a microphone that switches itself on from stream history is the worst failure
@@ -123,15 +122,11 @@ information that decides what to do next.
 |---|---|---|
 | `CODESCOPE:SESSION:<id>` | `repo`, `clone_path`, `agent_id`, `model`, `status` | CodeScope FE writes, BE updates `agent_id` / `status` |
 | `CLOUDRUN:<agent_id>` | `order_id`, `repo_url`, `title`, `status`, `pr_url`, `run_id` | CloudFactory BE |
-| `CLOUDDRAFT:<order_id>` | exactly the `CLOUDORDER` field set | VoiceDeck writes, CloudFactory FE consumes |
 
 `agent_id` on a session is what lets a restarted CodeScope BE `Agent.resume` instead of
 starting cold. `CLOUDRUN` is written before its order is acked, so a crash in between
 leaves a visible run rather than an order that silently launched nothing — and its stored
 status is what makes `CLOUDFINISHED` fire exactly once per run.
-
-A `CLOUDDRAFT` carries the order's fields verbatim so that approving it adds nothing of
-its own. That is the safety rail: voice writes drafts, and only a click writes orders.
 
 ## Code references
 

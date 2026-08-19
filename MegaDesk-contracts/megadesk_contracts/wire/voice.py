@@ -17,7 +17,6 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from megadesk_contracts.wire._fields import (
-    is_true,  # re-exported: ``auto_dispatch`` arrives as a bool-ish ``value``
     one_of,
     require,
     stripped,
@@ -27,13 +26,12 @@ from megadesk_contracts.wire._fields import (
 CONTROL_STREAM = "VOICE:CONTROL"
 EVENT_STREAM = "VOICE:EVENT"
 
-# FE -> BE. ``target`` carries a repo name, ``auto_dispatch`` a bool-ish value.
+# FE -> BE. ``target`` carries a repo name.
 ACTION_START = "start"
 ACTION_STOP = "stop"
 ACTION_MUTE = "mute"
 ACTION_UNMUTE = "unmute"
 ACTION_TARGET = "target"
-ACTION_AUTO_DISPATCH = "auto_dispatch"
 CONTROL_ACTIONS = frozenset(
     {
         ACTION_START,
@@ -41,7 +39,6 @@ CONTROL_ACTIONS = frozenset(
         ACTION_MUTE,
         ACTION_UNMUTE,
         ACTION_TARGET,
-        ACTION_AUTO_DISPATCH,
     }
 )
 

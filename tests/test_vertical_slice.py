@@ -84,7 +84,7 @@ def test_ticket_factory_merge_vertical_slice(
         ),
     )
     harness.wait_until(
-        lambda: "live=1" in factory.get("status_lbl"),
+        lambda: any("running" in item for item in factory.items("live_list")),
         message="MachineFactory to show the live AgentHandler sandbox",
     )
     live_items = factory.items("live_list")

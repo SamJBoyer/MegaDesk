@@ -32,7 +32,7 @@ publishes conflict-resolution orders (`new_wt=false`) and consumes
 
 | Half | What it does |
 |------|--------------|
-| FE (`machine_factory_frontend/app.py`) | Processed WORKORDERs, live agents, Floor repos, sandboxes |
+| FE (`machine_factory_frontend/app.py`) | Queued WORKORDERs, live agents, Floor repos, sandboxes, error lamp |
 | BE (`MachineFactoryManager/`) | Consume `WORKORDER`, prepare Floor, start and follow sandboxes |
 
 ## The handshake, and why the order matters
