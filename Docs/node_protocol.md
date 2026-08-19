@@ -82,7 +82,7 @@ def get_be_spec() -> BeSpec | None:
 
 Nodes that do not take parameters may keep a zero-argument `get_fe_spec()`; the caller only passes `parameters=` when the function accepts it.
 
-`parameters` are the string kvps a **graph** saved for this member (see *Graph parameters* below). `get_fe_spec` folds them into the returned spec — `build` closes over them, `backend_parameters` is the subset (or rewrite) to drop onto `LAUNCHREQUEST`. The host still calls `build(parent, *, tag_prefix, width, height)` with no parameters kwarg.
+`parameters` are the string kvps a **graph** saved for this member (see *Graph parameters* below). `get_fe_spec` folds them into the returned spec — `build` closes over them, `backend_parameters` is the subset (or rewrite) to drop onto `SUPERVISOR:LAUNCHREQUEST`. The host still calls `build(parent, *, tag_prefix, width, height)` with no parameters kwarg.
 
 ### `FeSpec`
 
@@ -96,9 +96,9 @@ Front-end description for MegaDesk graph hosting:
 | `default_width` | `int` | Initial window width |
 | `default_height` | `int` | Initial window height |
 | `build` | callable | Builds the Dear PyGui UI into the host content parent |
-| `backends` | `tuple[str, ...]` | Supervisor `node_endpoint` names to `XADD` on `LAUNCHREQUEST` when this FE is hosted (drop **or** graph open). Empty = no BE. |
+| `backends` | `tuple[str, ...]` | Supervisor `node_endpoint` names to `XADD` on `SUPERVISOR:LAUNCHREQUEST` when this FE is hosted (drop **or** graph open). Empty = no BE. |
 | `parameters` | `tuple[str, ...]` | Names this node recognizes, usually from its `parameters.yaml`. Empty = none. |
-| `backend_parameters` | `Mapping[str, str]` | Packet dropped onto `LAUNCHREQUEST` `parameters` (subset or rewrite of the graph values). Empty = `""` on the wire. |
+| `backend_parameters` | `Mapping[str, str]` | Packet dropped onto `SUPERVISOR:LAUNCHREQUEST` `parameters` (subset or rewrite of the graph values). Empty = `""` on the wire. |
 | `read_parameters` | `callable \| None` | `(tag_prefix) -> mapping` so the graph bar can Capture live sub-GUI values |
 
 `build` signature:
@@ -203,7 +203,7 @@ Related public helpers (same package): `SupervisorClient`, `ensure_supervisor_ru
 1. On startup, MegaDesk-Canvas calls `ensure_supervisor_running()` so the Supervisor BE (`python -m supervisor`) is up before UI drop can request BE launches. Then it calls `discover_frontends()` (via `engine.megadesk_registry.discover_megadesk_frontends`) and fills the Catalog palette (`megadesk:<name>`). Icons come from `FeSpec.icon`. A **graph bar** sits above the Catalog so the operator can pick, save, save-as, Capture, or delete a graph. The Supervisor operator UI is a right-hand collapsible pane (Nodes / Logs tabs) via `build_supervisor_panel` — it is not a Catalog entry. Selecting a hosted node on the board shows that node's session log in the Logs tab.
 2. Dropping a node places a graph member (`type: "megadesk"`, `node_name` in the open `.json`) and hosts the FE as a native `dpg.node` inside the graph `node_editor` via `FeSpec.build`. Graph parameters for that member are passed into `get_fe_spec(parameters=…)`.
 3. Nodes on the board are always the live FE (no placard / closed state). Middle-mouse pans the editor; there is no graph zoom. Delete removes the selected node(s).
-4. After drop **and** when a saved graph is opened, the host reads `FeSpec.backends` and `XADD`s one `LAUNCHREQUEST` per endpoint with `parameters` set to `FeSpec.backend_parameters` (skipped if that BE is already alive, Redis is down, or Supervisor is not up).
+4. After drop **and** when a saved graph is opened, the host reads `FeSpec.backends` and `XADD`s one `SUPERVISOR:LAUNCHREQUEST` per endpoint with `parameters` set to `FeSpec.backend_parameters` (skipped if that BE is already alive, Redis is down, or Supervisor is not up).
 
 Any `.json` file can be opened as a graph. Files that are not a graph (`members` missing, invalid JSON, unknown member `type`) raise `GraphError`; the graph bar shows the message and leaves the open graph untouched.
 
@@ -269,8 +269,8 @@ Members are serialized into a graph `.json` (default `Graphs/default.json`; the 
 ## How the BE uses nodes (Supervisor)
 
 1. The Supervisor BE refreshes backends with `discover_backends()`.
-2. On `LAUNCHREQUEST` (Redis DB 0), it assigns a `unique_id`, resolves `get_backend(node_endpoint)`, redirects stdout/stderr to `Logs/{session}/{endpoint}.md`, injects `MEGADESK_*` env, and writes `RUNNINGNODES:<unique_id>` on DB 1 (`status=running`, PID, `log_path`, …).
-3. A reaper marks natural exits as `status=exited`, publishes `NODEEXIT` (DB 0), and keeps the hash until Stop. `KILLREQUEST` tears down (if needed) and `DEL`s the hash. See `MegaDesk-contracts/redis/supervisor.md`.
+2. On `SUPERVISOR:LAUNCHREQUEST` (Redis DB 0), it assigns a `unique_id`, resolves `get_backend(node_endpoint)`, redirects stdout/stderr to `Logs/{session}/{endpoint}.md`, injects `MEGADESK_*` env, and writes `RUNNINGNODES:<unique_id>` on DB 1 (`status=running`, PID, `log_path`, …).
+3. A reaper marks natural exits as `status=exited`, publishes `NODEEXIT` (DB 0), and keeps the hash until Stop. `SUPERVISOR:KILLREQUEST` tears down (if needed) and `DEL`s the hash. See `MegaDesk-contracts/redis/supervisor.md`.
 
 Callers outside the canvas can use `megadesk_contracts.SupervisorClient` (`launch_node`, `kill_node`, `list_running`, `get_running`, `kill_all_running`, `redis_ok`, `backend_ok`).
 
@@ -306,7 +306,7 @@ Do **not** put log line bodies on Redis streams.
 
 Typical Redis path after an FE drop that also has a BE:
 
-1. Caller `XADD`s `LAUNCHREQUEST` with `node_endpoint` and `parameters` (JSON object of `FeSpec.backend_parameters`, or `""` when empty) (DB 0)
+1. Caller `XADD`s `SUPERVISOR:LAUNCHREQUEST` with `node_endpoint` and `parameters` (JSON object of `FeSpec.backend_parameters`, or `""` when empty) (DB 0)
 2. Supervisor BE consumes the stream, injects `MEGADESK_PARAMETERS`, and registers `RUNNINGNODES:<unique_id>` (DB 1)
 3. There is no ack channel — observe `RUNNINGNODES:*` if confirmation is needed
 

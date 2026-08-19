@@ -223,11 +223,11 @@ class ExecutionEngine:
         return reaped
 
     def reconcile_stale(self) -> int:
-        """Delete RUNNINGNODES hashes whose OS pid and heartbeat are both dead.
+        """Delete RUNNINGNODES hashes that have no heartbeat and are past grace.
 
         After a Supervisor restart the in-memory registry is empty, but DB 1
-        still holds hashes from the previous process. Those are the "alive
-        nodes that are actually dead" the panel used to show.
+        still holds hashes from the previous process. A present NODEHB key
+        means the node is running — do not delete that hash.
         """
         dropped = 0
         try:

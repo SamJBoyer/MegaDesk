@@ -55,8 +55,8 @@ from megadesk_contracts import (
 | **MachineFactory / MachineFactoryManager** | Consumes `WORKORDER`; writes `AGENTHANDLER:<GUID>` on DB 0, and reaps the ones whose sandbox is gone |
 | **MachineFactory / AgentHandler** | Reads `AGENTHANDLER:<GUID>` + `WORKORDER`; publishes `FINISHED:<REPO>` on DB 0 |
 | **MergeManager** | Consumes `FINISHED:<REPO>`; may republish conflict `WORKORDER`s (`new_wt=false`) on DB 0 |
-| **Supervisor** (Canvas-owned, `MegaDesk-Canvas/supervisor/`) | Consumes `LAUNCHREQUEST` / `KILLREQUEST` on DB 0; writes `RUNNINGNODES:<unique_id>` + singleton/alive on DB 1. Bootstrapped by canvas startup via `ensure_supervisor_running()` — not a Catalog node. |
-| **MegaDesk canvas (`MegaDesk-Canvas/`)** | On graph drop/open of a MegaDesk FE that also exposes a BE, `XADD`s `LAUNCHREQUEST` with `FeSpec.backend_parameters` |
+| **Supervisor** (Canvas-owned, `MegaDesk-Canvas/supervisor/`) | Consumes `SUPERVISOR:LAUNCHREQUEST` / `SUPERVISOR:KILLREQUEST` on DB 0; writes `RUNNINGNODES:<unique_id>` + singleton/alive on DB 1. Bootstrapped by canvas startup via `ensure_supervisor_running()` — not a Catalog node. |
+| **MegaDesk canvas (`MegaDesk-Canvas/`)** | On graph drop/open of a MegaDesk FE that also exposes a BE, `XADD`s `SUPERVISOR:LAUNCHREQUEST` with `FeSpec.backend_parameters` |
 | **CodeScope** | Consumes `CODEQ:ASK`, publishes `CODEQ:ANSWER` on DB 0; owns `CODESCOPE:SESSION:<id>` on DB 1 |
 | **VoiceDeck** | `VOICE:CONTROL` / `VOICE:EVENT` on DB 0; publishes `CODEQ:ASK`, writes `CLOUDDRAFT:<order_id>` on DB 1. Never puts audio on Redis |
 | **CloudFactory** | Consumes `CLOUDORDER`, publishes `CLOUDFINISHED` on DB 0; owns `CLOUDRUN:<agent_id>` on DB 1 |

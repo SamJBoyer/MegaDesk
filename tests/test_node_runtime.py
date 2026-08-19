@@ -10,6 +10,7 @@ import pytest
 
 from megadesk_contracts.node_runtime import (
     HEARTBEAT_GRACE_SEC,
+    HEARTBEAT_TTL_SEC,
     NodeRuntime,
     heartbeat_key,
     is_reported_node_alive,
@@ -17,6 +18,7 @@ from megadesk_contracts.node_runtime import (
     request_shutdown,
     shutdown_key,
 )
+from megadesk_contracts.supervisor_client import SupervisorClient
 
 pytestmark = [pytest.mark.redis]
 
@@ -74,6 +76,56 @@ def test_stale_runningnodes_hash_is_not_alive(persistent_client) -> None:
         "launched_at": "2020-01-01T00:00:00+00:00",
     }
     assert not is_reported_node_alive(entry, persistent_client)
+
+
+def test_heartbeat_hash_is_alive_even_if_pid_is_bogus(persistent_client) -> None:
+    uid = f"test-{uuid.uuid4()}"
+    persistent_client.hset(
+        heartbeat_key(uid),
+        mapping={
+            "pid": "199999999",
+            "status": "running",
+            "node": "probe",
+            "unique_id": uid,
+            "ts": "2020-01-01T00:00:00+00:00",
+        },
+    )
+    persistent_client.expire(heartbeat_key(uid), HEARTBEAT_TTL_SEC)
+    entry = {
+        "unique_id": uid,
+        "node_endpoint": "probe",
+        "PID": "199999999",
+        "status": "running",
+        "launched_at": "2020-01-01T00:00:00+00:00",
+    }
+    assert not pid_is_alive(199999999)
+    try:
+        assert is_reported_node_alive(entry, persistent_client)
+    finally:
+        persistent_client.delete(heartbeat_key(uid))
+
+
+def test_list_running_includes_heartbeat_without_runningnodes(persistent_client) -> None:
+    uid = f"test-{uuid.uuid4()}"
+    persistent_client.hset(
+        heartbeat_key(uid),
+        mapping={
+            "pid": "12345",
+            "status": "running",
+            "node": "machine_factory",
+            "unique_id": uid,
+            "ts": "2020-01-01T00:00:00+00:00",
+        },
+    )
+    persistent_client.expire(heartbeat_key(uid), HEARTBEAT_TTL_SEC)
+    try:
+        running = SupervisorClient().list_running()
+        match = [e for e in running if e.get("unique_id") == uid]
+        assert match
+        assert match[0].get("node_endpoint") == "machine_factory"
+        assert match[0].get("node_pid") == "12345"
+    finally:
+        persistent_client.delete(heartbeat_key(uid))
 
 
 def test_fresh_launch_is_trusted_on_live_popen_pid(persistent_client) -> None:

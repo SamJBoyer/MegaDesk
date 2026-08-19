@@ -28,11 +28,13 @@ REDIS_DB_PERSISTENT = 1
 HOST_PYTEST_EPHEMERAL_DB = 14
 HOST_PYTEST_PERSISTENT_DB = 15
 ENV_FACTORY_REDIS_URL = "MEGADESK_FACTORY_REDIS_URL"
-SUPERVISOR_ALIVE_KEY = "GBD:SUPERVISOR:ALIVE"
-SUPERVISOR_SINGLETON_KEY = "GBD:SUPERVISOR:SINGLETON"
+ENV_DEV_FLUSH_MODE = "DEV_FLUSH_MODE"
+_DEV_FLUSH_MODE_TRUTHY = frozenset({"1", "true", "yes", "on"})
+SUPERVISOR_ALIVE_KEY = "SUPERVISOR:ALIVE"
+SUPERVISOR_SINGLETON_KEY = "SUPERVISOR:SINGLETON"
 SUPERVISOR_NODE_NAME = "supervisor"
-LAUNCHREQUEST_STREAM = "LAUNCHREQUEST"
-KILLREQUEST_STREAM = "KILLREQUEST"
+LAUNCHREQUEST_STREAM = "SUPERVISOR:LAUNCHREQUEST"
+KILLREQUEST_STREAM = "SUPERVISOR:KILLREQUEST"
 NODEEXIT_STREAM = "NODEEXIT"
 RUNNINGNODES_PREFIX = "RUNNINGNODES:"
 
@@ -123,6 +125,27 @@ def redis_connect(
     return redis.Redis.from_url(url, decode_responses=decode_responses, **kwargs)
 
 
+def dev_flush_mode_enabled() -> bool:
+    """True when ``DEV_FLUSH_MODE`` is ``1`` / ``true`` / ``yes`` / ``on`` (case-insensitive)."""
+    raw = (os.environ.get(ENV_DEV_FLUSH_MODE) or "").strip().lower()
+    return raw in _DEV_FLUSH_MODE_TRUTHY
+
+
+def flush_live_redis_pair(redis_url: Optional[str] = None) -> None:
+    """FLUSHDB live DBs 0 then 1. The only allowed live-pair flush.
+
+    Canvas boot calls this when ``DEV_FLUSH_MODE`` is on. Do not reuse
+    ``redis_lane.flush_pair`` — that helper is supposed to refuse 0/1.
+    """
+    url = resolve_redis_url(redis_url)
+    for db in (REDIS_DB_EPHEMERAL, REDIS_DB_PERSISTENT):
+        client = redis_connect(url, db=db)
+        try:
+            client.flushdb()
+        finally:
+            client.close()
+
+
 def running_nodes_key(unique_id: str) -> str:
     return f"{RUNNINGNODES_PREFIX}{unique_id}"
 
@@ -178,20 +201,58 @@ class SupervisorClient:
         )
 
     def list_running(self) -> list[dict[str, str]]:
-        """Alive instances only — dead PIDs and stale hashes are omitted."""
-        from megadesk_contracts.node_runtime import heartbeat_key, is_reported_node_alive
+        """Running nodes: live NODEHB keys, plus grace-window RUNNINGNODES."""
+        from megadesk_contracts.node_runtime import (
+            NODE_HEARTBEAT_PREFIX,
+            is_reported_node_alive,
+        )
 
-        out: list[dict[str, str]] = []
+        by_uid: dict[str, dict[str, str]] = {}
+        for key in self.persistent.scan_iter(match=f"{NODE_HEARTBEAT_PREFIX}*", count=100):
+            hb = self.persistent.hgetall(key) or {}
+            if not hb:
+                continue
+            uid = (hb.get("unique_id") or "").strip()
+            if not uid:
+                text = str(key)
+                if text.startswith(NODE_HEARTBEAT_PREFIX):
+                    uid = text[len(NODE_HEARTBEAT_PREFIX) :]
+            if not uid:
+                continue
+            stored = self.persistent.hgetall(running_nodes_key(uid)) or {}
+            entry = dict(stored)
+            entry["unique_id"] = stored.get("unique_id") or uid
+            node = (hb.get("node") or "").strip()
+            if node:
+                entry.setdefault("node_endpoint", node)
+            if hb.get("pid"):
+                entry["node_pid"] = hb["pid"]
+                entry.setdefault("PID", hb["pid"])
+            if hb.get("status"):
+                entry.setdefault("status", hb["status"])
+            by_uid[uid] = entry
+
         for key in self.persistent.scan_iter(match=f"{RUNNINGNODES_PREFIX}*", count=100):
             data = self.persistent.hgetall(key)
-            if not data or not is_reported_node_alive(data, self.persistent):
+            if not data:
                 continue
             uid = (data.get("unique_id") or "").strip()
-            if uid:
-                hb = self.persistent.hgetall(heartbeat_key(uid)) or {}
-                if hb.get("pid"):
-                    data["node_pid"] = hb["pid"]
-            out.append(data)
+            if not uid:
+                text = str(key)
+                if text.startswith(RUNNINGNODES_PREFIX):
+                    uid = text[len(RUNNINGNODES_PREFIX) :]
+            if not uid:
+                continue
+            if uid in by_uid:
+                merged = dict(data)
+                if by_uid[uid].get("node_pid"):
+                    merged["node_pid"] = by_uid[uid]["node_pid"]
+                by_uid[uid] = merged
+                continue
+            if is_reported_node_alive(data, self.persistent):
+                by_uid[uid] = data
+
+        out = list(by_uid.values())
         out.sort(key=lambda d: (d.get("node_endpoint", ""), d.get("unique_id", "")))
         return out
 

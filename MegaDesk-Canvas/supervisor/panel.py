@@ -117,7 +117,7 @@ class SupervisorPanel:
         if self._log_endpoint:
             self._set_process_log(self._session_log_text(self._log_endpoint))
             return
-        self._set_process_log("Select an alive instance to view its log.")
+        self._set_process_log("Select a running node to view its log.")
 
     def _restore_running_selection(self) -> None:
         tag = self._tag("running")
@@ -154,7 +154,7 @@ class SupervisorPanel:
             self._backend_ok = self.client.backend_ok() if self._redis_ok else False
             self._backends = sorted(discover_backends())
             self._running = self.client.list_running() if self._redis_ok else []
-            self._status = f"alive={len(self._running)}"
+            self._status = f"running={len(self._running)}"
         except Exception as exc:  # noqa: BLE001 — UI must stay up if Redis is down
             self._redis_ok = False
             self._backend_ok = False
@@ -230,7 +230,7 @@ class SupervisorPanel:
                 )
 
                 dpg.add_separator()
-                dpg.add_text("Alive procs", color=COLOR_DIM)
+                dpg.add_text("Running nodes", color=COLOR_DIM)
                 dpg.add_listbox(
                     items=["(none running)"],
                     tag=self._tag("running"),
@@ -260,7 +260,7 @@ class SupervisorPanel:
                 ):
                     dpg.add_input_text(
                         tag=self._tag("process_log"),
-                        default_value="Select an alive instance to view its log.",
+                        default_value="Select a running node to view its log.",
                         multiline=True,
                         readonly=True,
                         width=-1,

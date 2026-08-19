@@ -7,7 +7,13 @@ import os
 from pathlib import Path
 
 import dearpygui.dearpygui as dpg
-from megadesk_contracts import ENV_CANVAS_ROOT, ensure_supervisor_running, frame_pump
+from megadesk_contracts import (
+    ENV_CANVAS_ROOT,
+    dev_flush_mode_enabled,
+    ensure_supervisor_running,
+    flush_live_redis_pair,
+    frame_pump,
+)
 from megadesk_contracts.log_session import attach_log_session, session_log_path
 
 from engine.display_engine import (
@@ -224,6 +230,14 @@ def main() -> None:
 
     # Supervisor BE is canvas-owned — start before the UI so LAUNCHREQUEST works.
     # Log session is Supervisor-generation scoped; reopen does not rotate files.
+    # DEV_FLUSH_MODE empties live 0/1 first so the new supervisor recreates
+    # consumer groups and SUPERVISOR:ALIVE / SINGLETON on a fresh pair.
+    if dev_flush_mode_enabled():
+        log.warning("DEV_FLUSH_MODE: flushing Redis DB 0 and DB 1")
+        try:
+            flush_live_redis_pair()
+        except Exception:
+            log.exception("DEV_FLUSH_MODE: Redis flush failed")
     if not ensure_supervisor_running():
         log.error("Supervisor BE failed to start (see Logs/CURRENT → supervisor.md)")
     _attach_canvas_log_file(log)

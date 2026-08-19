@@ -19,13 +19,13 @@ class FeSpec:
     ``dpg.set_item_user_data(parent, cleanup_fn)``.
 
     ``backends`` is the set of Supervisor ``node_endpoint`` names the canvas
-    ``XADD``s to ``LAUNCHREQUEST`` when this FE is hosted (drop or graph open).
+    ``XADD``s to ``SUPERVISOR:LAUNCHREQUEST`` when this FE is hosted (drop or graph open).
     Empty means this FE does not start a BE.
 
     Parameters (see ``megadesk_contracts.parameters``): ``get_fe_spec`` receives
     the values a graph saved for this member and returns a spec that already has
     them folded in — ``build`` closes over them, ``backend_parameters`` carries
-    whichever subset the BE needs on ``LAUNCHREQUEST``, and ``parameters``
+    whichever subset the BE needs on ``SUPERVISOR:LAUNCHREQUEST``, and ``parameters``
     declares the names this node recognizes (usually straight from its
     ``parameters.yaml``). ``read_parameters`` reads current values back out of a
     live instance, given the ``tag_prefix`` the host built it with, so the graph

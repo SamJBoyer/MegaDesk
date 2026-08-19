@@ -53,7 +53,7 @@ def main() -> int:
 
     request_shutdown(client.persistent)
     n = client.kill_all_running()
-    print(f"shutdown flag set; KILLREQUEST queued for {n} alive node(s)")
+    print(f"shutdown flag set; KILLREQUEST queued for {n} running node(s)")
 
     deadline = time.time() + 8
     while time.time() < deadline:

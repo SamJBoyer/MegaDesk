@@ -31,6 +31,8 @@ status vocabulary they both report in.
 
 Do **not** hardcode host/port. Prefer `redis_connect(url, db=resolve_ephemeral_db(url))` — redis-py 8 ignores a `db=` keyword when the URL already names a database.
 
+**`DEV_FLUSH_MODE`** — debug convenience, default off. When MegaDesk-Canvas `main()` boots and the env var is truthy (`1` / `true` / `yes` / `on`, case-insensitive), it FLUSHDB's live DB 0 then DB 1 (`flush_live_redis_pair`) **before** `ensure_supervisor_running()`. Windows: `set DEV_FLUSH_MODE=1`. Lanes (`flush_pair`), pytest, `python -m supervisor` alone, and agent sandboxes never flush 0/1.
+
 MachineFactory, TicketDispatcher, MergeManager, `SupervisorClient`, and Supervisor provision all read **`REDIS_URL`**. They **do not** start Redis. The Canvas-owned Supervisor BE may attach to an existing Redis at `REDIS_URL` or (when the URL host is loopback) provision Docker Redis + Redis Insight if none is reachable.
 
 ## Databases
@@ -39,8 +41,8 @@ Default Redis has indexes 0–15. Live MegaDesk never leaves 0/1. MachineFactory
 
 | DB | Use | Constants |
 |----|-----|-----------|
-| **0** (live ephemeral) | Default realtime traffic: MachineFactory `WORKORDER` / `AGENTHANDLER` / `FINISHED` / `GRAPHRUN` / `GRAPHEVENT`; Supervisor streams `LAUNCHREQUEST` / `KILLREQUEST` / `NODEEXIT`; voice chain `CODEQ:*` / `VOICE:*` / `CLOUD*` | `REDIS_DB_EPHEMERAL` |
-| **1** (live persistent) | `GBD:SUPERVISOR:SINGLETON`, `GBD:SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>`, `CODESCOPE:SESSION:<id>`, `CLOUDRUN:<agent_id>`, `CLOUDDRAFT:<order_id>`, `MEGADESK:LANE:*` | `REDIS_DB_PERSISTENT` |
+| **0** (live ephemeral) | Default realtime traffic: MachineFactory `WORKORDER` / `AGENTHANDLER` / `FINISHED` / `GRAPHRUN` / `GRAPHEVENT`; Supervisor streams `SUPERVISOR:LAUNCHREQUEST` / `SUPERVISOR:KILLREQUEST` / `NODEEXIT`; voice chain `CODEQ:*` / `VOICE:*` / `CLOUD*` | `REDIS_DB_EPHEMERAL` |
+| **1** (live persistent) | `SUPERVISOR:SINGLETON`, `SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>`, `CODESCOPE:SESSION:<id>`, `CLOUDRUN:<agent_id>`, `CLOUDDRAFT:<order_id>`, `MEGADESK:LANE:*` | `REDIS_DB_PERSISTENT` |
 | **2/3 … 12/13** | Agent lanes (six concurrent). Sandbox `REDIS_URL` names the even half. | `AGENT_LANE_EPHEMERAL_DBS` |
 | **14/15** | Host pytest pair. Never allocated to an agent. | `HOST_PYTEST_EPHEMERAL_DB` / `HOST_PYTEST_PERSISTENT_DB` |
 
@@ -60,12 +62,12 @@ Default Redis has indexes 0–15. Live MegaDesk never leaves 0/1. MachineFactory
 | `GRAPHRUN` | hash | `GRAPHRUN:<GUID>` | 0 | [work-graph.md](work-graph.md#graphrunguid) |
 | `GRAPHEVENT` | stream | `GRAPHEVENT` | 0 | [work-graph.md](work-graph.md#graphevent) |
 | `FINISHED` | stream | `FINISHED:<REPO>` | 0 | [machine-factory-pipeline.md](machine-factory-pipeline.md#finishedrepo) |
-| `LAUNCHREQUEST` | stream | `LAUNCHREQUEST` | 0 | [supervisor.md](supervisor.md#launchrequest) |
-| `KILLREQUEST` | stream | `KILLREQUEST` | 0 | [supervisor.md](supervisor.md#killrequest) |
+| `SUPERVISOR:LAUNCHREQUEST` | stream | `SUPERVISOR:LAUNCHREQUEST` | 0 | [supervisor.md](supervisor.md#supervisorlaunchrequest) |
+| `SUPERVISOR:KILLREQUEST` | stream | `SUPERVISOR:KILLREQUEST` | 0 | [supervisor.md](supervisor.md#supervisorkillrequest) |
 | `NODEEXIT` | stream | `NODEEXIT` | 0 | [supervisor.md](supervisor.md#nodeexit) |
 | `RUNNINGNODES` | hash | `RUNNINGNODES:<unique_id>` | 1 | [supervisor.md](supervisor.md#runningnodesunique_id) |
-| Supervisor singleton | string | `GBD:SUPERVISOR:SINGLETON` | 1 | [supervisor.md](supervisor.md#gbdsupervisorsingleton) |
-| Supervisor alive | string (TTL) | `GBD:SUPERVISOR:ALIVE` | 1 | [supervisor.md](supervisor.md#gbdsupervisoralive) |
+| Supervisor singleton | string | `SUPERVISOR:SINGLETON` | 1 | [supervisor.md](supervisor.md#supervisorsingleton) |
+| Supervisor alive | string (TTL) | `SUPERVISOR:ALIVE` | 1 | [supervisor.md](supervisor.md#supervisoralive) |
 | `CODEQ:ASK` | stream | `CODEQ:ASK` | 0 | [voice-chain.md](voice-chain.md#codeqask) |
 | `CODEQ:ANSWER` | stream | `CODEQ:ANSWER` | 0 | [voice-chain.md](voice-chain.md#codeqanswer) |
 | `VOICE:CONTROL` | stream | `VOICE:CONTROL` | 0 | [voice-chain.md](voice-chain.md#voicecontrol) |

@@ -21,9 +21,10 @@ start with, or `""` when the node declared none. The BE reads them back with
 
 Each BE installs `megadesk_contracts.NodeRuntime`, which writes `NODEHB:<unique_id>`
 on DB 1 every 5s (`pid`, `status`, `node`) and exits if `NODE:SHUTDOWN` or
-`NODE:SHUTDOWN:<unique_id>` is `1`, or if Redis is unreachable. Supervisor polls
-OS PIDs and those heartbeats; dead hashes are deleted, not shown as exited.
-The operator panel lists **alive procs** only.
+`NODE:SHUTDOWN:<unique_id>` is `1`, or if Redis is unreachable. A present
+`NODEHB` hash is the running-node signal (Redis TTL); OS pid checks are only
+used during the post-launch grace window. Dead hashes are deleted, not shown
+as exited. The operator panel lists **running nodes** only.
 
 This family is independent of the MachineFactory pipeline streams, but shares the same
 Redis server via **`REDIS_URL`** (different DB indexes).
@@ -44,8 +45,8 @@ Constants live in `megadesk_contracts.supervisor_client`:
 
 | DB | Role |
 |----|------|
-| live `0` (ephemeral) | `LAUNCHREQUEST`, `KILLREQUEST`, `NODEEXIT`; MachineFactory pipeline traffic |
-| live `1` (persistent) | `GBD:SUPERVISOR:SINGLETON`, `GBD:SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>`, `NODEHB:<unique_id>`, `NODE:SHUTDOWN`, `MEGADESK:LANE:*` |
+| live `0` (ephemeral) | `SUPERVISOR:LAUNCHREQUEST`, `SUPERVISOR:KILLREQUEST`, `NODEEXIT`; MachineFactory pipeline traffic |
+| live `1` (persistent) | `SUPERVISOR:SINGLETON`, `SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>`, `NODEHB:<unique_id>`, `NODE:SHUTDOWN`, `MEGADESK:LANE:*` |
 
 A process whose `REDIS_URL` names another even DB uses that index and the next one
 instead (`resolve_redis_pair`). Live MegaDesk stays on 0/1.
@@ -77,11 +78,15 @@ Canvas process: `<worktree>/Logs/<session>/canvas.md`.
 
 ## Bootstrap
 
-Canvas startup (`MegaDesk-Canvas/main.py`) calls
-`megadesk_contracts.ensure_supervisor_running()`, which runs
+Canvas startup (`MegaDesk-Canvas/main.py`) optionally FLUSHDB's live DB 0 then
+DB 1 when `DEV_FLUSH_MODE` is on (`1` / `true` / `yes` / `on`; default off),
+then calls `megadesk_contracts.ensure_supervisor_running()`, which runs
 `python -m supervisor` from `MegaDesk-Canvas/` and waits for
-`GBD:SUPERVISOR:ALIVE` on DB 1 (default timeout 12s). The BE is **not** launched
-via `LAUNCHREQUEST` and is **not** a Catalog / FeSpec drop.
+`SUPERVISOR:ALIVE` on DB 1 (default timeout 12s). Flush first so the new
+supervisor recreates consumer groups, `SUPERVISOR:ALIVE`, and
+`SUPERVISOR:SINGLETON` on empty DBs. `python -m supervisor` alone does not
+flush. The BE is **not** launched via `SUPERVISOR:LAUNCHREQUEST` and is
+**not** a Catalog / FeSpec drop.
 
 Redis provision (prefer existing server at `REDIS_URL`, else Docker `megadesk-redis` +
 optional Insight on `5540` when the URL host is loopback) happens inside the
@@ -89,13 +94,13 @@ Supervisor BE — see `MegaDesk-Canvas/supervisor/redis_provision.py`.
 
 ---
 
-## LAUNCHREQUEST
+## SUPERVISOR:LAUNCHREQUEST
 
 | Property | Value |
 |----------|-------|
 | Type | Stream |
 | Database | **0** |
-| Key | `LAUNCHREQUEST` |
+| Key | `SUPERVISOR:LAUNCHREQUEST` |
 | Consumer group | `supervisor` |
 | Primary consumer | Supervisor BE (`python -m supervisor`) |
 | Producers | Supervisor panel, MegaDesk canvas (FE drop with BE), manual `XADD` |
@@ -117,18 +122,18 @@ Supervisor BE — see `MegaDesk-Canvas/supervisor/redis_provision.py`.
 ### Example
 
 ```text
-XADD LAUNCHREQUEST * node_endpoint machine_factory parameters ""
+XADD SUPERVISOR:LAUNCHREQUEST * node_endpoint machine_factory parameters ""
 ```
 
 ---
 
-## KILLREQUEST
+## SUPERVISOR:KILLREQUEST
 
 | Property | Value |
 |----------|-------|
 | Type | Stream |
 | Database | **0** |
-| Key | `KILLREQUEST` |
+| Key | `SUPERVISOR:KILLREQUEST` |
 | Consumer group | `supervisor` |
 | Primary consumer | Supervisor BE |
 | Producers | Supervisor panel, tools, manual `XADD` |
@@ -150,7 +155,7 @@ XADD LAUNCHREQUEST * node_endpoint machine_factory parameters ""
 ### Example
 
 ```text
-XADD KILLREQUEST * node_endpoint machine_factory unique_id 3f2a9c1e-…
+XADD SUPERVISOR:KILLREQUEST * node_endpoint machine_factory unique_id 3f2a9c1e-…
 ```
 
 ---
@@ -180,8 +185,8 @@ XADD KILLREQUEST * node_endpoint machine_factory unique_id 3f2a9c1e-…
 | `exited_at` | ISO-8601 UTC timestamp; empty while `running` |
 
 Natural process death publishes `NODEEXIT` and **deletes** the hash. Dead
-procs are not tracked. A Supervisor restart also sweeps Redis for hashes whose
-OS PID and heartbeat are both gone.
+procs are not tracked. A Supervisor restart also sweeps Redis for hashes with
+no `NODEHB` and outside the launch grace window.
 
 ### Example
 
@@ -226,13 +231,13 @@ XADD NODEEXIT * unique_id 3f2a9c1e-… node_endpoint machine_factory
 
 ---
 
-## GBD:SUPERVISOR:SINGLETON
+## SUPERVISOR:SINGLETON
 
 | Property | Value |
 |----------|-------|
 | Type | String |
 | Database | **1** |
-| Key | `GBD:SUPERVISOR:SINGLETON` (`SUPERVISOR_SINGLETON_KEY`) |
+| Key | `SUPERVISOR:SINGLETON` (`SUPERVISOR_SINGLETON_KEY`) |
 | Value | Owner token (typically Supervisor BE PID as string) |
 
 Acquired when the Supervisor BE starts; a second BE exits if the lock is already held.
@@ -240,13 +245,13 @@ Released on clean shutdown.
 
 ---
 
-## GBD:SUPERVISOR:ALIVE
+## SUPERVISOR:ALIVE
 
 | Property | Value |
 |----------|-------|
 | Type | String |
 | Database | **1** |
-| Key | `GBD:SUPERVISOR:ALIVE` (`SUPERVISOR_ALIVE_KEY`) |
+| Key | `SUPERVISOR:ALIVE` (`SUPERVISOR_ALIVE_KEY`) |
 | Value | `"1"` |
 | TTL | 5 seconds (refreshed by Supervisor BE heartbeat) |
 

@@ -112,28 +112,21 @@ def is_reported_node_alive(
     *,
     now: Optional[float] = None,
 ) -> bool:
-    """True if a RUNNINGNODES hash still corresponds to a live node.
+    """True if a node is still running.
 
-    Prefers the heartbeat pid (the process that called ``os.getpid()``) over
-    the Supervisor ``Popen`` pid. A freshly launched node is trusted on the
-    Popen pid alone until the first heartbeat is due.
+    A present ``NODEHB:<unique_id>`` hash is liveness (Redis TTL). ``pid_is_alive``
+    is only a fallback for the post-launch grace window, before the first beat.
     """
     _ = now
     uid = (entry.get("unique_id") or "").strip()
-    popen_pid = _parse_int(entry.get("PID"))
-    hb: dict[str, str] = {}
     if uid and persistent is not None:
         try:
-            hb = persistent.hgetall(heartbeat_key(uid)) or {}  # type: ignore[union-attr]
+            if persistent.exists(heartbeat_key(uid)):  # type: ignore[union-attr]
+                return True
         except Exception:
-            hb = {}
-    hb_pid = _parse_int(hb.get("pid"))
-
-    if hb_pid and pid_is_alive(hb_pid):
-        return True
+            pass
+    popen_pid = _parse_int(entry.get("PID"))
     if popen_pid and pid_is_alive(popen_pid):
-        if hb:
-            return True
         age = _launched_age_sec(entry.get("launched_at") or "")
         if age is None or age < HEARTBEAT_GRACE_SEC:
             return True
