@@ -134,8 +134,8 @@ def dev_flush_mode_enabled() -> bool:
 def flush_live_redis_pair(redis_url: Optional[str] = None) -> None:
     """FLUSHDB live DBs 0 then 1. The only allowed live-pair flush.
 
-    Canvas boot calls this when ``DEV_FLUSH_MODE`` is on. Do not reuse
-    ``redis_lane.flush_pair`` — that helper is supposed to refuse 0/1.
+    Canvas boot calls this when ``DEV_FLUSH_MODE`` is on. Pytest,
+    ``python -m supervisor`` alone, and agent sandboxes must not call this.
     """
     url = resolve_redis_url(redis_url)
     for db in (REDIS_DB_EPHEMERAL, REDIS_DB_PERSISTENT):

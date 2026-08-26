@@ -5,30 +5,35 @@ Defined once in `megadesk_contracts/wire/machine.py`, on the status vocabulary i
 and the two are the same shape on purpose — see
 [`Nodes/Factory/README.md`](../../Nodes/Factory/README.md).
 
+MachineFactory clones the named repo into a Docker sandbox, gives the agent a
+Redis **sidecar** as its `REDIS_URL`, and keeps factory IPC on
+`MEGADESK_FACTORY_REDIS_URL` (host pair). On done it hands back a PR URL —
+MergeManager shows/opens PRs; it does not merge local worktrees.
+
 Flow:
 
 ```
-TicketDispatcher / MergeManager
+TicketDispatcher
         │  XADD
         ▼
    WORKORDER (stream)
         │  XREADGROUP group=machine_factory
         ▼
    MachineFactoryManager
-        │  HSET + Docker sandbox
+        │  HSET + Docker sandbox (+ Redis sidecar)
         ▼
    AGENTHANDLER:<GUID> (hash)
         │  HGETALL + XRANGE WORKORDER by ticket_id
         ▼
    AgentHandler
-        │  work graph (startup → pathfinder → workhorse → git → teardown)
+        │  clone → work → PR
         │  HSET GRAPHRUN:<GUID> / XADD GRAPHEVENT
         │  XADD + DEL hashes
         ▼
    FINISHED:<REPO> (stream)
         │  XREADGROUP group=merge_manager
         ▼
-   MergeManager
+   MergeManager (show / open PR)
 ```
 
 ---
@@ -41,19 +46,18 @@ TicketDispatcher / MergeManager
 | Key | `WORKORDER` |
 | Consumer group | `machine_factory` |
 | Primary consumer | MachineFactoryManager |
-| Producers | TicketDispatcher (`new_wt=true`), MergeManager conflict path (`new_wt=false`), manual `XADD` |
+| Producers | TicketDispatcher, manual `XADD` |
 
 ### Fields
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `repo` | yes | Floor repo name (e.g. `Helmsman`) |
-| `URL` | when creating Floor / new worktree | Remote git URL; casing is `URL` |
-| `new_wt` | yes | `"true"` create ticket worktree from agents; `"false"` mount existing `wt` |
-| `wt` | when `new_wt=false` | Absolute host path to existing worktree; `""` when `new_wt=true` |
-| `ticket_name` | yes | Ticket / worktree name |
+| `repo` | yes | Repo name (e.g. `Helmsman`) |
+| `URL` | yes | Remote git URL for clone; casing is `URL` |
+| `ticket_name` | yes | Ticket / branch name |
 | `instructions` | yes | Agent prompt body |
 | `model` | no | Model id; default `"auto"` |
+| `auto_pr` | no | `"true"` / `"false"`; default `"true"` |
 
 ### Stream id as ticket id
 
@@ -62,7 +66,7 @@ The Redis stream entry id returned by `XADD` (e.g. `1712345678901-0`) is the **t
 ### Example
 
 ```text
-XADD WORKORDER * repo Helmsman URL https://github.com/example/Helmsman.git new_wt true wt "" ticket_name 1 instructions "Create harness-smoke.txt with the text ok" model auto
+XADD WORKORDER * repo Helmsman URL https://github.com/example/Helmsman.git ticket_name 1 instructions "Create harness-smoke.txt with the text ok" model auto auto_pr true
 ```
 
 ---
@@ -87,7 +91,7 @@ XADD WORKORDER * repo Helmsman URL https://github.com/example/Helmsman.git new_w
 
 This hash is also the handshake: MachineFactoryManager writes it **before** the container starts, because the sandbox reads its own GUID out of the environment to find its work here. A missing hash therefore means "no run", which is what makes the FE's live list truthful without reconciling it.
 
-Ticket payload (`ticket_name`, `instructions`, `model`, paths) is **not** stored on this hash. AgentHandler loads those from `WORKORDER` via `ticket_id`, so they cannot drift from what was ordered. Host absolute paths for the finished package are passed into the container as env (`HOST_WT`, `HOST_AGENT_DIR`, `HOST_BARE`).
+Ticket payload (`ticket_name`, `instructions`, `model`, `URL`, `auto_pr`) is **not** stored on this hash. AgentHandler loads those from `WORKORDER` via `ticket_id`, so they cannot drift from what was ordered.
 
 ---
 
@@ -96,7 +100,7 @@ Ticket payload (`ticket_name`, `instructions`, `model`, paths) is **not** stored
 | Property | Value |
 |----------|-------|
 | Type | Stream (**not** a list) |
-| Key | `FINISHED:<REPO>` where `<REPO>` is the Floor repo name (same as `WORKORDER.repo`) |
+| Key | `FINISHED:<REPO>` where `<REPO>` is the repo name (same as `WORKORDER.repo`) |
 | Consumer group | `merge_manager` |
 | Primary consumer | MergeManager |
 | Producer | AgentHandler; MachineFactoryManager for launches that failed and for sandboxes reaped after dying without reporting |
@@ -107,8 +111,8 @@ Ticket payload (`ticket_name`, `instructions`, `model`, paths) is **not** stored
 |-------|----------|-------|
 | `ticket_name` | yes | Ticket name |
 | `ticket_id` | yes | Originating `WORKORDER` stream id |
-| `wt` | yes | Absolute path to the ticket worktree |
-| `agent_dir` | yes | Absolute path to the agents worktree |
+| `status` | yes | One of `RUN_STATUSES` |
+| `pr_url` | no | Pull-request URL; may be `""` on error paths |
 
 ### Example
 
@@ -137,5 +141,7 @@ Not Redis packages, but part of the same contract:
 |-----|---------|
 | `GUID` | Sandbox id → hash key `AGENTHANDLER:<GUID>` |
 | `TICKET_ID` | Fallback ticket id if hash missing |
-| `HOST_WT` / `HOST_AGENT_DIR` / `HOST_BARE` | Absolute host paths written into `FINISHED`; `HOST_BARE` is also how the wt rectifier restores gitdir pointers |
+| `REPO_URL` | Clone URL (mirrors `WORKORDER.URL`) |
 | `REPO_NAME` | Repo segment for `FINISHED:<REPO>` |
+| `REDIS_URL` | Agent MegaDesk Redis **sidecar** inside the sandbox |
+| `MEGADESK_FACTORY_REDIS_URL` | Factory bus on the host pair (WORKORDER / AGENTHANDLER / FINISHED) |

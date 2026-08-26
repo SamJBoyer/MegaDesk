@@ -91,15 +91,6 @@ from megadesk_contracts.supervisor_client import (
     resolve_redis_pair,
     resolve_redis_url,
 )
-from megadesk_contracts.redis_lane import (
-    AGENT_LANE_EPHEMERAL_DBS,
-    LANE_LEASE_TTL_SEC,
-    LaneBusyError,
-    allocate_lane,
-    refresh_lane,
-    release_lane,
-)
-
 __all__ = [
     "ENTRY_POINT_GROUP",
     "AgentAuditLog",
@@ -121,9 +112,6 @@ __all__ = [
     "HOST_PYTEST_PERSISTENT_DB",
     "REDIS_DB_EPHEMERAL",
     "REDIS_DB_PERSISTENT",
-    "AGENT_LANE_EPHEMERAL_DBS",
-    "LANE_LEASE_TTL_SEC",
-    "LaneBusyError",
     "SUPERVISOR_ALIVE_KEY",
     "SUPERVISOR_NODE_NAME",
     "SUPERVISOR_SINGLETON_KEY",
@@ -162,12 +150,9 @@ __all__ = [
     "resolve_canvas_root",
     "resolve_logs_root",
     "resolve_worktree_root",
-    "allocate_lane",
     "redis_connect",
     "redis_url_db",
     "redis_url_with_db",
-    "refresh_lane",
-    "release_lane",
     "resolve_ephemeral_db",
     "resolve_factory_redis_url",
     "resolve_persistent_db",

@@ -63,9 +63,8 @@ Every stream and hash is defined exactly once, in `megadesk_contracts.wire`, and
 - **NODEHB:<unique_id>** — node heartbeat (`pid`, `status`, TTL ~15s)
 - **NODE:SHUTDOWN** / **NODE:SHUTDOWN:<unique_id>** — kill switch (`1` stops the BE; Redis down also stops it)
 - **CODESCOPE:SESSION:<id>** / **CLOUDRUN:<agent_id>** — voice-chain state that must outlive its stream
-- **MEGADESK:LANE:<even>** / **MEGADESK:LANEBYRUN:<run_key>** — MachineFactory lane leases (TTL). Factory-owned; agents do not free them.
 
-**Agent lanes (2/3 … 12/13)** — sandboxed agents that run MegaDesk or pytest get their own pair so they cannot take the live singleton or `FLUSHDB` 15. MachineFactory injects the leased even DB as sandbox `REDIS_URL` and keeps factory IPC on `MEGADESK_FACTORY_REDIS_URL` (the factory process's ephemeral DB). Host pytest owns **14/15** and is never handed to an agent. Live 0/1 is never flushed except MegaDesk-Canvas boot when `DEV_FLUSH_MODE` is on (`1` / `true` / `yes` / `on`; default off). That path calls `flush_live_redis_pair()` before `ensure_supervisor_running()` so the new supervisor recreates groups and hashes on empty DBs. `flush_pair()` (lanes), pytest, `python -m supervisor` alone, and agent sandboxes still refuse 0/1.
+MachineFactory sandboxes get a Redis **sidecar** injected as agent `REDIS_URL` so MegaDesk inside the container never shares the host live pair; factory IPC stays on `MEGADESK_FACTORY_REDIS_URL` (the factory process's ephemeral DB on the host). Host pytest owns **14/15** and is never handed to an agent. Live 0/1 is never flushed except MegaDesk-Canvas boot when `DEV_FLUSH_MODE` is on (`1` / `true` / `yes` / `on`; default off). That path calls `flush_live_redis_pair()` before `ensure_supervisor_running()` so the new supervisor recreates groups and hashes on empty DBs. Pytest, `python -m supervisor` alone, and agent sandboxes still refuse 0/1.
 
 </Redis-policy>
 <FE-Design>

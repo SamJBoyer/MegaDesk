@@ -1,24 +1,29 @@
-"""MachineFactory wire format: agent work done in a worktree on this machine.
+"""MachineFactory wire format: agent work done in a Docker sandbox on this machine.
 
 (STREAM, db0) WORKORDER
-  - repo, URL, new_wt, wt, ticket_name, instructions, model
+  - repo, URL, ticket_name, instructions, model, auto_pr
 
 (HASH, db0) AGENTHANDLER:<guid>
   - ticket_id, status, error
 
 (STREAM, db0) FINISHED:<REPO>
-  - ticket_name, ticket_id, wt, agent_dir
+  - ticket_name, ticket_id, status, pr_url
+
+MachineFactory clones the named repo into a Docker sandbox, gives the agent a
+Redis sidecar as its ``REDIS_URL`` (so MegaDesk inside the sandbox never shares
+the host live pair), and keeps factory IPC on ``MEGADESK_FACTORY_REDIS_URL`` —
+the factory process's ephemeral DB on the host. When the agent finishes it hands
+back a pull-request URL, not a worktree: MergeManager shows and opens PRs; it
+does not merge local trees.
 
 The cloud family's counterpart is ``wire.cloud``, and the two are deliberately
 the same shape: an order stream, a hash per live run, a finished stream. They
-differ where the infrastructure differs. A machine order names a ``repo`` on the
-Floor and hands back a ``wt`` — an absolute path to a worktree that still exists
-after the agent stops, which is the whole point, because MergeManager has to go
-and merge it. A cloud order names a ``repo_url`` and hands back a pull request;
-there is no local tree for anyone to merge.
+differ where the infrastructure differs. A machine order names a ``repo`` plus
+clone ``URL`` and an optional ``auto_pr``; a cloud order names a ``repo_url`` /
+``ref`` / ``auto_pr``. Both hand back a PR URL as the addressable result.
 
 ``FINISHED`` is per-repo rather than one stream because MergeManager watches the
-repos it has checked out, not every repo the Floor knows about.
+repos it cares about, not every repo the Floor knows about.
 
 The AGENTHANDLER hash is the run registry, and it is also the handshake: the
 manager writes it before the sandbox starts, the sandbox reads its own ``guid``
@@ -80,7 +85,6 @@ __all__ = [
     "guid_from_agent_handler_key",
     "is_terminal",
     "load_workorder",
-    "merge_workorder_instructions",
     "normalize_status",
     "parse_agent_handler",
     "parse_finished",
@@ -129,55 +133,48 @@ def workorder_fields(
     *,
     repo: str,
     url: str,
-    new_wt: bool,
     ticket_name: str,
     instructions: str,
     model: str = DEFAULT_MODEL,
-    wt: str = "",
+    auto_pr: bool = True,
 ) -> dict[str, str]:
     """Build a WORKORDER stream entry.
 
-    ``wt`` is cleared when ``new_wt`` is true: the factory is about to create the
-    worktree, so any path the caller guessed would be a lie by the time it lands.
+    ``URL`` is always required: the factory clones into the sandbox rather than
+    mounting a Floor worktree.
     """
     fields = {
         "repo": stripped(repo),
         "URL": stripped(url),
-        "new_wt": bool_field(new_wt),
-        "wt": stripped(wt) if not new_wt else "",
         "ticket_name": stripped(ticket_name),
         "instructions": text_field(instructions),
         "model": stripped(model) or DEFAULT_MODEL,
+        "auto_pr": bool_field(auto_pr),
     }
-    require("WORKORDER", fields, ("repo", "ticket_name", "instructions"))
-    if not new_wt and not fields["wt"]:
-        raise ValueError("WORKORDER with new_wt=false requires wt")
+    require(
+        "WORKORDER",
+        fields,
+        ("repo", "URL", "ticket_name", "instructions"),
+    )
     return fields
 
 
 def parse_workorder(fields: Mapping[str, Any]) -> dict[str, Any]:
     """Parse WORKORDER stream fields into a normalized dict."""
-    repo = fields.get("repo")
-    ticket_name = fields.get("ticket_name")
-    instructions = fields.get("instructions")
-    if not repo or not ticket_name or not instructions:
-        raise ValueError(
-            "WORKORDER requires repo, ticket_name, and instructions; "
-            f"got keys={list(fields.keys())}"
-        )
-    new_wt = is_true(fields.get("new_wt", True))
-    wt = stripped(fields.get("wt"))
-    if not new_wt and not wt:
-        raise ValueError("WORKORDER with new_wt=false requires wt")
-    return {
-        "repo": stripped(repo),
+    parsed = {
+        "repo": stripped(fields.get("repo")),
         "URL": stripped(fields.get("URL")),
-        "new_wt": new_wt,
-        "wt": wt,
-        "ticket_name": stripped(ticket_name),
-        "instructions": text_field(instructions),
+        "ticket_name": stripped(fields.get("ticket_name")),
+        "instructions": text_field(fields.get("instructions")),
         "model": stripped(fields.get("model")) or DEFAULT_MODEL,
+        "auto_pr": is_true(fields.get("auto_pr", True)),
     }
+    require(
+        "WORKORDER",
+        parsed,
+        ("repo", "URL", "ticket_name", "instructions"),
+    )
+    return parsed
 
 
 def load_workorder(redis: Any, ticket_id: str) -> dict[str, Any]:
@@ -201,16 +198,23 @@ def finished_fields(
     *,
     ticket_name: str,
     ticket_id: str,
-    wt: str,
-    agent_dir: str,
+    status: str,
+    pr_url: str = "",
 ) -> dict[str, str]:
+    """Build a FINISHED:<REPO> stream entry.
+
+    ``pr_url`` may be empty on error paths; ``status`` is always one of
+    ``RUN_STATUSES``.
+    """
     fields = {
         "ticket_name": stripped(ticket_name),
         "ticket_id": stripped(ticket_id),
-        "wt": stripped(wt),
-        "agent_dir": stripped(agent_dir),
+        "status": one_of(
+            "FINISHED", "status", stripped(status), RUN_STATUSES
+        ),
+        "pr_url": stripped(pr_url),
     }
-    require("FINISHED", fields, tuple(fields))
+    require("FINISHED", fields, ("ticket_name", "ticket_id", "status"))
     return fields
 
 
@@ -218,10 +222,11 @@ def parse_finished(fields: Mapping[str, Any]) -> dict[str, str]:
     parsed = {
         "ticket_name": stripped(fields.get("ticket_name")),
         "ticket_id": stripped(fields.get("ticket_id")),
-        "wt": stripped(fields.get("wt")),
-        "agent_dir": stripped(fields.get("agent_dir")),
+        "status": stripped(fields.get("status")),
+        "pr_url": stripped(fields.get("pr_url")),
     }
-    require("FINISHED", parsed, tuple(parsed))
+    require("FINISHED", parsed, ("ticket_name", "ticket_id", "status"))
+    one_of("FINISHED", "status", parsed["status"], RUN_STATUSES)
     return parsed
 
 
@@ -254,31 +259,3 @@ def parse_agent_handler(fields: Mapping[str, Any]) -> dict[str, str]:
     }
     require("AGENTHANDLER", parsed, ("ticket_id",))
     return parsed
-
-
-# --- MergeManager follow-up ------------------------------------------------
-
-
-def merge_workorder_instructions(
-    *,
-    repo: str,
-    wt: str,
-    agent_dir: str,
-    ticket_name: str,
-) -> str:
-    """Instructions published when a local merge hits conflicts.
-
-    The follow-up order sets ``new_wt=false`` and points at the tree that
-    already has the conflict in it, because resolving a conflict somewhere else
-    would resolve nothing.
-    """
-    return (
-        f"Resolve merge conflicts for ticket {ticket_name!r} in repo {repo}.\n\n"
-        f"Context:\n"
-        f"- Ticket worktree (absolute path): {wt}\n"
-        f"- Agents worktree (absolute path): {agent_dir}\n"
-        f"- new_wt is false; work in the existing worktree at the mounted path.\n"
-        f"- Cleanly merge the ticket branch into agents.\n"
-        f"- Resolve every conflict carefully and leave agents buildable.\n"
-        f"- Commit the merge with a clear message naming the ticket and what was merged.\n"
-    )

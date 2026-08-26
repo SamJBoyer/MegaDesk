@@ -1,10 +1,11 @@
 """The normalized shape of a place that runs an agent for you.
 
-A Factory is whatever turns an order into a working agent: MachineFactory builds
-a git worktree and a container on this machine, CloudFactory asks Cursor for a VM.
-Both are then asked the same three questions — start this, where has it got to,
-stop it — so a graph can hand work to either without its own logic forking on
-which one it got.
+A Factory is whatever turns an order into a working agent: MachineFactory clones
+into a Docker sandbox (with a Redis sidecar) on this machine, CloudFactory asks
+Cursor for a VM. Both are then asked the same three questions — start this,
+where has it got to, stop it — so a graph can hand work to either without its
+own logic forking on which one it got. Both produce a pull-request URL as
+``RunStatus.result``.
 
 Three verbs and two shapes:
 
@@ -16,12 +17,12 @@ Three verbs and two shapes:
 * ``cancel`` stops a run by the same key ``launch`` handed back.
 
 An order is a mapping rather than a fixed dataclass because the two families
-genuinely need different inputs, and pretending otherwise would mean a machine
-order carrying an ``auto_pr`` it cannot honor. Every order shares ``title``,
-``instructions`` and ``model``; beyond that each family adds what its
-infrastructure actually needs, validated by its own ``wire`` module —
-``wire.machine.parse_workorder`` or ``wire.cloud.parse_cloudorder`` — before it
-ever reaches a runtime.
+genuinely need different inputs. Every order shares ``instructions`` and
+``model``; beyond that each family adds what its infrastructure actually needs,
+validated by its own ``wire`` module — ``wire.machine.parse_workorder`` or
+``wire.cloud.parse_cloudorder`` — before it ever reaches a runtime. A machine
+order needs ``repo`` / ``URL`` / ``ticket_name`` (and ``auto_pr``); a cloud
+order needs ``repo_url`` / ``auto_pr`` / ``ref``.
 
 Writing both nodes against this surface is also what makes them testable without
 a Docker daemon or a paid Cursor VM; see ``megadesk_contracts.testing.fakes``.
@@ -51,9 +52,9 @@ class RunHandle:
 class RunStatus:
     """Where a launched run has got to, and what it produced.
 
-    ``result`` is the run's addressable output: a pull request URL from the
-    cloud, an absolute worktree path from a machine. Both are "go here to see
-    what happened", which is as much as a graph needs to route the next step.
+    ``result`` is the run's addressable output: a pull-request URL from either
+    factory. That is "go here to see what happened", which is as much as a
+    graph needs to route the next step.
     """
 
     status: str

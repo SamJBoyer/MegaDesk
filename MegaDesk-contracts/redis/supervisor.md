@@ -46,7 +46,7 @@ Constants live in `megadesk_contracts.supervisor_client`:
 | DB | Role |
 |----|------|
 | live `0` (ephemeral) | `SUPERVISOR:LAUNCHREQUEST`, `SUPERVISOR:KILLREQUEST`, `NODEEXIT`; MachineFactory pipeline traffic |
-| live `1` (persistent) | `SUPERVISOR:SINGLETON`, `SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>`, `NODEHB:<unique_id>`, `NODE:SHUTDOWN`, `MEGADESK:LANE:*` |
+| live `1` (persistent) | `SUPERVISOR:SINGLETON`, `SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>`, `NODEHB:<unique_id>`, `NODE:SHUTDOWN` |
 
 A process whose `REDIS_URL` names another even DB uses that index and the next one
 instead (`resolve_redis_pair`). Live MegaDesk stays on 0/1.
