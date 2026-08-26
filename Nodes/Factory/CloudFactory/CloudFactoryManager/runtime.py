@@ -48,9 +48,8 @@ from megadesk_contracts.wire.factory import normalize_status
 log = logging.getLogger("cloud_factory.runtime")
 
 DEFAULT_MODEL = wire.DEFAULT_MODEL
-# Same branch MachineFactory tickets fork from and MergeManager merges into.
-# Cursor cannot always read GitHub's default branch; omitting startingRef is
-# what logged as [validation_error] Failed to determine repository default branch.
+# Same branch MachineFactory tickets fork from and MergeManager merges into, so
+# a cloud PR lands where a local one would.
 DEFAULT_REF = "agents"
 
 # Cloud agents run unattended, so the prompt has to carry what a person would
@@ -106,8 +105,13 @@ def cloud_launch_options(
     URL string is a sequence of characters, which raises
     ``dictionary update sequence element #0 has length 1; 2 is required``.
     ``ref`` belongs on the repo as ``startingRef``, not on the options object.
-    An empty ``ref`` is ``agents``: MegaDesk's working branch, and the value
-    Cursor needs when it cannot determine GitHub's default.
+    An empty ``ref`` is ``agents``, MegaDesk's working branch.
+
+    A ``[validation_error] Failed to verify existence of branch`` here is not
+    about the ref: Cursor reports it for any branch, including the repository's
+    real default, when the repo is not connected to the account behind
+    ``CURSOR_API_KEY``. ``client.list_repositories()`` is what tells the two
+    apart — it comes back empty when the GitHub app is the problem.
     """
     url, _name = canonical_github_repo(repo_url)
     repo: dict[str, Any] = {
@@ -235,23 +239,34 @@ class CursorCloudFactory:
     # --- following ---
 
     def poll(self, run_key: str) -> RunStatus:
-        """Where the run is now. Reattaches by id, so a restart loses nothing."""
+        """Where the run is now. Reattaches by id, so a restart loses nothing.
+
+        The question goes to the run, not the agent. ``agents.get`` answers with
+        ``SDKAgentInfo``, whose ``status`` is ``None`` for a cloud agent and
+        which carries no pull request anywhere — polling it reports ``running``
+        forever, so CLOUDFINISHED never fires and the FE waits on a run that
+        finished minutes ago. The run carries both, and the PR lives under
+        ``git.branches``.
+        """
         try:
-            agent = self._run(self._async_get(run_key))
+            run = self._run(self._async_latest_run(run_key))
+        except AgentError:
+            raise
         except Exception as exc:  # noqa: BLE001
             raise AgentRunError(f"Could not read agent {run_key}: {exc}") from exc
-        status = normalize_status(
-            _first_attr(agent, "status", "state") or self._run_status(agent)
-        )
-        pr_url = self._pr_url(agent)
+        if run is None:
+            # Created, but Cursor has not opened a run for it yet.
+            return RunStatus(status=wire.STATUS_RUNNING, result="", detail="")
+        status = normalize_status(_first_attr(run, "status", "state"))
+        pr_url = self._pr_url(run)
         if pr_url and status == wire.STATUS_RUNNING:
-            # A PR exists, so the work landed; some versions report the agent as
+            # A PR exists, so the work landed; some versions report the run as
             # running until its VM is reaped.
             status = wire.STATUS_FINISHED
         return RunStatus(
             status=status,
             result=pr_url,
-            detail=_first_attr(agent, "error", "message"),
+            detail=_first_attr(run, "error", "message"),
         )
 
     def cancel(self, run_key: str) -> None:
@@ -262,9 +277,25 @@ class CursorCloudFactory:
         except Exception as exc:  # noqa: BLE001
             raise AgentRunError(f"Cursor agent {run_key} cannot be cancelled") from exc
 
-    async def _async_get(self, agent_id: str) -> Any:
+    async def _async_latest_run(self, agent_id: str) -> Any:
+        """The agent's newest run, or ``None`` before Cursor has opened one.
+
+        ``runtime="cloud"`` is required: without it the SDK looks the id up in
+        the local run store and raises ``AgentNotFoundError`` for an agent that
+        plainly exists. ``get_run`` is not an option either — it answers
+        ``Run <id> not found`` for cloud runs.
+        """
         client = await self._ensure_client()
-        return await client.agents.get(agent_id, api_key=self.api_key)
+        listed = await client.list_runs(
+            agent_id, runtime="cloud", api_key=self.api_key
+        )
+        try:
+            runs = list(listed or [])
+        except TypeError:
+            runs = []
+        if not runs:
+            return None
+        return max(runs, key=lambda run: str(getattr(run, "created_at", "") or ""))
 
     async def _async_cancel(self, run_key: str) -> None:
         client = await self._ensure_client()
@@ -393,13 +424,14 @@ class CursorCloudFactory:
             pass
 
     @staticmethod
-    def _run_status(agent: Any) -> str:
-        run = getattr(agent, "run", None) or getattr(agent, "latest_run", None)
-        return _first_attr(run, "status", "state") if run is not None else ""
-
-    @staticmethod
-    def _pr_url(agent: Any) -> str:
-        for holder in (agent, getattr(agent, "target", None), getattr(agent, "pr", None)):
+    def _pr_url(run: Any) -> str:
+        """The pull request a run opened, from ``run.git.branches[*].pr_url``."""
+        git = getattr(run, "git", None)
+        for branch in getattr(git, "branches", None) or ():
+            url = _first_attr(branch, "pr_url", "prUrl")
+            if url:
+                return url
+        for holder in (run, getattr(run, "target", None), getattr(run, "pr", None)):
             if holder is None:
                 continue
             url = _first_attr(holder, "pr_url", "prUrl", "url", "html_url")

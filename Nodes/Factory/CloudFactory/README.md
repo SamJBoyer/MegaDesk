@@ -23,8 +23,13 @@ the result. A cloud agent is the opposite of that in every way that matters:
 - The agent sees **the pushed remote, not your working tree**. Uncommitted work is
   invisible to it.
 - The repo must exist on GitHub with Cursor's GitHub app connected.
-- Run ids are durable and prefixed `bc-`, so a restarted BE reattaches with
-  `Agent.get` instead of losing track of a running agent.
+- Run ids are durable and prefixed `bc-`, so a restarted BE reattaches by id
+  instead of losing track of a running agent. It reattaches with
+  `list_runs(agent_id, runtime="cloud")`, because status and PR live on the
+  **run**: `agents.get` answers with an `SDKAgentInfo` whose `status` is `None`
+  for a cloud agent and which carries no PR, so polling it reports `running`
+  forever. `get_run` is no help either — it answers `Run <id> not found` for
+  cloud runs. The PR is at `run.git.branches[*].pr_url`.
 - There is no `AgentHandler` here. The SDK is the harness, which is the price of
   not owning the machine: less control over the loop, and minutes rather than
   milliseconds to get going.
@@ -48,8 +53,8 @@ agent = await client.agents.create(
 )
 ```
 
-Empty `ref` is `agents` at launch — MegaDesk's working branch, and the value
-Cursor needs when it cannot determine GitHub's default.
+Empty `ref` is `agents` at launch — MegaDesk's working branch, so a cloud PR
+lands where a local one would.
 
 ## Wire
 
@@ -85,6 +90,13 @@ a second pull request.
 `python -m CloudFactoryManager models` lists the models the account can use — the
 fastest way to check the key works. `python -m CloudFactoryManager runs` prints the
 registry, which is what the FE renders.
+
+A launch that fails with `[validation_error] Failed to verify existence of branch
+'<ref>'` is almost never about the ref. Cursor says the same thing for every
+branch, including the repository's real default, when the repo is not connected
+to the account behind `CURSOR_API_KEY`. Check that before touching the ref:
+`client.list_repositories()` comes back empty when the GitHub app is the problem,
+and lists the repo when it is not.
 
 ## Testing
 

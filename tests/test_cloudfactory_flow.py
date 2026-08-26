@@ -303,8 +303,7 @@ def test_the_cloud_runtime_asks_for_a_pr_and_never_runs_locally(
     guards against is a missing keyword argument, not a bad response. The
     production path is async (Windows cannot ``select()`` a pipe); this test
     still inspects the ``cloud=`` options the runtime would pass. Empty ``ref``
-    must still send ``startingRef=agents`` — Cursor otherwise fails to determine
-    the repository default branch.
+    sends ``startingRef=agents``, the branch MergeManager merges into.
     """
     import asyncio
 
@@ -404,6 +403,83 @@ def test_cloud_agent_options_serialize_repo_urls_as_mappings() -> None:
         **cloud_launch_options(repo_url=REPO_URL, ref="main")
     ).to_json()
     assert with_ref["repos"] == [{"url": REPO_URL, "startingRef": "main"}]
+
+
+def test_poll_asks_the_run_because_a_cloud_agent_carries_no_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``agents.get`` cannot answer this question, and fails silently when asked.
+
+    For a cloud agent ``SDKAgentInfo.status`` is ``None`` and no field anywhere
+    on it holds a pull request, so polling the agent reports ``running`` for a
+    run that finished minutes ago: CLOUDFINISHED never fires and the FE waits
+    forever. Nothing raises, which is why this needs a test rather than a log.
+    ``runtime="cloud"`` is part of the contract too — without it the SDK checks
+    the local run store and raises ``AgentNotFoundError``.
+    """
+    import asyncio
+    from types import SimpleNamespace
+
+    from CloudFactoryManager.runtime import CursorCloudFactory
+
+    pr_url = "https://github.com/acme/widgets/pull/3"
+    asked: list[tuple[str, str | None]] = []
+
+    class _Agents:
+        async def get(self, agent_id, api_key=None):
+            raise AssertionError("poll must not ask the agent for run state")
+
+    class _Client:
+        agents = _Agents()
+
+        def __init__(self, runs) -> None:
+            self._runs = runs
+
+        async def list_runs(self, agent_id, *, runtime=None, api_key=None):
+            asked.append((agent_id, runtime))
+            return self._runs
+
+    def _run(status: str, *, created_at: str, branches=()) -> SimpleNamespace:
+        return SimpleNamespace(
+            id="run-1",
+            created_at=created_at,
+            status=status,
+            git=SimpleNamespace(branches=branches),
+        )
+
+    def poll_against(runs) -> object:
+        runtime = CursorCloudFactory(api_key="key")
+        client = _Client(runs)
+
+        async def fake_client():
+            return client
+
+        monkeypatch.setattr(runtime, "_ensure_client", fake_client)
+        monkeypatch.setattr(runtime, "_run", lambda coro: asyncio.run(coro))
+        return runtime.poll("bc-abc123")
+
+    branch = SimpleNamespace(
+        repo_url="github.com/acme/widgets",
+        branch="cursor/document-the-frame-pump-reset",
+        pr_url=pr_url,
+    )
+    state = poll_against([_run("finished", created_at="01", branches=(branch,))])
+    assert state.status == wire.STATUS_FINISHED
+    assert state.result == pr_url, "the PR lives at run.git.branches[*].pr_url"
+    assert asked == [("bc-abc123", "cloud")]
+
+    # An agent Cursor has not opened a run for yet is still running, not finished.
+    assert poll_against([]).status == wire.STATUS_RUNNING
+
+    # Several runs on one agent: the newest is the one that says where it got to.
+    newest = poll_against(
+        [
+            _run("finished", created_at="01", branches=(branch,)),
+            _run("running", created_at="02"),
+        ]
+    )
+    assert newest.status == wire.STATUS_RUNNING
+    assert newest.result == ""
 
 
 def test_an_unknown_status_is_treated_as_still_running() -> None:
