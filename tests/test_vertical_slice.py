@@ -35,12 +35,11 @@ def smoke_floor(tmp_path: Path):
 
 
 @pytest.fixture
-def smoke_agent(redis_client, smoke_floor, machine_wire):
+def smoke_agent(redis_client, machine_wire):
     from megadesk_contracts.testing import FakeAgent
 
     agent = FakeAgent(
         redis=redis_client,
-        floor=smoke_floor,
         wire=machine_wire,
         group=WORKORDER_GROUP,
     )

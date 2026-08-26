@@ -172,10 +172,10 @@ def test_booleans_use_the_same_wire_form_as_the_machine_factory_family(
 
     machine_order = machine_wire.workorder_fields(
         repo="widgets",
-        url="",
-        new_wt=True,
+        url="https://github.com/acme/widgets",
         ticket_name="add-widget-tests",
         instructions="Cover the widget module with tests.",
+        auto_pr=True,
     )
     cloud_order = cloud.cloudorder_fields(
         order_id=cloud.new_order_id(),
@@ -184,7 +184,7 @@ def test_booleans_use_the_same_wire_form_as_the_machine_factory_family(
         instructions="Explain why the frame pump needs a reset.",
         auto_pr=True,
     )
-    assert machine_order["new_wt"] == cloud_order["auto_pr"] == wire.BOOL_TRUE
+    assert machine_order["auto_pr"] == cloud_order["auto_pr"] == wire.BOOL_TRUE
 
 
 # --- rejections ------------------------------------------------------------

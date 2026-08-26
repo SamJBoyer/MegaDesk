@@ -82,17 +82,21 @@ the process **ephemeral** Redis DB (0 on the live pair; 14 when host pytest
 isolates). Supervisor keys live on the persistent half and are not involved.
 
 The middle of the chain is not testable in a fast loop: `MachineFactoryManager`
-shells out to `git clone --bare` and `docker run`, and `AgentHandler` calls the
-real Cursor API. **Cut at the sandbox boundary.** `FakeAgent` consumes
-`WORKORDER` using the real `machine_factory` consumer group, makes a scripted
-commit in a real local ticket worktree, and `XADD`s `FINISHED:{repo}`.
-Everything on both sides of that cut stays real.
+shells out to `docker run` (clone-in-sandbox + Redis sidecar), and
+`AgentHandler` calls the real Cursor API. **Cut at the sandbox boundary.**
+`FakeAgent` consumes `WORKORDER` using the real `machine_factory` consumer
+group and `XADD`s `FINISHED:{repo}` with a canned `pr_url`. Everything on both
+sides of that cut stays real.
 
 The real MachineFactory BE is never launched: with no Supervisor alive,
 `DisplayEngine._maybe_launch_backend` logs and skips.
 
 Writers emit canonical field names only. Tests assert that set — see
 [`tests/test_wire_contract.py`](../tests/test_wire_contract.py).
+
+`WORKORDER` fields: `repo`, `URL`, `ticket_name`, `instructions`, `model`,
+`auto_pr`. `FINISHED:<REPO>` fields: `ticket_name`, `ticket_id`, `status`,
+`pr_url`. MergeManager shows and opens PRs; it does not merge local trees.
 
 ---
 
@@ -157,15 +161,16 @@ and `gh issue list --label agent-ready`.
 **`GitFloor`** — a real git Floor in a temp dir. `attempt_merge` always pushes
 on success, so the fixture includes a pushable local `origin`.
 
-**`FakeAgent`** — consumes through the real `machine_factory` group, honors
-`new_wt`, commits for real, and builds FINISHED with `finished_fields`.
+**`FakeAgent`** — consumes through the real `machine_factory` group and builds
+FINISHED with `finished_fields` (`status=finished`, canned `pr_url`). No Floor
+or worktree.
 
 ### Redis isolation
 
 Host pytest points at the **14/15** pair via `REDIS_URL`, set in `conftest`
 before any node is imported, and flushes both halves around every test. The
-fixtures refuse to flush live 0/1. If `REDIS_URL` already names a non-live
-pair (a MachineFactory sandbox), conftest honors it.
+fixtures refuse to flush live 0/1. Sandboxes use Redis sidecars rather than
+host DB lanes; if `REDIS_URL` already names a non-live pair, conftest honors it.
 
 ---
 
@@ -175,28 +180,25 @@ pair (a MachineFactory sandbox), conftest honors it.
 
 | # | Scenario | Catches |
 |---|---|---|
-| T1 | Click a ticket row. Assert `WORKORDER` gained one entry with the seven canonical fields, `new_wt="true"`, `wt=""`. | Field renames |
+| T1 | Click a ticket row. Assert `WORKORDER` gained one entry with the six canonical fields (`repo`, `URL`, `ticket_name`, `instructions`, `model`, `auto_pr="true"`). | Field renames |
 | T1b | Empty issue body dispatches with `instructions` = title | Body/title fallback inverted |
 | T1c | Same click also writes a canonical `CLOUDORDER` | CloudFactory starved of tickets |
 | T2 | Row model combo `grok-4.5` → payload `model` | Per-row widget → payload |
 | T2b | `gh repo view` failing surfaces on `status_text` | Errors swallowed |
-| T3 | `FakeAgent` consumes; group has zero pending; `FINISHED:{repo}` has the four canonical fields | Consumer-group and ack; path relativization |
+| T3 | `FakeAgent` consumes; group has zero pending; `FINISHED:{repo}` has the four canonical fields (`ticket_name`, `ticket_id`, `status`, `pr_url`) | Consumer-group and ack |
 | T3b | A second pass returns nothing | Redelivery of acked entries |
-| T4 | `XADD FINISHED:{repo}`, pump. Row widgets exist, merge button visible | Stream → GUI; frame-pump drain |
+| T4 | `XADD FINISHED:{repo}`, pump. Row widgets exist, open-PR button visible | Stream → GUI; frame-pump drain |
 | T4b | A FINISHED entry missing fields is acked and never rendered | Poison entries retried forever |
-| T5 | Real git, clean merge. Click merge. `SUCCESS`, commit on `agents`, row flips to MERGED | Merge + push; row state machine |
-| T5b | Dirty agents: merge refused, hard-reset appears, merge after reset succeeds | DIRTY branch |
-| T6 | Conflicting commits. Merge aborted **and** a new `WORKORDER` with `new_wt="false"` | The loop-closing seam |
-| T6b | `FakeAgent` consumes the conflict WORKORDER and reuses the existing worktree | Follow-up WORKORDER rejected |
+| T5 | Error FINISHED without `pr_url`: open-PR disabled | Empty-URL affordance |
 | T7 | Click dismiss. `XACK` + `XDEL`, row gone | Stream cleanup vs GUI teardown |
-| T8 | Full chain in one canvas: dispatch → FakeAgent → merge | Two FEs sharing the pump |
+| T8 | Full chain in one canvas: dispatch → FakeAgent → PR row | Two FEs sharing the pump |
 | V1 | TicketDispatcher on SMOKETESTREPO → FakeAgent → MergeManager | The sandbox row T8 never hosted |
 
 Failure artifacts: `wait_until` writes a screenshot on timeout into
 `tests/_artifacts/<test name>/`.
 
-Do not fire MergeManager's `vscode` / `cursor` buttons: they `Popen(...,
-shell=True)` and would launch real editors.
+Do not fire MergeManager's editor buttons: they `Popen(..., shell=True)` and
+would launch real editors.
 
 ---
 
@@ -211,7 +213,7 @@ live in `megadesk_contracts.wire`.
 | `FakeCodeAgent` | `cursor_sdk` behind CodeScope | Clone on disk, `CODEQ:ASK` group, session hash, every `CODEQ:ANSWER` |
 | `FakeRealtime` | OpenAI Realtime socket and both audio devices | Tool router, Redis events, out-of-band answer injection |
 | `FakeCloudFactory` | Cursor's VM, branch, pull request | `CLOUDORDER` group, run registry, `CLOUDFINISHED`, retry rules |
-| `FakeMachineFactory` | Docker daemon and container | `WORKORDER` group, git Floor, `AGENTHANDLER`, `FINISHED:<repo>` |
+| `FakeMachineFactory` | Docker daemon, container, and Redis sidecar | `WORKORDER` group, `AGENTHANDLER`, `FINISHED:<repo>` |
 
 `FakeCodeAgent` has two faces: `run_once()` as a stand-in BE for FE tests, and
 `runner_factory` feeding canned chunks to the real `CodeScopeManager`.

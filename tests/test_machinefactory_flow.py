@@ -1,13 +1,14 @@
 """MachineFactory's order loop and its reaper, without a Docker daemon.
 
 ``FakeMachineFactory`` stands in for the sandbox; everything either side of it is
-real — the WORKORDER consumer group, the git Floor, the AGENTHANDLER registry and
-the FINISHED payloads MergeManager reads.
+real — the WORKORDER consumer group, the AGENTHANDLER registry and the FINISHED
+payloads MergeManager reads. MachineFactory clones into the sandbox (no Floor
+worktrees) and hands back a pull-request URL.
 
 The cloud suite's risk is launching twice and opening two pull requests. Here the
 risk is the opposite: a sandbox that dies quietly leaves a hash claiming a run
-that no longer exists and a ticket worktree nobody merges, so the reaper and the
-handshake ordering get tested hardest.
+that no longer exists, so the reaper and the handshake ordering get tested
+hardest.
 
 ``test_cloudfactory_flow.py`` covers the same three verbs against the other
 factory, and the pair is deliberately readable side by side.
@@ -33,16 +34,12 @@ def place_order(
     git_floor,
     *,
     ticket_name: str = TICKET,
-    new_wt: bool = True,
-    wt: str = "",
 ) -> str:
     entry = redis_client.xadd(
         WORKORDER_STREAM,
         wire.workorder_fields(
             repo=git_floor.repo,
             url=str(git_floor.origin),
-            new_wt=new_wt,
-            wt=wt,
             ticket_name=ticket_name,
             instructions=INSTRUCTIONS,
         ),
@@ -71,7 +68,7 @@ def pending_orders(redis_client) -> int:
 # --- launching -------------------------------------------------------------
 
 
-def test_an_order_prepares_a_worktree_and_starts_one_sandbox(
+def test_an_order_starts_one_sandbox(
     machine_factory, fake_machine_factory, redis_client, git_floor, read_stream
 ) -> None:
     machine_factory.ensure_group()
@@ -84,9 +81,10 @@ def test_an_order_prepares_a_worktree_and_starts_one_sandbox(
     assert launch["repo"] == git_floor.repo
     assert launch["ticket_name"] == TICKET
     assert launch["ticket_id"] == ticket_id
-    assert git_floor.ticket_dir(TICKET).exists(), "the agent needs a tree to work in"
-    assert launch["wt"] == str(git_floor.ticket_dir(TICKET))
-    assert launch["agent_dir"] == str(git_floor.agents_dir)
+    assert launch["URL"] == str(git_floor.origin)
+    assert launch["auto_pr"] is True
+    assert "wt" not in launch
+    assert "agent_dir" not in launch
 
     registered = runs_on(redis_client)
     assert list(registered) == [launch["run_key"]]
@@ -137,7 +135,7 @@ def test_an_unusable_order_is_acked_rather_than_retried_forever(
 def test_a_sandbox_that_never_started_is_reported_not_left_hanging(
     machine_factory, fake_machine_factory, redis_client, git_floor, read_stream
 ) -> None:
-    """The worktree already exists, so silence would strand a real branch."""
+    """Silence would leave MergeManager waiting on a PR that will never arrive."""
     fake_machine_factory.startup_error = "docker daemon is not running"
     ticket_id = place_order(redis_client, git_floor)
 
@@ -149,9 +147,11 @@ def test_a_sandbox_that_never_started_is_reported_not_left_hanging(
     assert set(reports[0]) == set(FINISHED_CANONICAL_FIELDS)
     assert reports[0]["ticket_id"] == ticket_id
     assert reports[0]["ticket_name"] == TICKET
-    assert reports[0]["wt"] == str(git_floor.ticket_dir(TICKET))
+    assert reports[0]["status"] == wire.STATUS_ERROR
+    assert reports[0]["pr_url"] == ""
     assert runs_on(redis_client) == {}, "a failed launch leaves no live run"
     assert pending_orders(redis_client) == 0
+    assert fake_machine_factory.released, "failed launch must release the sidecar"
 
 
 # --- reaping a sandbox that died quietly ------------------------------------
@@ -183,7 +183,8 @@ def test_a_sandbox_that_vanished_is_reaped_and_reported(
     reports = finished(read_stream, git_floor)
     assert len(reports) == 1
     assert reports[0]["ticket_id"] == ticket_id
-    assert reports[0]["wt"] == str(git_floor.ticket_dir(TICKET))
+    assert reports[0]["status"] == wire.STATUS_ERROR
+    assert reports[0]["pr_url"] == ""
     assert runs_on(redis_client) == {}
     assert machine_factory.poll_runs(force=True) == 0, "reaped once, not every poll"
 
@@ -202,8 +203,8 @@ def test_a_healthy_sandbox_reporting_for_itself_is_not_reaped_twice(
         wire.finished_fields(
             ticket_name=TICKET,
             ticket_id=ticket_id,
-            wt=str(git_floor.ticket_dir(TICKET)),
-            agent_dir=str(git_floor.agents_dir),
+            status=wire.STATUS_FINISHED,
+            pr_url="https://github.com/acme/widgets/pull/1",
         ),
     )
     redis_client.delete(wire.agent_handler_key(run_key))

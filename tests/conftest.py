@@ -45,8 +45,8 @@ from megadesk_contracts.supervisor_client import (
 )
 
 # Redis pair dedicated to tests. Live 0/1 is never flushed. If REDIS_URL already
-# names a non-live pair (a MachineFactory sandbox), honor it so agent pytest
-# stays on its lane. Host pytest uses 14/15.
+# names a non-live pair, honor it. Host pytest uses 14/15; sandboxes use
+# Redis sidecars (not host DB lanes).
 def _isolate_pytest_redis_url() -> str:
     raw = (os.environ.get("REDIS_URL") or DEFAULT_REDIS_URL).strip() or DEFAULT_REDIS_URL
     db = redis_url_db(raw)
@@ -338,13 +338,12 @@ def fake_gh(monkeypatch: pytest.MonkeyPatch, ticket_dispatcher_module: ModuleTyp
 
 
 @pytest.fixture
-def fake_agent(redis_client, git_floor, machine_wire: ModuleType):
-    """The sandbox stand-in: real consumer group, real git, real FINISHED payload."""
+def fake_agent(redis_client, machine_wire: ModuleType):
+    """The sandbox stand-in: real consumer group, canned PR, real FINISHED payload."""
     from megadesk_contracts.testing import FakeAgent
 
     agent = FakeAgent(
         redis=redis_client,
-        floor=git_floor,
         wire=machine_wire,
         group=WORKORDER_GROUP,
     )
@@ -437,8 +436,8 @@ def fake_machine_factory():
 
 
 @pytest.fixture
-def machine_factory(redis_client, git_floor, fake_machine_factory):
-    """The real BE loop with a fake sandbox host: Floor, wire and acks are real.
+def machine_factory(redis_client, fake_machine_factory):
+    """The real BE loop with a fake sandbox host: wire and acks are real.
 
     ``orphan_grace=0`` because the grace period exists to survive the moment
     between a sandbox exiting and its hash being deleted, and a test that waited
@@ -451,7 +450,6 @@ def machine_factory(redis_client, git_floor, fake_machine_factory):
         runtime=fake_machine_factory,
         group=WORKORDER_GROUP,
         consumer="test-machine-factory",
-        floor=git_floor.floor,
         run_poll_interval=0.0,
         orphan_grace=0.0,
     )

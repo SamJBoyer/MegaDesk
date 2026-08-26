@@ -1,10 +1,10 @@
 """Stand-ins for the parts of the chain that are not the seam under test.
 
 ``FakeGh`` removes GitHub (network, auth, rate limits) from TicketDispatcher's
-poll loop. ``FakeAgent`` replaces the sandbox boundary — Floor cloning, Docker
-and ``cursor_sdk`` — while keeping everything on both sides of it real: the
-WORKORDER consumer group, the wire payloads, the git worktrees, and the
-FINISHED stream MergeManager reads.
+poll loop. ``FakeAgent`` replaces the sandbox boundary — clone, Docker,
+Redis sidecar and ``cursor_sdk`` — while keeping everything on both sides of it
+real: the WORKORDER consumer group, the wire payloads, and the FINISHED stream
+MergeManager reads. It publishes a canned PR URL rather than depending on Floor.
 
 The three newer fakes cut the same way for the voice chain, each at the lowest
 boundary that still removes a network or a device:
@@ -126,9 +126,6 @@ class AgentRun:
     repo: str
     ticket_name: str
     model: str
-    new_wt: bool
-    wt: Path
-    agent_dir: Path
     commit_sha: str
     finished_id: str
     finished_stream: str
@@ -136,32 +133,27 @@ class AgentRun:
     status: str = ""
 
 
-def _safe_name(name: str) -> str:
-    cleaned = name.strip().replace(" ", "-")
-    if not cleaned or not re.match(r"^[\w.-]+$", cleaned):
-        raise ValueError(f"Invalid name for a worktree: {name!r}")
-    return cleaned
-
-
 class FakeAgent:
-    """Consumes WORKORDER, commits in a real worktree, publishes FINISHED.
+    """Consumes WORKORDER and publishes FINISHED with a canned PR URL.
 
     Reads through MachineFactory's real consumer group with the real ack
     semantics, and builds its payloads with the production wire helpers injected
-    as ``wire`` — so a renamed field or a dropped ack fails here.
+    as ``wire`` — so a renamed field or a dropped ack fails here. No Floor,
+    worktree, or Docker: MergeManager only needs ``status`` and ``pr_url``.
     """
 
     def __init__(
         self,
         *,
         redis: Any,
-        floor: Any,
         wire: Any,
+        floor: Any = None,
         group: Optional[str] = None,
         consumer: str = "fake-agent",
         commit_relpath: str = "agent.txt",
         commit_text: str = "work done by the fake agent\n",
         ticket_worktree: Optional[Callable[[str, str], Path]] = None,
+        pr_url_template: str = "https://github.com/acme/{repo}/pull/{n}",
     ) -> None:
         self.redis = redis
         self.floor = floor
@@ -171,6 +163,7 @@ class FakeAgent:
         self.commit_relpath = commit_relpath
         self.commit_text = commit_text
         self._ticket_worktree = ticket_worktree
+        self.pr_url_template = pr_url_template
         self.runs: list[AgentRun] = []
 
     # --- consumer group ---
@@ -217,19 +210,18 @@ class FakeAgent:
         repo = item["repo"]
         ticket_name = item["ticket_name"]
 
-        # WORKORDER no longer carries Floor paths; the fake always makes a
-        # local ticket worktree so merge-era git helpers and commits still work.
-        wt = self._make_ticket_worktree(repo, _safe_name(ticket_name))
+        commit_sha = ""
+        if self.floor is not None and self._ticket_worktree is not None:
+            # Optional path for MergeManager-era tests that still want a real commit.
+            wt = Path(self._ticket_worktree(repo, ticket_name))
+            commit_sha = self.floor.commit(
+                wt,
+                self.commit_relpath,
+                self.commit_text,
+                f"agent: {ticket_name}",
+            )
 
-        sha = self.floor.commit(
-            wt,
-            self.commit_relpath,
-            self.commit_text,
-            f"agent: {ticket_name}",
-        )
-
-        agent_dir = Path(self.floor.agents_dir).resolve()
-        pr_url = f"https://github.com/acme/{repo}/pull/{len(self.runs) + 1}"
+        pr_url = self.pr_url_template.format(repo=repo, n=len(self.runs) + 1)
         status = self.wire.STATUS_FINISHED
         payload = self.wire.finished_fields(
             ticket_name=ticket_name,
@@ -246,23 +238,12 @@ class FakeAgent:
             repo=repo,
             ticket_name=ticket_name,
             model=item["model"],
-            new_wt=True,
-            wt=wt.resolve(),
-            agent_dir=agent_dir,
-            commit_sha=sha,
+            commit_sha=commit_sha,
             finished_id=str(finished_id),
             finished_stream=stream,
             pr_url=pr_url,
             status=status,
         )
-
-    def _make_ticket_worktree(self, repo: str, ticket: str) -> Path:
-        if self._ticket_worktree is not None:
-            return Path(self._ticket_worktree(repo, ticket))
-        existing = self.floor.ticket_dir(ticket)
-        if existing.is_dir():
-            return existing
-        return Path(self.floor.add_ticket(ticket))
 
 
 # --- CodeScope -------------------------------------------------------------
@@ -661,6 +642,7 @@ class FakeMachineFactory:
         self.retryable = retryable
         self.launches: list[dict[str, Any]] = []
         self.cancelled: list[str] = []
+        self.released: list[str] = []
         self.running: set[str] = set()
         self._seq = 0
 
@@ -675,14 +657,18 @@ class FakeMachineFactory:
                 "run_key": run_key,
                 "repo": str(order["repo"]),
                 "ticket_name": str(order["ticket_name"]),
-                "wt": str(order["wt"]),
-                "agent_dir": str(order["agent_dir"]),
+                "URL": str(order.get("URL") or order.get("repo_url") or ""),
+                "auto_pr": bool(order.get("auto_pr", True)),
                 "ticket_id": str(order["ticket_id"]),
                 "container": container,
             }
         )
         self.running.add(run_key)
         return RunHandle(run_key=run_key, run_id=container)
+
+    def release(self, run_key: str) -> None:
+        """No-op stand-in for dropping a Redis sidecar after a run ends."""
+        self.released.append(run_key)
 
     def stop(self, run_key: str) -> None:
         """Make a sandbox vanish the way a crashed container does: silently."""

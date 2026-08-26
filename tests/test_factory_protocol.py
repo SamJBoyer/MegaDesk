@@ -80,13 +80,17 @@ def test_a_caller_can_drive_either_fake_with_one_code_path() -> None:
             "run_key": "guid-001",
             "repo": "widgets",
             "ticket_name": "add-widget-tests",
-            "wt": r"C:\Floor\widgets\wt\tickets\add-widget-tests",
-            "agent_dir": r"C:\Floor\widgets\wt\agents",
+            "URL": "https://github.com/acme/widgets.git",
+            "auto_pr": True,
             "ticket_id": "1-0",
             "instructions": "Cover the widget module with tests.",
         },
         settle=machine_fake.stop,
     )
+    assert machine_fake.launches[0]["URL"].endswith("widgets.git")
+    assert machine_fake.launches[0]["auto_pr"] is True
+    assert "wt" not in machine_fake.launches[0]
+    assert "agent_dir" not in machine_fake.launches[0]
     cloud = run_to_completion(
         FakeCloudFactory(polls_before_finish=0),
         {

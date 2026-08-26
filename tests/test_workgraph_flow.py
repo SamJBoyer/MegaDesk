@@ -1,7 +1,7 @@
 """AgentHandler work graph: topology, Redis progress, and GraphScope FE.
 
-No Docker and no Cursor API. The SDK is swapped for a fake; git bind is a
-no-op so the graph can run against a tmp worktree.
+No Docker and no Cursor API. The SDK is swapped for a fake; repo clone is a
+no-op so the graph can run against a tmp workspace.
 """
 
 from __future__ import annotations
@@ -29,8 +29,12 @@ WORK_NODE_NAMES = (
     "teardown_node",
 )
 
+REPO_URL = "https://github.com/acme/widgets"
 
-class NullGitBind:
+
+class NullRepo:
+    """Stand-in for ``SandboxRepo``: no clone, no push, no PR."""
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         pass
 
@@ -40,11 +44,8 @@ class NullGitBind:
     def restore(self) -> None:
         return None
 
-    def __enter__(self) -> "NullGitBind":
-        return self
-
-    def __exit__(self, *exc: Any) -> bool:
-        return False
+    def publish_branch(self) -> str:
+        return ""
 
 
 class FakeRun:
@@ -116,8 +117,7 @@ def _seed_order(
         machine_wire.WORKORDER_STREAM,
         machine_wire.workorder_fields(
             repo="widgets",
-            url="https://github.com/acme/widgets",
-            new_wt=True,
+            url=REPO_URL,
             ticket_name=ticket_name,
             instructions="Create harness-smoke.txt with the text ok",
             model="auto",
@@ -160,11 +160,11 @@ def _context(
         workspace=str(workspace),
         ticket="add-widget-tests",
         repo="widgets",
-        host_wt=str(workspace),
-        host_agent_dir=str(workspace),
+        repo_url=REPO_URL,
+        auto_pr=True,
         env_ticket_id="",
         default_model="auto",
-        git_bind_factory=NullGitBind,
+        repo_factory=NullRepo,
     )
 
 
@@ -188,7 +188,7 @@ def test_work_graph_is_the_straight_line_plus_error_edges_to_teardown() -> None:
         reporter=SimpleNamespace(),
         api_key="fake",
         workspace=".",
-        git_bind_factory=NullGitBind,
+        repo_factory=NullRepo,
     )
     compiled = build_work_graph(context)
     graph = compiled.get_graph()
@@ -239,6 +239,8 @@ def test_work_graph_happy_path_publishes_finished_and_clears_hashes(
     fields = finished[0][1]
     assert set(fields) == set(FINISHED_CANONICAL_FIELDS)
     assert fields["ticket_name"] == "add-widget-tests"
+    assert fields["status"] == machine_wire.STATUS_FINISHED
+    assert fields["pr_url"] == ""
 
     assert redis_client.exists(machine_wire.agent_handler_key(guid)) == 0
     assert redis_client.exists(graph_wire.graph_run_key(guid)) == 0
@@ -250,7 +252,7 @@ def test_work_graph_happy_path_publishes_finished_and_clears_hashes(
     assert "Names the ticket" in joined
 
 
-def test_work_graph_binds_git_on_startup_and_restores_on_teardown(
+def test_work_graph_prepares_repo_on_startup_and_restores_on_teardown(
     redis_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from AgentHandler.graph import run_work_graph
@@ -261,18 +263,22 @@ def test_work_graph_binds_git_on_startup_and_restores_on_teardown(
 
     calls: list[str] = []
 
-    class RecordingGitBind(NullGitBind):
+    class RecordingRepo(NullRepo):
         def prepare(self) -> None:
             calls.append("prepare")
 
         def restore(self) -> None:
             calls.append("restore")
 
+        def publish_branch(self) -> str:
+            calls.append("publish")
+            return "https://github.com/acme/widgets/pull/9"
+
     prompts: list[str] = []
     monkeypatch.setattr("AgentHandler.handler.Agent", FakeCursorAgent.bind(prompts))
     audit = AgentAuditLog(guid, path=tmp_path / "audit.md", repo="widgets")
     context = _context(redis_client, guid=guid, workspace=workspace, audit=audit)
-    context.git_bind_factory = RecordingGitBind
+    context.repo_factory = RecordingRepo
     try:
         final = run_work_graph(context)
     finally:
@@ -280,14 +286,23 @@ def test_work_graph_binds_git_on_startup_and_restores_on_teardown(
 
     assert final.get("status") == machine_wire.STATUS_FINISHED
     assert calls[0] == "prepare"
+    assert "publish" in calls
     assert "restore" in calls
+    assert final.get("pr_url") == "https://github.com/acme/widgets/pull/9"
+
+    finished = redis_client.xrange(machine_wire.finished_stream("widgets"))
+    assert len(finished) == 1
+    assert finished[0][1]["status"] == machine_wire.STATUS_FINISHED
+    assert finished[0][1]["pr_url"] == "https://github.com/acme/widgets/pull/9"
+
     details = [
         event["detail"]
         for event in graph_wire.read_graph_events(redis_client, guid)
         if event["node"] == "teardown_node" and event["status"] == machine_wire.STATUS_FINISHED
     ]
     assert details
-    assert "restored host gitdir" in details[-1]
+    assert "published FINISHED" in details[-1]
+    assert "pr=" in details[-1]
 
 
 def test_work_graph_failure_still_reaches_teardown(
@@ -329,7 +344,10 @@ def test_work_graph_failure_still_reaches_teardown(
 
     finished = redis_client.xrange(machine_wire.finished_stream("widgets"))
     assert len(finished) == 1
-    assert set(finished[0][1]) == set(FINISHED_CANONICAL_FIELDS)
+    fields = finished[0][1]
+    assert set(fields) == set(FINISHED_CANONICAL_FIELDS)
+    assert fields["status"] == machine_wire.STATUS_ERROR
+    assert fields["pr_url"] == ""
     assert redis_client.exists(machine_wire.agent_handler_key(guid)) == 0
     assert redis_client.exists(graph_wire.graph_run_key(guid)) == 0
 
