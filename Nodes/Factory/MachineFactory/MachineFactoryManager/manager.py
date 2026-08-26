@@ -1,24 +1,20 @@
-"""Consume WORKORDER, prepare a worktree, run the agent in a local sandbox.
+"""Consume WORKORDER, start a clone-in-sandbox agent with a Redis sidecar.
 
 Two loops, the same two CloudFactory runs, for the same reason: orders arrive in
 bursts and start in under a second, while the runs they start take minutes and
 outlive any particular manager process. So the AGENTHANDLER hashes on Redis are
 the source of truth rather than anything held in memory.
 
-* ``poll_orders`` reads the consumer group, prepares the Floor, writes
-  ``AGENTHANDLER:<guid>`` and only then starts the sandbox.
+* ``poll_orders`` reads the consumer group, writes ``AGENTHANDLER:<guid>`` and
+  only then starts the sandbox (agent container + Redis sidecar).
 * ``poll_runs`` walks that registry looking for runs whose sandbox is gone.
 
 The order of the first loop is what makes the handshake work: the container finds
-its own work by reading the hash, so the hash must exist before it starts. That is
-the mirror image of the cloud, where the provider mints the id and the registry
-entry can only be written afterwards.
+its own work by reading the hash, so the hash must exist before it starts.
 
 The second loop exists because a container is not a managed service. A healthy
 sandbox reports its own outcome onto ``FINISHED:<REPO>`` and deletes its hash on
-the way out — from inside, where the exit code is. ``poll_runs`` only covers the
-case where it never got the chance, which would otherwise leave a hash claiming a
-run that stopped existing and a ticket nobody merges.
+the way out. ``poll_runs`` only covers the case where it never got the chance.
 """
 
 from __future__ import annotations
@@ -26,10 +22,8 @@ from __future__ import annotations
 import logging
 import os
 import signal
-import subprocess
 import time
 import uuid
-from pathlib import Path
 from typing import Any, Optional
 
 from redis import Redis
@@ -38,27 +32,16 @@ from redis.exceptions import ResponseError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from megadesk_contracts import redis_connect, resolve_ephemeral_db, resolve_redis_url
+from megadesk_contracts.repo import safe_repo_name
 from megadesk_contracts.wire import machine as wire
 
-from MachineFactoryManager.floor import (
-    agents_worktree,
-    create_ticket_worktree,
-    default_floor,
-    ensure_repo,
-    safe_repo_name,
-    ticket_worktree,
-)
 from MachineFactoryManager.pool import LOCAL_REDIS_URL
 
 log = logging.getLogger("manager")
 
 POLL_INTERVAL_SEC = 1.0
 WORKORDER_BATCH = 32
-# Docker is cheap to ask but not free, and nothing here changes second to second.
 RUN_POLL_INTERVAL_SEC = 10.0
-# A sandbox publishes FINISHED and then deletes its hash. For the moment between
-# those two, its container is already gone while its hash is still there — so a
-# run is only treated as lost once it has been missing for longer than that.
 ORPHAN_GRACE_SEC = 30.0
 
 
@@ -110,12 +93,10 @@ class MachineFactoryManager:
         runtime: Any = None,
         group: str = wire.WORKORDER_GROUP,
         consumer: Optional[str] = None,
-        floor: Optional[Path] = None,
         run_poll_interval: float = RUN_POLL_INTERVAL_SEC,
         orphan_grace: float = ORPHAN_GRACE_SEC,
     ) -> None:
         self.redis_url = redis_url or os.environ.get("REDIS_URL", LOCAL_REDIS_URL)
-        self.floor = floor or default_floor()
         self.group = group
         self._running = True
         self.consumer = consumer or os.environ.get(
@@ -146,8 +127,6 @@ class MachineFactoryManager:
             self._runtime = DockerSandboxFactory()
         return self._runtime
 
-    # --- registry ---
-
     def _write_agent_handler(
         self,
         redis: Redis,
@@ -177,9 +156,9 @@ class MachineFactoryManager:
         repo: str,
         ticket_name: str,
         ticket_id: str,
-        workpath: Path,
-        agent_dir: Path,
+        status: str,
         error: str,
+        pr_url: str = "",
     ) -> None:
         """Report a run that produced nothing, so nobody waits on it forever."""
         key = wire.agent_handler_key(guid)
@@ -187,23 +166,21 @@ class MachineFactoryManager:
             key,
             mapping=wire.agent_handler_fields(
                 ticket_id=ticket_id,
-                status=wire.STATUS_ERROR,
+                status=status,
                 error=error,
             ),
         )
         payload = wire.finished_fields(
             ticket_name=ticket_name,
             ticket_id=ticket_id,
-            wt=str(workpath),
-            agent_dir=str(agent_dir),
+            status=status,
+            pr_url=pr_url,
         )
         stream = wire.finished_stream(repo)
         redis.xadd(stream, payload)
         redis.delete(key)
         self._missing_since.pop(guid, None)
-        log.error("Published %s and deleted %s: %s", stream, key, error)
-
-    # --- orders ---
+        log.error("Published %s and deleted %s: %s", stream, key, error or status)
 
     def handle_workorder(
         self,
@@ -211,59 +188,21 @@ class MachineFactoryManager:
         message_id: str,
         fields: dict[str, Any],
     ) -> bool:
-        """Prepare the Floor and start one sandbox. False when nothing started."""
+        """Start one sandbox for a WORKORDER. False when nothing started."""
         item = wire.parse_workorder(fields)
         repo = safe_repo_name(item["repo"])
         ticket_name = item["ticket_name"]
         url = item["URL"]
-        new_wt = bool(item["new_wt"])
         log.info(
-            "WORKORDER %s: repo=%s ticket=%s new_wt=%s url=%s",
+            "WORKORDER %s: repo=%s ticket=%s url=%s auto_pr=%s",
             message_id,
             repo,
             ticket_name,
-            new_wt,
             url,
+            item["auto_pr"],
         )
-
-        try:
-            if new_wt:
-                if not url:
-                    raise ValueError(
-                        "WORKORDER with new_wt=true requires URL to create Floor repo"
-                    )
-                ensure_repo(repo=repo, url=url, floor_root=self.floor)
-                workpath = create_ticket_worktree(repo, ticket_name, self.floor)
-            else:
-                workpath = Path(item["wt"])
-                if not workpath.is_absolute():
-                    raise ValueError(f"WORKORDER wt must be absolute: {workpath}")
-                if not workpath.exists():
-                    raise FileNotFoundError(f"WORKORDER wt does not exist: {workpath}")
-                # Ensure Floor agents tree exists when URL is provided.
-                if url:
-                    ensure_repo(repo=repo, url=url, floor_root=self.floor)
-                elif not (self.floor / repo / ".bare").exists():
-                    raise FileNotFoundError(
-                        f"Repo {repo!r} missing under Floor and no URL on WORKORDER"
-                    )
-        except (
-            ValueError,
-            FileNotFoundError,
-            OSError,
-            subprocess.CalledProcessError,
-        ) as exc:
-            log.error(
-                "WORKORDER Floor setup failed for %s/%s: %s",
-                repo,
-                ticket_name,
-                exc,
-            )
-            return False
-
-        agent_dir = agents_worktree(repo, self.floor)
-        if not agent_dir.exists():
-            log.error("agents worktree missing at %s", agent_dir)
+        if not url:
+            log.error("WORKORDER %s missing URL; cannot clone", message_id)
             return False
 
         guid = str(uuid.uuid4())
@@ -282,8 +221,8 @@ class MachineFactoryManager:
                     "ticket_name": ticket_name,
                     "instructions": item["instructions"],
                     "model": item["model"],
-                    "wt": str(workpath),
-                    "agent_dir": str(agent_dir),
+                    "URL": url,
+                    "auto_pr": item["auto_pr"],
                     "ticket_id": message_id,
                 }
             )
@@ -291,25 +230,29 @@ class MachineFactoryManager:
             raise
         except Exception as exc:  # noqa: BLE001
             log.error("Failed to start sandbox for %s/%s: %s", repo, ticket_name, exc)
+            releaser = getattr(self.runtime, "release", None)
+            if callable(releaser):
+                try:
+                    releaser(guid)
+                except Exception:  # noqa: BLE001
+                    pass
             self._finish(
                 redis,
                 guid=guid,
                 repo=repo,
                 ticket_name=ticket_name,
                 ticket_id=message_id,
-                workpath=workpath,
-                agent_dir=agent_dir,
+                status=wire.STATUS_ERROR,
                 error=str(exc),
             )
             return False
 
         redis.hset(wire.agent_handler_key(guid), "status", wire.STATUS_RUNNING)
         log.info(
-            "WORKORDER sandbox started container=%s guid=%s ticket_id=%s wt=%s",
+            "WORKORDER sandbox started container=%s guid=%s ticket_id=%s",
             handle.run_id,
             guid,
             message_id,
-            workpath,
         )
         return True
 
@@ -344,8 +287,6 @@ class MachineFactoryManager:
         except Exception:  # noqa: BLE001
             log.exception("Unhandled error processing WORKORDER %s", message_id)
 
-        # Acked either way: a poison entry retried forever would block the group
-        # behind it, and the failure has already been reported where it belongs.
         redis.xack(wire.WORKORDER_STREAM, self.group, message_id)
         return started
 
@@ -361,8 +302,6 @@ class MachineFactoryManager:
                 if self._process_workorder_entry(redis, message_id, fields):
                     started += 1
         return started
-
-    # --- runs ---
 
     def live_runs(self) -> list[tuple[str, dict[str, str]]]:
         """Every run the registry still claims, keyed by sandbox guid."""
@@ -413,13 +352,11 @@ class MachineFactoryManager:
             try:
                 releaser(guid)
             except Exception as exc:  # noqa: BLE001
-                log.warning("Could not release Redis lane for run %s: %s", guid, exc)
+                log.warning("Could not release Redis sidecar for run %s: %s", guid, exc)
         ticket_id = run["ticket_id"]
         try:
             order = wire.load_workorder(self.redis, ticket_id)
         except (LookupError, ValueError) as exc:
-            # No order to name the ticket with, so nothing coherent to publish.
-            # Drop the hash rather than re-checking a dead sandbox forever.
             log.error("Run %s lost its order %s (%s); dropping", guid, ticket_id, exc)
             self.redis.delete(wire.agent_handler_key(guid))
             self._missing_since.pop(guid, None)
@@ -427,19 +364,13 @@ class MachineFactoryManager:
 
         repo = safe_repo_name(order["repo"])
         ticket_name = order["ticket_name"]
-        workpath = (
-            ticket_worktree(repo, ticket_name, self.floor)
-            if order["new_wt"]
-            else Path(order["wt"])
-        )
         self._finish(
             self.redis,
             guid=guid,
             repo=repo,
             ticket_name=ticket_name,
             ticket_id=ticket_id,
-            workpath=workpath,
-            agent_dir=agents_worktree(repo, self.floor),
+            status=wire.STATUS_ERROR,
             error="sandbox stopped without publishing FINISHED",
         )
         return True
@@ -461,8 +392,6 @@ class MachineFactoryManager:
         log.info("Cancelled run %s (ticket_id=%s)", guid, run["ticket_id"])
         return True
 
-    # --- loop ---
-
     def poll_once(self) -> int:
         return self.poll_orders() + self.poll_runs()
 
@@ -473,11 +402,10 @@ class MachineFactoryManager:
         redis = self.redis
         ensure_workorder_group(redis)
         log.info(
-            "MachineFactoryManager polling stream %s (group=%s consumer=%s) floor=%s redis=%s",
+            "MachineFactoryManager polling stream %s (group=%s consumer=%s) redis=%s",
             wire.WORKORDER_STREAM,
             self.group,
             self.consumer,
-            self.floor,
             self.redis_url,
         )
 

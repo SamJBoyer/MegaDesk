@@ -8,10 +8,8 @@ AGENTHANDLER hash behind for the manager's reaper to clean up 30 seconds later.
 Every node is a plain function of ``(context, state)`` curried into a one-arg
 callable by ``build``. That keeps them directly testable without a graph.
 
-Startup binds the linked worktree to ``/workspace`` + ``/bare`` and holds that
-for the rest of the run. Teardown restores the host gitdir pointers before it
-publishes FINISHED, so a missed agent restore cannot leave the worktree
-unmergeable.
+Startup clones the target repo into ``/workspace``. Teardown pushes the branch,
+opens a PR when ``auto_pr`` is set, and publishes FINISHED with the PR URL.
 """
 
 from __future__ import annotations
@@ -52,16 +50,8 @@ def _clip(text: Any, limit: int = _REPORT_LIMIT) -> str:
     return body[: limit - 3] + "..."
 
 
-# --- startup ---------------------------------------------------------------
-
-
 def startup_node(context: RunContext, state: WorkState) -> WorkState:
-    """Read the handshake, load the order, and mark the run running.
-
-    Host paths are seeded from the environment before anything can fail, so a
-    missing or malformed hash still leaves teardown enough to publish FINISHED
-    and let MergeManager see the worktree.
-    """
+    """Read the handshake, load the order, clone the repo, mark the run running."""
     node = "startup_node"
     context.reporter.node_started(node)
 
@@ -69,9 +59,9 @@ def startup_node(context: RunContext, state: WorkState) -> WorkState:
         "guid": context.guid,
         "repo": context.repo,
         "ticket_name": context.ticket,
-        "wt": context.host_wt,
-        "agent_dir": context.host_agent_dir,
         "ticket_id": context.env_ticket_id,
+        "auto_pr": context.auto_pr,
+        "pr_url": "",
     }
 
     key = agent_handler_key(context.guid)
@@ -97,8 +87,8 @@ def startup_node(context: RunContext, state: WorkState) -> WorkState:
     ticket_name = order["ticket_name"]
     repo = order["repo"] or context.repo
     model = order["model"] or context.default_model or DEFAULT_MODEL
-    wt = context.host_wt or order.get("wt") or ""
-    agent_dir = context.host_agent_dir
+    auto_pr = bool(order.get("auto_pr", context.auto_pr))
+    repo_url = order.get("URL") or context.repo_url
 
     context.audit.repo = repo
     context.audit.ticket = ticket_name
@@ -106,6 +96,9 @@ def startup_node(context: RunContext, state: WorkState) -> WorkState:
     context.reporter.ticket_id = ticket_id
     context.reporter.ticket_name = ticket_name
     context.reporter.repo = repo
+    context.repo_url = repo_url
+    context.ticket = ticket_name
+    context.auto_pr = auto_pr
 
     resolved: WorkState = {
         **seed,
@@ -114,12 +107,11 @@ def startup_node(context: RunContext, state: WorkState) -> WorkState:
         "repo": repo,
         "model": model,
         "instructions": order["instructions"],
-        "wt": wt,
-        "agent_dir": agent_dir,
+        "auto_pr": auto_pr,
     }
 
-    if not wt or not agent_dir:
-        message = "Missing HOST_WT / HOST_AGENT_DIR for FINISHED publish"
+    if not repo_url:
+        message = "Missing REPO_URL / WORKORDER.URL for sandbox clone"
         context.reporter.node_failed(node, message)
         return {**resolved, **_fail(node, message)}
 
@@ -132,15 +124,12 @@ def startup_node(context: RunContext, state: WorkState) -> WorkState:
     try:
         context.prepare_git()
     except (FileNotFoundError, RuntimeError, OSError) as exc:
-        message = f"worktree git bind failed: {exc}"
+        message = f"sandbox clone failed: {exc}"
         context.reporter.node_failed(node, _clip(message, 200))
         return {**resolved, **_fail(node, message)}
 
     context.reporter.node_finished(node, f"ticket={ticket_name} model={model}")
     return resolved
-
-
-# --- agent nodes -----------------------------------------------------------
 
 
 def pathfinder_node(context: RunContext, state: WorkState) -> WorkState:
@@ -152,8 +141,6 @@ def pathfinder_node(context: RunContext, state: WorkState) -> WorkState:
     )
     outcome = _run_agent(context, state, instruction, node)
     if outcome.get("error"):
-        # A survey that fell over is not worth stopping the run for; the
-        # workhorse can read the repo itself. Record it and carry on.
         detail = _clip(outcome["error"], 200)
         context.reporter.node_finished(node, f"survey skipped: {detail}")
         return {"pathfinder_report": ""}
@@ -215,36 +202,27 @@ def git_node(context: RunContext, state: WorkState) -> WorkState:
     }
 
 
-# --- teardown --------------------------------------------------------------
-
-
 def teardown_node(context: RunContext, state: WorkState) -> WorkState:
-    """Restore host gitdir pointers, publish the outcome, and stop.
-
-    Reached from every other node, so it must work with whatever state it is
-    handed — including a run that failed before it knew its own ticket. The
-    restore runs first so FINISHED is published against a worktree the host
-    can open.
-    """
+    """Push/PR when healthy, publish the outcome, and stop."""
     from AgentHandler.handler import publish_finished
 
     node = "teardown_node"
     context.reporter.node_started(node)
-
-    restored = False
-    try:
-        context.restore_git()
-        restored = True
-    except Exception as exc:  # noqa: BLE001
-        log.error("wt rectifier restore failed: %s", exc)
 
     error = state.get("error", "")
     status = STATUS_ERROR if error else STATUS_FINISHED
     ticket_id = state.get("ticket_id") or context.env_ticket_id or "missing"
     ticket_name = state.get("ticket_name") or context.ticket or "unknown"
     repo = state.get("repo") or context.repo
-    wt = state.get("wt") or context.host_wt
-    agent_dir = state.get("agent_dir") or context.host_agent_dir
+    pr_url = state.get("pr_url") or ""
+
+    if status == STATUS_FINISHED and bool(state.get("auto_pr", context.auto_pr)):
+        try:
+            pr_url = context.publish_branch() or pr_url
+        except Exception as exc:  # noqa: BLE001
+            error = f"publish failed: {exc}"
+            status = STATUS_ERROR
+            log.error("%s", error)
 
     try:
         _set_handler_status(
@@ -254,34 +232,33 @@ def teardown_node(context: RunContext, state: WorkState) -> WorkState:
         log.error("Could not write final AGENTHANDLER status: %s", exc)
 
     published = False
-    if wt and agent_dir:
-        try:
-            publish_finished(
-                context.redis,
-                repo=repo,
-                ticket_name=ticket_name,
-                ticket_id=ticket_id,
-                wt=wt,
-                agent_dir=agent_dir,
-                handler_key=agent_handler_key(context.guid),
-            )
-            published = True
-        except Exception as exc:  # noqa: BLE001
-            log.error("Could not publish FINISHED: %s", exc)
-    else:
-        log.error("No worktree paths known; skipping FINISHED publish")
+    try:
+        publish_finished(
+            context.redis,
+            repo=repo,
+            ticket_name=ticket_name,
+            ticket_id=ticket_id,
+            status=status,
+            pr_url=pr_url,
+            handler_key=agent_handler_key(context.guid),
+        )
+        published = True
+    except Exception as exc:  # noqa: BLE001
+        log.error("Could not publish FINISHED: %s", exc)
 
     detail = "published FINISHED" if published else "no FINISHED published"
-    if restored:
-        detail = f"restored host gitdir, {detail}"
+    if pr_url:
+        detail = f"pr={pr_url}, {detail}"
     context.reporter.node_finished(node, detail)
     context.reporter.finish_run(status, error)
     context.reporter.clear()
 
-    return {"status": status, "exit_code": 0 if status == STATUS_FINISHED else 1}
-
-
-# --- shared plumbing -------------------------------------------------------
+    return {
+        "status": status,
+        "exit_code": 0 if status == STATUS_FINISHED else 1,
+        "pr_url": pr_url,
+        "error": error,
+    }
 
 
 def _set_handler_status(
@@ -308,13 +285,7 @@ def _run_agent(
     instruction: str,
     node: str,
 ) -> dict[str, Any]:
-    """One agent turn inside the bound worktree.
-
-    Imported at call time so ``handler`` stays free to import the graph, and so
-    a test that patches ``AgentHandler.handler.Agent`` still reaches this path.
-    Gitdir pointers stay bound for the whole run after startup; teardown is the
-    one that writes the host pointers back.
-    """
+    """One agent turn inside the cloned workspace."""
     from AgentHandler.handler import run_agent
 
     model = state.get("model") or context.default_model or DEFAULT_MODEL

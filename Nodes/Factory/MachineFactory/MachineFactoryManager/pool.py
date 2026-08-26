@@ -1,4 +1,4 @@
-"""Spin Docker sandboxes that mount Floor worktrees and run AgentHandler."""
+"""Spin Docker sandboxes that clone a repo and run AgentHandler with a Redis sidecar."""
 
 from __future__ import annotations
 
@@ -8,23 +8,27 @@ import re
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
-from megadesk_contracts import DEFAULT_REDIS_URL, REDIS_DB_EPHEMERAL, redis_url_with_db
+from megadesk_contracts import DEFAULT_REDIS_URL, redis_url_with_db, resolve_ephemeral_db
 from megadesk_contracts.agent_audit import agent_audit_bind_args
 
 log = logging.getLogger("pool")
 
 IMAGE_NAME = os.environ.get("MACHINE_FACTORY_IMAGE", "machine-factory-agent:latest")
+REDIS_IMAGE = os.environ.get("MACHINE_FACTORY_REDIS_IMAGE", "redis:7-alpine")
 NETWORK_NAME = os.environ.get("MACHINE_FACTORY_NETWORK", "machine-factory-net")
-DEFAULT_CONTAINER_REDIS_URL = "redis://host.docker.internal:6379/0"
+DEFAULT_FACTORY_REDIS_URL = "redis://host.docker.internal:6379/0"
 LOCAL_REDIS_URL = os.environ.get("REDIS_URL", DEFAULT_REDIS_URL)
 
 # Labelled with its run key so a restarted manager can still find, follow and
 # stop a sandbox it did not start. The alternative — remembering container names
 # in memory — loses every live run the moment the BE is bounced.
 RUN_KEY_LABEL = "megadesk.run_key"
+REDIS_RUN_LABEL = "megadesk.redis_for"
 CONTAINER_NAME_PREFIX = "mf-"
+REDIS_NAME_PREFIX = "mf-redis-"
 
 
 def _docker(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -72,7 +76,6 @@ def _follow_container_logs(container_name: str) -> None:
                 text = line.rstrip("\n\r")
                 if not text:
                     continue
-                # AgentHandler errors use ERROR/CRITICAL; surface those at error.
                 upper = text.upper()
                 if " ERROR " in f" {upper} " or " CRITICAL " in f" {upper} ":
                     log.error("%s %s", prefix, text)
@@ -99,24 +102,12 @@ def _follow_container_logs(container_name: str) -> None:
     thread.start()
 
 
-def sandbox_redis_env(
-    ephemeral_db: int,
-    *,
-    container_redis_url: str | None = None,
-    factory_ephemeral_db: int = REDIS_DB_EPHEMERAL,
-) -> tuple[str, str]:
-    """Subject REDIS_URL and factory IPC URL for a sandbox.
-
-    AgentHandler talks to the factory process's ephemeral DB (live 0, or the
-    host-pytest pair if that is who launched it). The agent's MegaDesk uses
-    the leased even DB.
-    """
-    base = container_redis_url or os.environ.get(
-        "REDIS_URL_CONTAINER", DEFAULT_CONTAINER_REDIS_URL
-    )
-    factory_url = redis_url_with_db(base, factory_ephemeral_db)
-    subject_url = redis_url_with_db(base, ephemeral_db)
-    return subject_url, factory_url
+def factory_redis_url_for_container() -> str:
+    """Host Redis as seen from inside a sandbox container (factory IPC bus)."""
+    base = os.environ.get("REDIS_URL_CONTAINER", DEFAULT_FACTORY_REDIS_URL)
+    # Prefer the process pair's ephemeral DB when the host REDIS_URL is set.
+    host = os.environ.get("REDIS_URL", LOCAL_REDIS_URL)
+    return redis_url_with_db(base, resolve_ephemeral_db(host))
 
 
 def require_local_redis() -> None:
@@ -140,11 +131,7 @@ def build_image(node_root: Path) -> None:
 
     The context is deliberately wider than this node: the sandbox installs
     ``megadesk-contracts`` and reads the same wire module the manager writes to.
-    Shipping a copy of that module inside the image instead would give the two
-    ends of one handshake two definitions of it, which is the failure this
-    refactor removed.
     """
-    # Nodes/Factory/<node> -> worktree root.
     context = node_root.parents[2]
     log.info("Building image %s (context=%s)", IMAGE_NAME, context)
     proc = subprocess.run(
@@ -169,13 +156,36 @@ def container_name(repo: str, ticket: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_.-]", "-", safe)
 
 
+def redis_sidecar_name(guid: str) -> str:
+    token = re.sub(r"[^a-zA-Z0-9_.-]", "-", guid.lower())[:48]
+    return f"{REDIS_NAME_PREFIX}{token}"
+
+
 def container_for_run(run_key: str) -> str:
-    """The sandbox carrying this run key, or "" if none is left running."""
+    """The agent sandbox carrying this run key, or "" if none is left running."""
     result = _docker(
         [
             "ps",
             "--filter",
             f"label={RUN_KEY_LABEL}={run_key}",
+            "--format",
+            "{{.Names}}",
+        ],
+        check=False,
+    )
+    if result.returncode != 0:
+        return ""
+    return result.stdout.strip().splitlines()[0].strip() if result.stdout.strip() else ""
+
+
+def redis_for_run(run_key: str) -> str:
+    """The Redis sidecar for this run key, or "" if none remains."""
+    result = _docker(
+        [
+            "ps",
+            "-a",
+            "--filter",
+            f"label={REDIS_RUN_LABEL}={run_key}",
             "--format",
             "{{.Names}}",
         ],
@@ -195,43 +205,69 @@ def remove_container(name: str) -> None:
     _docker(["rm", "-f", name], check=False)
 
 
-def find_bare_dir(worktree: Path) -> Path:
-    """Locate Floor/<repo>/.bare by walking up from a worktree path."""
-    resolved = worktree.resolve()
-    for parent in [resolved, *resolved.parents]:
-        candidate = parent / ".bare"
-        if candidate.is_dir():
-            return candidate
-    raise FileNotFoundError(
-        f"No .bare directory found above worktree {worktree}. "
-        "Floor repos must keep .bare next to wt/."
+def stop_redis_sidecar(run_key: str) -> None:
+    """Remove the Redis sidecar for a finished or cancelled run."""
+    name = redis_for_run(run_key)
+    if name:
+        log.info("Removing Redis sidecar %s for run %s", name, run_key)
+        remove_container(name)
+
+
+def _wait_redis_ready(name: str, *, timeout_sec: float = 20.0) -> None:
+    deadline = time.monotonic() + timeout_sec
+    while time.monotonic() < deadline:
+        result = _docker(
+            ["exec", name, "redis-cli", "ping"],
+            check=False,
+        )
+        if result.returncode == 0 and "PONG" in (result.stdout or "").upper():
+            return
+        time.sleep(0.25)
+    raise RuntimeError(f"Redis sidecar {name} did not become ready")
+
+
+def start_redis_sidecar(*, guid: str) -> str:
+    """Start a per-run Redis container on the factory network. Returns its name."""
+    ensure_network()
+    name = redis_sidecar_name(guid)
+    if _docker(["inspect", name], check=False).returncode == 0:
+        log.info("Removing existing Redis sidecar %s before restart", name)
+        remove_container(name)
+    log.info("Starting Redis sidecar %s for run %s", name, guid)
+    _docker(
+        [
+            "run",
+            "-d",
+            "--rm",
+            "--name",
+            name,
+            "--network",
+            NETWORK_NAME,
+            "--label",
+            f"{REDIS_RUN_LABEL}={guid}",
+            REDIS_IMAGE,
+        ]
     )
+    _wait_redis_ready(name)
+    return name
 
 
 def start_ticket_sandbox(
     *,
     repo: str,
     ticket: str,
-    host_worktree: Path,
-    agent_dir: Path,
+    repo_url: str,
     guid: str,
     ticket_id: str,
-    ephemeral_db: int,
-    factory_ephemeral_db: int = REDIS_DB_EPHEMERAL,
+    auto_pr: bool = True,
     api_key: str | None = None,
 ) -> str:
-    """Mount a host worktree + its .bare and run one-shot AgentHandler.
+    """Start a Redis sidecar + AgentHandler sandbox that clones ``repo_url``.
 
-    Used for WORKORDER jobs (new ticket trees and existing ``wt`` merges).
-    Host paths are passed via env so AgentHandler can publish FINISHED:<REPO>
-    with absolute paths MergeManager understands.
-    ``.bare`` is mounted at /bare so linked worktrees can resolve gitdir
-    pointers inside the Linux container (AgentHandler rewrites them for the run).
-    The run's pretty and token audit files (``Logs/{session}/agent-{guid}.md`` and
-    ``agent-{guid}.tokens.md``) are bind-mounted as two files so the sandbox can
-    stream progress without seeing other logs.
-    Uses --rm so the container is removed when AgentHandler exits.
-    Returns the container name.
+    The agent MegaDesk uses the sidecar (``REDIS_URL``). Factory IPC
+    (AGENTHANDLER / WORKORDER / FINISHED / GRAPHRUN) uses
+    ``MEGADESK_FACTORY_REDIS_URL`` on the host pair.
+    Returns the agent container name.
     """
     key = api_key or os.environ.get("CURSOR_API_KEY")
     if not key:
@@ -239,22 +275,19 @@ def start_ticket_sandbox(
         raise SystemExit(1)
 
     ensure_network()
+    redis_name = start_redis_sidecar(guid=guid)
 
     name = container_name(repo, ticket)
-    host_path = str(host_worktree.resolve())
-    host_agent = str(agent_dir.resolve())
-    bare_dir = find_bare_dir(host_worktree)
-    host_bare = str(bare_dir.resolve())
-
     if _docker(["inspect", "-f", "{{.State.Running}}", name], check=False).returncode == 0:
         log.info("Removing existing container %s before restart", name)
         remove_container(name)
 
-    redis_url = os.environ.get("REDIS_URL_CONTAINER", DEFAULT_CONTAINER_REDIS_URL)
-    subject_url, factory_url = sandbox_redis_env(
-        ephemeral_db,
-        container_redis_url=redis_url,
-        factory_ephemeral_db=factory_ephemeral_db,
+    subject_url = f"redis://{redis_name}:6379/0"
+    factory_url = factory_redis_url_for_container()
+    gh_token = (
+        os.environ.get("GH_TOKEN")
+        or os.environ.get("GITHUB_TOKEN")
+        or ""
     )
     args = [
         "run",
@@ -278,34 +311,34 @@ def start_ticket_sandbox(
         "-e",
         f"REPO_NAME={repo}",
         "-e",
+        f"REPO_URL={repo_url}",
+        "-e",
         f"TICKET={ticket}",
         "-e",
         f"TICKET_ID={ticket_id}",
         "-e",
-        f"HOST_WT={host_path}",
-        "-e",
-        f"HOST_AGENT_DIR={host_agent}",
-        "-e",
-        f"HOST_BARE={host_bare}",
+        f"AUTO_PR={'true' if auto_pr else 'false'}",
         "-e",
         "WORKSPACE=/workspace",
         "-e",
-        "BARE_MOUNT=/bare",
-        "-v",
-        f"{host_path}:/workspace",
-        "-v",
-        f"{host_bare}:/bare",
+        "STARTING_REF=agents",
+        *([f"-e", f"GH_TOKEN={gh_token}"] if gh_token else []),
+        *([f"-e", f"GITHUB_TOKEN={gh_token}"] if gh_token else []),
         *agent_audit_bind_args(guid),
         IMAGE_NAME,
     ]
     log.info(
-        "Starting sandbox %s mounting wt=%s bare=%s guid=%s ticket_id=%s",
+        "Starting sandbox %s clone=%s guid=%s ticket_id=%s redis=%s",
         name,
-        host_path,
-        host_bare,
+        repo_url,
         guid,
         ticket_id,
+        redis_name,
     )
-    _docker(args)
+    try:
+        _docker(args)
+    except Exception:
+        stop_redis_sidecar(guid)
+        raise
     _follow_container_logs(name)
     return name

@@ -8,8 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
     PATH="/root/.local/bin:${PATH}" \
-    WORKSPACE=/workspace \
-    REDIS_URL=redis://host.docker.internal:6379/0
+    WORKSPACE=/workspace
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
@@ -23,6 +22,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl https://cursor.com/install -fsS | bash \
     && agent --version || cursor-agent --version || true
 
+# GitHub CLI for opening PRs from the sandbox
+RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends gh \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY Nodes/Factory/MachineFactory/requirements-sandbox.txt /app/requirements.txt
@@ -35,9 +44,8 @@ RUN pip install --no-cache-dir /app/MegaDesk-contracts
 
 COPY Nodes/Factory/MachineFactory/AgentHandler /app/AgentHandler
 
-RUN mkdir -p /workspace /bare
+RUN mkdir -p /workspace
 WORKDIR /workspace
 
-# AgentHandler is the container entrypoint.
-# Mount Floor worktree at /workspace and Floor/<repo>/.bare at /bare.
+# AgentHandler clones REPO_URL into /workspace, then runs the work graph.
 CMD ["python", "-m", "AgentHandler"]

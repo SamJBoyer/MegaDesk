@@ -2,8 +2,8 @@
 
 startup -> pathfinder -> workhorse -> git -> teardown, with every node able to
 short-circuit to teardown so the run always publishes an outcome. Startup
-rewrites gitdir pointers for the sandbox mounts; teardown writes the host
-pointers back so the worktree is mergeable.
+clones the target repo into the sandbox; teardown pushes a branch and opens a
+pull request when ``auto_pr`` is set.
 
 LangGraph is used for orchestration only. The agent nodes drive Cursor through
 ``AgentHandler.handler.run_agent`` exactly as the single-shot handler did, so

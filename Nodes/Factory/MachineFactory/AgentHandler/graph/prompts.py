@@ -18,7 +18,7 @@ def pathfinder_prompt(*, ticket_name: str, instructions: str) -> str:
     """Deliberately small. This node clears the runway; it does not fly."""
     return "\n".join(
         [
-            f"You are preparing a worktree for the ticket {ticket_name!r}.",
+            f"You are preparing a sandbox clone for the ticket {ticket_name!r}.",
             "",
             "The work that is about to happen here:",
             instructions.strip(),
@@ -47,7 +47,7 @@ def workhorse_prompt(
     if pathfinder_report.strip():
         lines += [
             "",
-            "A survey of this worktree was done before you started:",
+            "A survey of this sandbox clone was done before you started:",
             pathfinder_report.strip(),
         ]
     lines += [
@@ -70,7 +70,7 @@ def git_prompt(
     work_name = ticket_name or repo or "unknown"
     return "\n".join(
         [
-            "Commit the work already present in this worktree.",
+            "Commit the work already present in this sandbox clone.",
             "",
             f"Ticket: {work_name}",
             f"Ticket id: {ticket_id or '(none)'}",

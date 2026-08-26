@@ -4,9 +4,6 @@
 that describe the run. ``RunContext`` is everything a node needs but must not
 serialize — the Redis client, the audit log, the API key — held once for the
 whole run and handed to the node closures when the graph is built.
-
-The split matters because LangGraph copies state around. A live socket in there
-would either break or, worse, quietly work until something tried to checkpoint.
 """
 
 from __future__ import annotations
@@ -14,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, TypedDict
 
-from AgentHandler.worktree_bind import WorktreeGitBind
+from AgentHandler.repo_clone import SandboxRepo
 
 
 class WorkState(TypedDict, total=False):
@@ -26,8 +23,8 @@ class WorkState(TypedDict, total=False):
     repo: str
     model: str
     instructions: str
-    wt: str
-    agent_dir: str
+    auto_pr: bool
+    pr_url: str
 
     # Set by any node that fails. Its presence is what routes to teardown.
     error: str
@@ -53,33 +50,34 @@ class RunContext:
     reporter: Any
     api_key: str
     workspace: str
-    bare_mount: str = "/bare"
     ticket: str = ""
     repo: str = ""
-    host_wt: str = ""
-    host_agent_dir: str = ""
-    host_bare: str = ""
+    repo_url: str = ""
+    starting_ref: str = "agents"
+    auto_pr: bool = True
     env_ticket_id: str = ""
     default_model: str = ""
 
-    # Injected so tests can drive the graph without a real Floor mount. In the
-    # sandbox this is the real thing and the pointers genuinely need rewriting.
-    git_bind_factory: Callable[..., Any] = field(default=WorktreeGitBind)
-    _git_bind: Any = field(default=None, init=False, repr=False)
+    # Injected so tests can drive the graph without a real clone.
+    repo_factory: Callable[..., Any] = field(default=SandboxRepo)
+    _repo: Any = field(default=None, init=False, repr=False)
 
-    def git_binder(self) -> Any:
-        if self._git_bind is None:
-            self._git_bind = self.git_bind_factory(
+    def sandbox_repo(self) -> Any:
+        if self._repo is None:
+            self._repo = self.repo_factory(
                 self.workspace,
-                bare_mount=self.bare_mount,
+                repo_url=self.repo_url,
                 ticket=self.ticket,
-                host_wt=self.host_wt,
-                host_bare=self.host_bare,
+                starting_ref=self.starting_ref,
+                auto_pr=self.auto_pr,
             )
-        return self._git_bind
+        return self._repo
 
     def prepare_git(self) -> None:
-        self.git_binder().prepare()
+        self.sandbox_repo().prepare()
 
     def restore_git(self) -> None:
-        self.git_binder().restore()
+        self.sandbox_repo().restore()
+
+    def publish_branch(self) -> str:
+        return str(self.sandbox_repo().publish_branch() or "")

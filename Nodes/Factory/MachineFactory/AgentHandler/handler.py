@@ -1,12 +1,11 @@
 """AgentHandler: AGENTHANDLER:<GUID> → WORKORDER lookup → work graph → FINISHED:<REPO>.
 
-This module is now the run's plumbing rather than its plot. It connects Redis,
-opens the audit trail, and hands both to the LangGraph work graph in
-``AgentHandler.graph``, which is where the steps of a run actually live.
+Connects to the factory Redis bus, opens the audit trail, and hands both to the
+LangGraph work graph in ``AgentHandler.graph``. The sandbox clones its own repo
+and opens a PR; agent MegaDesk uses the Redis sidecar via ``REDIS_URL``.
 
 ``run_agent`` stays here because it is the single place the Cursor SDK is
-driven; every agent node in the graph calls back into it, so there is still
-exactly one implementation of "talk to an agent and record what it said".
+driven; every agent node in the graph calls back into it.
 """
 
 from __future__ import annotations
@@ -159,8 +158,8 @@ def publish_finished(
     repo: str,
     ticket_name: str,
     ticket_id: str,
-    wt: str,
-    agent_dir: str,
+    status: str,
+    pr_url: str,
     handler_key: str,
 ) -> None:
     """XADD FINISHED:<repo> and delete the AGENTHANDLER hash."""
@@ -168,8 +167,8 @@ def publish_finished(
     payload = finished_fields(
         ticket_name=ticket_name,
         ticket_id=ticket_id,
-        wt=wt,
-        agent_dir=agent_dir,
+        status=status,
+        pr_url=pr_url,
     )
     entry_id = redis.xadd(stream, payload)
     redis.delete(handler_key)
@@ -198,14 +197,17 @@ class AgentHandler:
         self.api_key = _env("CURSOR_API_KEY")
         self.workspace = os.environ.get("WORKSPACE", "/workspace")
         self.repo = os.environ.get("REPO_NAME", "unknown")
+        self.repo_url = os.environ.get("REPO_URL", "")
         self.ticket = os.environ.get("TICKET", "")
         self.guid = _env("GUID")
-        self.bare_mount = os.environ.get("BARE_MOUNT", "/bare")
         self.model = os.environ.get("CURSOR_MODEL", "")
-        # Host absolute paths for FINISHED (MergeManager consumes these).
-        self.host_wt = os.environ.get("HOST_WT", "")
-        self.host_agent_dir = os.environ.get("HOST_AGENT_DIR", "")
-        self.host_bare = os.environ.get("HOST_BARE", "")
+        self.starting_ref = os.environ.get("STARTING_REF", "agents")
+        self.auto_pr = os.environ.get("AUTO_PR", "true").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         self.env_ticket_id = os.environ.get("TICKET_ID", "")
 
     def run_once(self) -> int:
@@ -239,12 +241,11 @@ class AgentHandler:
             reporter=reporter,
             api_key=self.api_key,
             workspace=self.workspace,
-            bare_mount=self.bare_mount,
             ticket=self.ticket,
             repo=self.repo,
-            host_wt=self.host_wt,
-            host_agent_dir=self.host_agent_dir,
-            host_bare=self.host_bare,
+            repo_url=self.repo_url,
+            starting_ref=self.starting_ref,
+            auto_pr=self.auto_pr,
             env_ticket_id=self.env_ticket_id,
             default_model=self.model,
         )
@@ -252,7 +253,7 @@ class AgentHandler:
 
 
 def _configure_logging() -> None:
-    """Log to container stdout (docker logs) and a durable worktree file."""
+    """Log to container stdout (docker logs) and a durable workspace file."""
     level = os.environ.get("LOG_LEVEL", "INFO")
     fmt = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
     logging.basicConfig(level=level, format=fmt, stream=sys.stdout)
@@ -269,7 +270,7 @@ def _configure_logging() -> None:
         logging.getLogger().addHandler(file_handler)
     except OSError as exc:
         logging.getLogger("agent_handler").warning(
-            "Could not open worktree agent-handler log at %s: %s",
+            "Could not open agent-handler log at %s: %s",
             log_dir / "agent_handler.log",
             exc,
         )
