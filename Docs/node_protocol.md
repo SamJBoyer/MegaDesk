@@ -246,7 +246,7 @@ A Supervisor-launched BE reads the same packet from `MEGADESK_PARAMETERS` (JSON 
 
 ### Graph member persistence
 
-Members are serialized into a graph `.json` (default `Graphs/default.json`; the bar can point at any file). Persistence is **members-only** (`{"members": {...}}`). Discriminator in JSON is **`type: "megadesk"`**.
+Members are serialized into a graph `.json` (default `Graphs/default.json`; the bar can point at any file). Boot prefers the last open path in `Graphs/CURRENT` when that file still points at a valid graph. Persistence is **members-only** (`{"members": {...}}`). Discriminator in JSON is **`type: "megadesk"`**.
 
 | Field | Role |
 | --- | --- |

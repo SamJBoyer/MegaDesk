@@ -34,7 +34,7 @@ from engine.display_engine import (
     DisplayEngine,
 )
 from engine.graph_bar import BAR_HEIGHT, GRAPH_BAR_TAG, build_graph_bar
-from engine.graph_model import GraphError, GraphModel
+from engine.graph_model import GraphError, GraphModel, remember_last_graph
 from engine.megadesk_registry import discover_megadesk_frontends
 from supervisor.panel import build_supervisor_panel, show_logs_for_canvas_node
 
@@ -245,6 +245,7 @@ def main() -> None:
     model = GraphModel()
     try:
         model.load()
+        remember_last_graph(model.path)
     except GraphError as exc:
         # Start empty rather than not at all: the graph bar can pick another file.
         log.error("Graph %s not loaded: %s", model.path, exc)
