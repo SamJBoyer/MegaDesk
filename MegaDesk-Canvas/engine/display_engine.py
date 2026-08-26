@@ -10,7 +10,7 @@ import dearpygui.dearpygui as dpg
 
 from megadesk_contracts import FeSpec
 
-from engine.graph_model import GraphModel, available_graphs
+from engine.graph_model import GraphModel, available_graphs, remember_last_graph
 from engine.icons import ICON_PX, get_icon_texture_for_path
 from engine.megadesk_member import (
     NODE_EDITOR,
@@ -246,6 +246,7 @@ class DisplayEngine:
         the open graph is still intact when it does.
         """
         self.model.load_from(path)
+        remember_last_graph(self.model.path)
         self.host_all_members()
         self._notify_graph_changed()
 
@@ -257,6 +258,7 @@ class DisplayEngine:
     def save_graph_as(self, path: Path) -> None:
         self.sync_members()
         self.model.save_as(path)
+        remember_last_graph(self.model.path)
         self._notify_graph_changed()
 
     def delete_graph(self) -> None:

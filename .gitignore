@@ -56,6 +56,9 @@ ehthumbs.db
 Logs/*
 !Logs/README.md
 
+# Last-open graph pointer (local preference; Graphs/*.json stay tracked)
+Graphs/CURRENT
+
 # MachineFactory Floor worktrees (bare clones + checkouts)
 Nodes/Factory/MachineFactory/Floor/
 

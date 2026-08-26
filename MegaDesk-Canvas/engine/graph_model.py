@@ -27,6 +27,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 GRAPHS_DIR = PROJECT_ROOT / "Graphs"
 DEFAULT_GRAPH_PATH = GRAPHS_DIR / "default.json"
 GRAPH_SUFFIX = ".json"
+# Pointer at the last open graph (same idea as Logs/CURRENT). Not a graph file.
+CURRENT_FILENAME = "CURRENT"
 
 
 class GraphError(Exception):
@@ -47,6 +49,53 @@ def graph_path_for_name(name: str, directory: Optional[Path] = None) -> Path:
     root = Path(directory) if directory else GRAPHS_DIR
     stem = Path(str(name).strip()).stem or "graph"
     return root / f"{stem}{GRAPH_SUFFIX}"
+
+
+def last_graph_pointer_path() -> Path:
+    return GRAPHS_DIR / CURRENT_FILENAME
+
+
+def remember_last_graph(path: Path) -> None:
+    """Atomically record ``path`` as the graph to open on the next boot."""
+    GRAPHS_DIR.mkdir(parents=True, exist_ok=True)
+    pointer = last_graph_pointer_path()
+    payload = {"path": str(Path(path).resolve())}
+    tmp = GRAPHS_DIR / f"{CURRENT_FILENAME}.tmp"
+    tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(pointer)
+
+
+def read_last_graph_path() -> Optional[Path]:
+    """Return the last-open graph if ``Graphs/CURRENT`` still points at a usable file."""
+    pointer = last_graph_pointer_path()
+    if not pointer.is_file():
+        return None
+    try:
+        text = pointer.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not text:
+        return None
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    raw = str(data.get("path") or "").strip()
+    if not raw:
+        return None
+    candidate = Path(raw)
+    if not candidate.is_file():
+        return None
+    if not is_graph_file(candidate):
+        return None
+    return candidate
+
+
+def boot_graph_path() -> Path:
+    """Graph to open at canvas start: last open if still valid, else ``default.json``."""
+    return read_last_graph_path() or DEFAULT_GRAPH_PATH
 
 
 def read_graph_document(path: Any) -> dict[str, dict[str, Any]]:
@@ -114,7 +163,7 @@ class GraphModel:
     """Owns the graph's members and persists them to its ``.json`` file."""
 
     def __init__(self, path: Optional[Path] = None) -> None:
-        self.path = Path(path) if path else DEFAULT_GRAPH_PATH
+        self.path = Path(path) if path else boot_graph_path()
         self.members: dict[str, MegaDeskMember] = {}
 
     # --- persistence ---
