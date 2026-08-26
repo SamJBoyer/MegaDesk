@@ -17,7 +17,7 @@ def get_fe_spec() -> FeSpec | None:
     icon = _ICON if Path(_ICON).is_file() else None
     return FeSpec(
         name="merge_manager",
-        description="Resolve FINISHED worktrees into the agents branch.",
+        description="Show and open PRs from FINISHED:<REPO> payloads.",
         icon=icon,
         default_width=640,
         default_height=220,
@@ -27,4 +27,3 @@ def get_fe_spec() -> FeSpec | None:
 
 def get_be_spec() -> BeSpec | None:
     return None
-

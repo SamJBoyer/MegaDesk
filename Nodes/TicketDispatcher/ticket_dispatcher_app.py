@@ -434,10 +434,10 @@ class TicketDispatcher:
             machine_fields = workorder_fields(
                 repo=repo_name,
                 url=repo_url,
-                new_wt=True,
                 ticket_name=ticket.name,
                 instructions=instructions,
                 model=model,
+                auto_pr=True,
             )
             cloud_fields = cloudorder_fields(
                 order_id=new_order_id(),

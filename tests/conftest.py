@@ -72,9 +72,11 @@ def _isolate_megadesk_logs(tmp_path, monkeypatch):
 
 # Canonical wire format. Every writer emits these names; parsers require them.
 WORKORDER_CANONICAL_FIELDS = frozenset(
-    {"repo", "URL", "new_wt", "wt", "ticket_name", "instructions", "model"}
+    {"repo", "URL", "ticket_name", "instructions", "model", "auto_pr"}
 )
-FINISHED_CANONICAL_FIELDS = frozenset({"ticket_name", "ticket_id", "wt", "agent_dir"})
+FINISHED_CANONICAL_FIELDS = frozenset(
+    {"ticket_name", "ticket_id", "status", "pr_url"}
+)
 
 # The voice chain's streams. Defined here rather than read off the wire module
 # so a field rename has to be made twice, deliberately, in two places.

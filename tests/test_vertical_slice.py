@@ -56,7 +56,7 @@ def test_ticket_factory_merge_vertical_slice(
     smoke_agent,
     machine_wire,
 ) -> None:
-    """Dispatch the smoke-test issue, show a live factory sandbox, then merge."""
+    """Dispatch the smoke-test issue, show a live factory sandbox, then a PR row."""
     fake_gh.add_issue(ISSUE_NUMBER, ISSUE_TITLE, ISSUE_BODY)
 
     dispatcher = harness.drop("ticket_dispatcher")
@@ -72,7 +72,7 @@ def test_ticket_factory_merge_vertical_slice(
     fields = redis_client.xrange(WORKORDER_STREAM)[0][1]
     assert fields["repo"] == SMOKE_REPO
     assert fields["URL"] == "https://github.com/SamJBoyer/SMOKETESTREPO"
-    assert fields["new_wt"] == "true"
+    assert fields["auto_pr"] == "true"
     assert fields["ticket_name"] == ISSUE_TITLE
 
     guid = "slice-live-agent"
@@ -99,10 +99,7 @@ def test_ticket_factory_merge_vertical_slice(
 
     key = f"{SMOKE_REPO}|{run.finished_id}"
     harness.wait_for_widget(manager, f"name::{key}")
-    manager.click(f"merge::{key}")
-    harness.pump(2)
-
-    assert smoke_floor.contains(smoke_floor.agents_dir, run.commit_sha)
-    assert smoke_floor.origin_sha("agents") == smoke_floor.head(smoke_floor.agents_dir)
+    assert manager.enabled(f"open_pr::{key}")
     assert manager.shown(f"dismiss::{key}")
-    harness.screenshot("vertical-slice-merged")
+    assert run.pr_url
+    harness.screenshot("vertical-slice-finished-pr")

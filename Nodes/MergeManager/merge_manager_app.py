@@ -1,51 +1,28 @@
-"""MergeManager — Resolution panel for FINISHED:<REPO> items."""
+"""MergeManager — show and open PRs from FINISHED:<REPO> items."""
 
 from __future__ import annotations
 
 import logging
 import os
 import queue
-import subprocess
-import sys
 import threading
+import webbrowser
 from dataclasses import dataclass, field
-from enum import Enum
-from pathlib import Path
 from typing import Optional
 
 import dearpygui.dearpygui as dpg
 import redis
 from megadesk_contracts import frame_pump, redis_connect, resolve_ephemeral_db, resolve_redis_url
+from megadesk_contracts.wire.machine import (
+    FINISHED_GROUP,
+    FINISHED_PREFIX,
+    parse_finished,
+    repo_from_finished_key,
+)
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
 from redis.exceptions import ResponseError
 from redis.exceptions import TimeoutError as RedisTimeoutError
-
-try:
-    from .merge import (
-        MergeOutcome,
-        attempt_merge,
-        git_remote_url,
-        hard_reset_agents,
-    )
-except ImportError:
-    from merge import (
-        MergeOutcome,
-        attempt_merge,
-        git_remote_url,
-        hard_reset_agents,
-    )
-
-from megadesk_contracts.wire.machine import (
-    FINISHED_GROUP,
-    FINISHED_PREFIX,
-    WORKORDER_STREAM,
-    finished_stream,
-    merge_workorder_instructions,
-    parse_finished,
-    repo_from_finished_key,
-    workorder_fields,
-)
 
 log = logging.getLogger("merge_manager")
 
@@ -56,17 +33,8 @@ _LIVE: dict[str, "MergeManager"] = {}
 
 COLOR_OK = (80, 200, 80, 255)
 COLOR_ERR = (220, 70, 70, 255)
-COLOR_WARN = (230, 180, 60, 255)
 COLOR_DIM = (140, 140, 140, 255)
 COLOR_INFO = (70, 140, 230, 255)
-
-
-class RowState(str, Enum):
-    PENDING = "pending"
-    DIRTY = "dirty"
-    CONFLICTS = "conflicts"
-    MERGED = "merged"
-    ERROR = "error"
 
 
 @dataclass
@@ -76,10 +44,8 @@ class FinishedItem:
     entry_id: str
     ticket_name: str
     ticket_id: str
-    wt: Path
-    agent_dir: Path
-    state: RowState = RowState.PENDING
-    message: str = ""
+    status: str
+    pr_url: str
     row_tag: str = field(default="")
 
 
@@ -101,31 +67,26 @@ def connect_redis(redis_url: str | None = None) -> redis.Redis:
     return client
 
 
-def open_in_editor(editor: str, path: Path) -> tuple[bool, str]:
-    """Open a folder in VS Code or Cursor IDE (not the agents window)."""
-    if not path.is_dir():
-        return False, f"Path does not exist: {path}"
+def short_pr_url(url: str) -> str:
+    text = (url or "").strip()
+    if not text:
+        return ""
+    if len(text) <= 48:
+        return text
+    return "…" + text[-47:]
 
-    commands = {
-        "vscode": ["code", str(path)],
-        "cursor": ["cursor", str(path)],
-    }
-    cmd = commands.get(editor)
-    if not cmd:
-        return False, f"Unknown editor: {editor}"
 
+def open_pr_url(url: str) -> tuple[bool, str]:
+    text = (url or "").strip()
+    if not text:
+        return False, "No PR URL"
     try:
-        subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            shell=os.name == "nt",
-        )
-    except FileNotFoundError:
-        return False, f"{cmd[0]} CLI not found on PATH"
-    except OSError as exc:
+        opened = webbrowser.open(text)
+    except Exception as exc:  # noqa: BLE001
         return False, str(exc)
-    return True, f"Opened {path} in {editor}"
+    if not opened:
+        return False, f"Could not open {short_pr_url(text)}"
+    return True, f"Opened {short_pr_url(text)}"
 
 
 class MergeManager:
@@ -139,7 +100,7 @@ class MergeManager:
         self._poll_thread: Optional[threading.Thread] = None
         self._ui_queue: queue.Queue = queue.Queue()
         self._items: dict[str, FinishedItem] = {}
-        self._dismiss_ready: Optional[str] = None  # item key ready to dismiss
+        self._dismiss_ready: Optional[str] = None
         self._lock = threading.Lock()
         self._root_tag = "primary"
         self._frame_registered = False
@@ -164,8 +125,7 @@ class MergeManager:
             return
         if self._dismiss_ready and self._dismiss_ready in self._items:
             item = self._items[self._dismiss_ready]
-            label = f"Dismiss: {item.ticket_name}"
-            dpg.set_value(dismissal_tag, label)
+            dpg.set_value(dismissal_tag, f"Dismiss: {item.ticket_name}")
             dpg.configure_item(dismissal_button, show=True, enabled=True)
         else:
             dpg.set_value(dismissal_tag, "")
@@ -183,7 +143,6 @@ class MergeManager:
             log.info("Created consumer group %s on %s", FINISHED_GROUP, stream_key)
         except ResponseError as exc:
             if "BUSYGROUP" not in str(exc):
-                # Stream may not exist yet — ignore NOGROUP / no such key.
                 if "no such key" in str(exc).lower():
                     return
                 raise
@@ -219,7 +178,6 @@ class MergeManager:
                     count=64,
                 )
             except ResponseError as exc:
-                # Group exists but stream was empty/recreated.
                 log.debug("xreadgroup %s: %s", stream_key, exc)
                 continue
             if not results:
@@ -263,8 +221,8 @@ class MergeManager:
                             entry_id=entry_id,
                             ticket_name=parsed["ticket_name"],
                             ticket_id=parsed["ticket_id"],
-                            wt=Path(parsed["wt"]),
-                            agent_dir=Path(parsed["agent_dir"]),
+                            status=parsed["status"],
+                            pr_url=parsed["pr_url"],
                         )
                         with self._lock:
                             self._items[key] = item
@@ -290,8 +248,13 @@ class MergeManager:
                 self._add_row(msg[1])
             elif kind == "status":
                 self._set_status(msg[1], msg[2])
-            elif kind == "refresh":
-                self._refresh_row(msg[1])
+
+    def _row_label(self, item: FinishedItem) -> str:
+        bits = [item.ticket_name, item.status]
+        short = short_pr_url(item.pr_url)
+        if short:
+            bits.append(short)
+        return "  —  ".join(bits)
 
     def _add_row(self, key: str) -> None:
         item = self._items.get(key)
@@ -305,200 +268,39 @@ class MergeManager:
         item.row_tag = row_tag
         with dpg.table_row(parent=table, tag=row_tag):
             dpg.add_button(
-                label="testme",
-                width=55,
-                tag=self._tag(f"testme::{key}"),
-                callback=self._on_testme,
+                label="open PR",
+                width=70,
+                tag=self._tag(f"open_pr::{key}"),
+                callback=self._on_open_pr,
                 user_data=key,
+                enabled=bool(item.pr_url),
             )
+            dpg.add_text(self._row_label(item), tag=self._tag(f"name::{key}"))
             dpg.add_button(
-                label="vscode",
-                width=55,
-                tag=self._tag(f"vscode::{key}"),
-                callback=self._on_vscode,
+                label="dismiss",
+                width=60,
+                tag=self._tag(f"dismiss::{key}"),
+                callback=self._on_dismiss_row,
                 user_data=key,
             )
-            dpg.add_button(
-                label="cursor",
-                width=55,
-                tag=self._tag(f"cursor::{key}"),
-                callback=self._on_cursor,
-                user_data=key,
-            )
-            dpg.add_text(item.ticket_name, tag=self._tag(f"name::{key}"))
-            with dpg.group(horizontal=True, tag=self._tag(f"actions::{key}")):
-                dpg.add_button(
-                    label="merge",
-                    width=55,
-                    tag=self._tag(f"merge::{key}"),
-                    callback=self._on_merge,
-                    user_data=key,
-                )
-                dpg.add_button(
-                    label="hard-reset",
-                    width=85,
-                    tag=self._tag(f"reset::{key}"),
-                    callback=self._on_hard_reset,
-                    user_data=key,
-                    show=False,
-                )
-                dpg.add_button(
-                    label="dismiss",
-                    width=60,
-                    tag=self._tag(f"dismiss::{key}"),
-                    callback=self._on_dismiss_row,
-                    user_data=key,
-                    show=False,
-                )
 
+        self._dismiss_ready = key
+        status_bits = [item.status]
+        short = short_pr_url(item.pr_url)
+        if short:
+            status_bits.append(short)
         self._set_status(
-            f"Loaded {item.ticket_name} from {finished_stream(item.repo)}",
+            f"{item.ticket_name}: {' '.join(status_bits)}",
             COLOR_INFO,
         )
-        self._refresh_row(key)
-
-    def _refresh_row(self, key: str) -> None:
-        item = self._items.get(key)
-        if item is None:
-            return
-
-        merge_tag = self._tag(f"merge::{key}")
-        reset_tag = self._tag(f"reset::{key}")
-        dismiss_tag = self._tag(f"dismiss::{key}")
-        name_tag = self._tag(f"name::{key}")
-
-        if dpg.does_item_exist(name_tag):
-            label = item.ticket_name
-            if item.message:
-                label = f"{item.ticket_name}  —  {item.message}"
-            dpg.set_value(name_tag, label)
-
-        show_merge = item.state in (RowState.PENDING, RowState.ERROR)
-        show_reset = item.state == RowState.DIRTY
-        show_dismiss = item.state in (RowState.MERGED, RowState.CONFLICTS)
-
-        if dpg.does_item_exist(merge_tag):
-            dpg.configure_item(merge_tag, show=show_merge)
-        if dpg.does_item_exist(reset_tag):
-            dpg.configure_item(reset_tag, show=show_reset)
-        if dpg.does_item_exist(dismiss_tag):
-            dpg.configure_item(dismiss_tag, show=show_dismiss)
-
-        if item.state == RowState.MERGED:
-            self._dismiss_ready = key
-        elif self._dismiss_ready == key:
-            self._dismiss_ready = None
         self._update_dismissal_tag()
 
-    def _on_testme(self, _sender: str, _app_data: object, key: str) -> None:
-        self._set_status("testme is not implemented yet", COLOR_WARN)
-
-    def _on_vscode(self, _sender: str, _app_data: object, key: str) -> None:
+    def _on_open_pr(self, _sender: str, _app_data: object, key: str) -> None:
         item = self._items.get(key)
         if item is None:
             return
-        ok, msg = open_in_editor("vscode", item.wt)
+        ok, msg = open_pr_url(item.pr_url)
         self._set_status(msg, COLOR_OK if ok else COLOR_ERR)
-
-    def _on_cursor(self, _sender: str, _app_data: object, key: str) -> None:
-        item = self._items.get(key)
-        if item is None:
-            return
-        ok, msg = open_in_editor("cursor", item.wt)
-        self._set_status(msg, COLOR_OK if ok else COLOR_ERR)
-
-    def _publish_conflict_workorder(self, item: FinishedItem) -> str:
-        if self._redis is None:
-            self._redis = connect_redis(self.redis_url)
-        url = git_remote_url(item.wt) or git_remote_url(item.agent_dir)
-        instructions = merge_workorder_instructions(
-            repo=item.repo,
-            wt=str(item.wt),
-            agent_dir=str(item.agent_dir),
-            ticket_name=item.ticket_name,
-        )
-        fields = workorder_fields(
-            repo=item.repo,
-            url=url,
-            new_wt=False,
-            wt=str(item.wt),
-            ticket_name=f"merge-{item.ticket_name}",
-            instructions=instructions,
-            model="auto",
-        )
-        entry_id = self._redis.xadd(WORKORDER_STREAM, fields)
-        log.info(
-            "Published WORKORDER %s for conflicted merge ticket=%s wt=%s",
-            entry_id,
-            item.ticket_name,
-            item.wt,
-        )
-        return str(entry_id)
-
-    def _on_merge(self, _sender: str, _app_data: object, key: str) -> None:
-        item = self._items.get(key)
-        if item is None:
-            return
-
-        result = attempt_merge(wt=item.wt, agent_dir=item.agent_dir)
-
-        if result.outcome == MergeOutcome.SUCCESS:
-            item.state = RowState.MERGED
-            item.message = "merged + pushed — ready to dismiss"
-            self._dismiss_ready = key
-            self._set_status(
-                f"Successful merge + push: {item.ticket_name}", COLOR_OK
-            )
-        elif result.outcome == MergeOutcome.DIRTY_AGENTS:
-            item.state = RowState.DIRTY
-            item.message = "agents is dirty"
-            self._set_status(
-                f"agents is dirty for {item.repo} — hard-reset required",
-                COLOR_WARN,
-            )
-        elif result.outcome == MergeOutcome.CONFLICTS:
-            try:
-                workorder_id = self._publish_conflict_workorder(item)
-            except (RedisError, ValueError, OSError) as exc:
-                item.state = RowState.ERROR
-                item.message = f"conflict publish failed: {exc}"
-                self._set_status(str(exc), COLOR_ERR)
-                self._refresh_row(key)
-                return
-            item.state = RowState.CONFLICTS
-            item.message = f"conflicts → WORKORDER {workorder_id}"
-            self._set_status(
-                f"Published WORKORDER {workorder_id} with merge instructions",
-                COLOR_WARN,
-            )
-        else:
-            item.state = RowState.ERROR
-            item.message = result.message
-            self._set_status(result.message, COLOR_ERR)
-
-        self._refresh_row(key)
-
-    def _on_hard_reset(self, _sender: str, _app_data: object, key: str) -> None:
-        item = self._items.get(key)
-        if item is None:
-            return
-        try:
-            hard_reset_agents(item.agent_dir)
-        except (OSError, RuntimeError) as exc:
-            item.state = RowState.ERROR
-            item.message = str(exc)
-            self._set_status(str(exc), COLOR_ERR)
-            self._refresh_row(key)
-            return
-
-        # Loop back to Merge button pressed.
-        item.state = RowState.PENDING
-        item.message = "agents reset — merge again"
-        self._set_status(
-            f"Hard-reset agents for {item.repo}. Press merge again.",
-            COLOR_INFO,
-        )
-        self._refresh_row(key)
 
     def _ack_and_drop(self, key: str) -> None:
         item = self._items.pop(key, None)
@@ -514,7 +316,7 @@ class MergeManager:
         if item.row_tag and dpg.does_item_exist(item.row_tag):
             dpg.delete_item(item.row_tag)
         if self._dismiss_ready == key:
-            self._dismiss_ready = None
+            self._dismiss_ready = next(iter(self._items), None)
         self._update_dismissal_tag()
 
     def _on_dismiss_row(self, _sender: str, _app_data: object, key: str) -> None:
@@ -571,11 +373,9 @@ class MergeManager:
                 policy=dpg.mvTable_SizingStretchProp,
                 row_background=True,
             ):
-                dpg.add_table_column(init_width_or_weight=0.12)
-                dpg.add_table_column(init_width_or_weight=0.12)
-                dpg.add_table_column(init_width_or_weight=0.12)
-                dpg.add_table_column(init_width_or_weight=0.44)
-                dpg.add_table_column(init_width_or_weight=0.20)
+                dpg.add_table_column(init_width_or_weight=0.15)
+                dpg.add_table_column(init_width_or_weight=0.70)
+                dpg.add_table_column(init_width_or_weight=0.15)
 
         dpg.set_item_user_data(parent, self.shutdown)
         self._start_services()

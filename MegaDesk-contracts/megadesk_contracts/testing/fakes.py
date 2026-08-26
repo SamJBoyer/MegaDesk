@@ -132,6 +132,8 @@ class AgentRun:
     commit_sha: str
     finished_id: str
     finished_stream: str
+    pr_url: str = ""
+    status: str = ""
 
 
 def _safe_name(name: str) -> str:
@@ -215,14 +217,9 @@ class FakeAgent:
         repo = item["repo"]
         ticket_name = item["ticket_name"]
 
-        if item["new_wt"]:
-            wt = self._make_ticket_worktree(repo, _safe_name(ticket_name))
-        else:
-            wt = Path(item["wt"])
-            if not wt.is_absolute():
-                raise AssertionError(f"WORKORDER wt must be absolute: {wt}")
-            if not wt.is_dir():
-                raise AssertionError(f"WORKORDER wt does not exist: {wt}")
+        # WORKORDER no longer carries Floor paths; the fake always makes a
+        # local ticket worktree so merge-era git helpers and commits still work.
+        wt = self._make_ticket_worktree(repo, _safe_name(ticket_name))
 
         sha = self.floor.commit(
             wt,
@@ -232,11 +229,13 @@ class FakeAgent:
         )
 
         agent_dir = Path(self.floor.agents_dir).resolve()
+        pr_url = f"https://github.com/acme/{repo}/pull/{len(self.runs) + 1}"
+        status = self.wire.STATUS_FINISHED
         payload = self.wire.finished_fields(
             ticket_name=ticket_name,
             ticket_id=str(entry_id),
-            wt=str(wt.resolve()),
-            agent_dir=str(agent_dir),
+            status=status,
+            pr_url=pr_url,
         )
         stream = self.wire.finished_stream(repo)
         finished_id = self.redis.xadd(stream, payload)
@@ -247,12 +246,14 @@ class FakeAgent:
             repo=repo,
             ticket_name=ticket_name,
             model=item["model"],
-            new_wt=bool(item["new_wt"]),
+            new_wt=True,
             wt=wt.resolve(),
             agent_dir=agent_dir,
             commit_sha=sha,
             finished_id=str(finished_id),
             finished_stream=stream,
+            pr_url=pr_url,
+            status=status,
         )
 
     def _make_ticket_worktree(self, repo: str, ticket: str) -> Path:

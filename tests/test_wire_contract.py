@@ -18,16 +18,16 @@ from conftest import (
 WORKORDER_SAMPLE = {
     "repo": "widgets",
     "url": "https://github.com/acme/widgets",
-    "new_wt": True,
     "ticket_name": "add-widget-tests",
     "instructions": "Cover the widget module with tests.",
     "model": "grok-4.5",
+    "auto_pr": True,
 }
 FINISHED_SAMPLE = {
     "ticket_name": "add-widget-tests",
     "ticket_id": "1700000000000-0",
-    "wt": r"C:\Floor\widgets\wt\tickets\add-widget-tests",
-    "agent_dir": r"C:\Floor\widgets\wt\agents",
+    "status": "finished",
+    "pr_url": "https://github.com/acme/widgets/pull/7",
 }
 
 
@@ -58,32 +58,33 @@ def test_every_writer_shares_one_definition() -> None:
     assert ticket_dispatcher_app.CLOUDORDER_STREAM == cloud.CLOUDORDER_STREAM
     assert ticket_dispatcher_app.cloudorder_fields is cloud.cloudorder_fields
     assert merge_manager_app.FINISHED_PREFIX == machine.FINISHED_PREFIX
-    assert merge_manager_app.workorder_fields is machine.workorder_fields
+    assert merge_manager_app.FINISHED_GROUP == machine.FINISHED_GROUP
+    assert merge_manager_app.parse_finished is machine.parse_finished
 
 
 def test_workorder_round_trips_through_the_parser(machine_wire) -> None:
     parsed = machine_wire.parse_workorder(machine_wire.workorder_fields(**WORKORDER_SAMPLE))
     assert parsed["repo"] == "widgets"
-    assert parsed["new_wt"] is True
-    assert parsed["wt"] == ""
+    assert parsed["auto_pr"] is True
+    assert parsed["URL"] == "https://github.com/acme/widgets"
     assert parsed["model"] == "grok-4.5"
 
 
 def test_finished_round_trips_through_the_parser(machine_wire) -> None:
     parsed = machine_wire.parse_finished(machine_wire.finished_fields(**FINISHED_SAMPLE))
     assert parsed["ticket_name"] == FINISHED_SAMPLE["ticket_name"]
-    assert parsed["wt"] == FINISHED_SAMPLE["wt"]
-    assert parsed["agent_dir"] == FINISHED_SAMPLE["agent_dir"]
+    assert parsed["status"] == FINISHED_SAMPLE["status"]
+    assert parsed["pr_url"] == FINISHED_SAMPLE["pr_url"]
 
 
 def test_workorder_parser_requires_canonical_field_names(machine_wire) -> None:
-    with pytest.raises(ValueError, match="repo, ticket_name, and instructions"):
+    with pytest.raises(ValueError, match="repo, URL, ticket_name, instructions"):
         machine_wire.parse_workorder(
             {
                 "REPO": "widgets",
                 "ticket": "add-widget-tests",
                 "prompt": "Cover the widget module.",
-                "new_wt": "true",
+                "auto_pr": "true",
             }
         )
 
@@ -94,29 +95,16 @@ def test_finished_parser_requires_canonical_field_names(machine_wire) -> None:
             {
                 "ticket": FINISHED_SAMPLE["ticket_name"],
                 "ticket_id": FINISHED_SAMPLE["ticket_id"],
-                "workpath": FINISHED_SAMPLE["wt"],
-                "agent_dir": FINISHED_SAMPLE["agent_dir"],
+                "state": FINISHED_SAMPLE["status"],
+                "url": FINISHED_SAMPLE["pr_url"],
             }
-        )
-
-
-def test_conflict_workorder_requires_an_existing_worktree(machine_wire) -> None:
-    """new_wt=false is meaningless without a path to work in."""
-    with pytest.raises(ValueError):
-        machine_wire.workorder_fields(
-            repo="widgets",
-            url="",
-            new_wt=False,
-            wt="",
-            ticket_name="merge-add-widget-tests",
-            instructions="Resolve the conflicts.",
         )
 
 
 def test_finished_rejects_incomplete_entries(machine_wire) -> None:
     with pytest.raises(ValueError):
         machine_wire.finished_fields(
-            ticket_name="add-widget-tests", ticket_id="1-0", wt="", agent_dir=""
+            ticket_name="add-widget-tests", ticket_id="1-0", status=""
         )
 
 
@@ -126,18 +114,6 @@ def test_agent_handler_rejects_a_status_outside_the_shared_vocabulary(
     """Both factories report into one status set, so a typo must not reach Redis."""
     with pytest.raises(ValueError):
         machine_wire.agent_handler_fields(ticket_id="1-0", status="almost-done")
-
-
-def test_merge_instructions_carry_both_absolute_paths(machine_wire) -> None:
-    text = machine_wire.merge_workorder_instructions(
-        repo="widgets",
-        wt=FINISHED_SAMPLE["wt"],
-        agent_dir=FINISHED_SAMPLE["agent_dir"],
-        ticket_name="add-widget-tests",
-    )
-    assert FINISHED_SAMPLE["wt"] in text
-    assert FINISHED_SAMPLE["agent_dir"] in text
-    assert "new_wt is false" in text
 
 
 GRAPHRUN_SAMPLE = {

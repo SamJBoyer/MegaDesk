@@ -1,1 +1,1 @@
-"""MergeManager: consume FINISHED:<REPO>, resolve merges, publish WORKORDER."""
+"""MergeManager: consume FINISHED:<REPO>, show status, open PR URLs."""
