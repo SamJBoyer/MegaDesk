@@ -32,7 +32,7 @@ from megadesk_contracts.wire.machine import (
 )
 
 POLL_INTERVAL_SEC = 3.0
-MODEL_OPTIONS = ("auto", "grok-4.5", "claude-opus-5")
+MODEL_OPTIONS = ("auto", "grok-4.6", "claude-opus-5")
 GH_TIMEOUT_SEC = 15
 
 # Graph parameter this node recognizes; declared in parameters.yaml.

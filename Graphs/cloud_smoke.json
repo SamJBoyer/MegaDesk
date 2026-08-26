@@ -6,8 +6,8 @@
       "nickname": "merge_manager",
       "node_name": "merge_manager",
       "position": [
-        830.0,
-        298.0
+        260.0,
+        34.0
       ],
       "parameters": {},
       "data": {
@@ -22,8 +22,8 @@
       "nickname": "ticket_dispatcher",
       "node_name": "ticket_dispatcher",
       "position": [
-        423.0,
-        -188.0
+        259.0,
+        -198.0
       ],
       "parameters": {
         "GIT_URL": "https://github.com/SamJBoyer/SMOKETESTREPO.git"
@@ -34,20 +34,20 @@
         "node_name": "ticket_dispatcher"
       }
     },
-    "48e5ab77-69b4-421a-a48e-ed464a7603f1": {
-      "member_id": "48e5ab77-69b4-421a-a48e-ed464a7603f1",
+    "4e9146a4-f8dd-4b4e-adb7-7d36082189dd": {
+      "member_id": "4e9146a4-f8dd-4b4e-adb7-7d36082189dd",
       "type": "megadesk",
-      "nickname": "machine_factory",
-      "node_name": "machine_factory",
+      "nickname": "cloud_factory",
+      "node_name": "cloud_factory",
       "position": [
-        927.0,
-        -188.0
+        944.0,
+        -206.0
       ],
       "parameters": {},
       "data": {
-        "width": 520.0,
-        "height": 400.0,
-        "node_name": "machine_factory"
+        "width": 420.0,
+        "height": 140.0,
+        "node_name": "cloud_factory"
       }
     }
   }

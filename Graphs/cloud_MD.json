@@ -1,0 +1,54 @@
+{
+  "members": {
+    "4976bbe8-9b08-46bf-8554-254a49b3c125": {
+      "member_id": "4976bbe8-9b08-46bf-8554-254a49b3c125",
+      "type": "megadesk",
+      "nickname": "merge_manager",
+      "node_name": "merge_manager",
+      "position": [
+        260.0,
+        34.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 640.0,
+        "height": 220.0,
+        "node_name": "merge_manager"
+      }
+    },
+    "f60829b6-d591-4a8c-ab72-7bf494eb7928": {
+      "member_id": "f60829b6-d591-4a8c-ab72-7bf494eb7928",
+      "type": "megadesk",
+      "nickname": "ticket_dispatcher",
+      "node_name": "ticket_dispatcher",
+      "position": [
+        259.0,
+        -198.0
+      ],
+      "parameters": {
+        "GIT_URL": "https://github.com/SamJBoyer/MegaDesk.git"
+      },
+      "data": {
+        "width": 480.0,
+        "height": 160.0,
+        "node_name": "ticket_dispatcher"
+      }
+    },
+    "4e9146a4-f8dd-4b4e-adb7-7d36082189dd": {
+      "member_id": "4e9146a4-f8dd-4b4e-adb7-7d36082189dd",
+      "type": "megadesk",
+      "nickname": "cloud_factory",
+      "node_name": "cloud_factory",
+      "position": [
+        778.0,
+        -193.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 420.0,
+        "height": 140.0,
+        "node_name": "cloud_factory"
+      }
+    }
+  }
+}
