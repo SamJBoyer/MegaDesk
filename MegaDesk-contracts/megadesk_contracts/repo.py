@@ -1,13 +1,11 @@
 """Read-only repo clones for nodes that only need to look at code.
 
-MachineFactory's ``Floor/`` is a worktree farm: a bare clone plus per-ticket
-branches, because agents there *write*. A node that only answers questions about
-code needs none of that, and sharing a worktree with a writing agent would race
-it. So this is a plain clone with a refresh that throws local changes away.
+MachineFactory agents write inside a Docker sandbox clone and open a PR; they do
+not share a host worktree. A node that only answers questions about code needs a
+plain clone with a refresh that throws local changes away — sharing a tree with a
+writing agent would race it.
 
-``MachineFactoryManager/floor.py`` keeps its own URL-to-name helpers; that copy
-serves the branch layout and its required ``main``/``dev``/``agents`` branches,
-which do not apply here.
+``safe_repo_name`` here is the shared sanitizer (also used by MachineFactory).
 """
 
 from __future__ import annotations

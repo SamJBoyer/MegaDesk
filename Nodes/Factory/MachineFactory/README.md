@@ -1,39 +1,35 @@
 # MachineFactory
 
 Runs agents on this machine. **MachineFactoryManager** reads Redis stream
-`WORKORDER`, prepares a git worktree under `Floor/`, and starts a one-shot
-**AgentHandler** Docker sandbox against it. AgentHandler runs a LangGraph work
-graph — startup, pathfinder, workhorse, git, teardown — then publishes
-`FINISHED:<repo>` and deletes its hashes.
+`WORKORDER`, starts a one-shot **AgentHandler** Docker sandbox that clones the
+named repo, and gives the agent a Redis **sidecar** as `REDIS_URL`. Factory IPC
+(WORKORDER / AGENTHANDLER / FINISHED) stays on `MEGADESK_FACTORY_REDIS_URL` (the
+host pair). AgentHandler runs a LangGraph work graph — startup, pathfinder,
+workhorse, git, teardown — then publishes `FINISHED:<repo>` with `status` +
+`pr_url` and deletes its hashes.
 
 The cloud counterpart is [CloudFactory](../CloudFactory/README.md); what the two
 share, and where they honestly differ, is in [Factory](../README.md).
 
 ```text
-WORKORDER (new_wt=true)
-    → ensure Floor/<repo>/.bare + wt/dev + wt/agents + wt/tickets/
-    → Floor/<repo>/wt/tickets/<ticket_name>  (branch ticket/<ticket_name> from agents)
+WORKORDER
     → HSET AGENTHANDLER:<guid> {ticket_id, status, error}
-    → Docker sandbox mounts the ticket worktree
+    → Docker sandbox + Redis sidecar (clone URL into workspace)
     → AgentHandler loads WORKORDER via ticket_id
     → work graph: startup → pathfinder → workhorse → git → teardown
-    → XADD FINISHED:<repo>, DEL AGENTHANDLER + GRAPHRUN, exits
-
-WORKORDER (new_wt=false)
-    → mount the existing absolute wt (no new worktree)
-    → same AGENTHANDLER / FINISHED path
+    → XADD FINISHED:<repo> {ticket_name, ticket_id, status, pr_url}
+    → DEL AGENTHANDLER + GRAPHRUN, exits
 ```
 
-TicketDispatcher publishes new-ticket orders (`new_wt=true`). MergeManager
-publishes conflict-resolution orders (`new_wt=false`) and consumes
-`FINISHED:<repo>`.
+TicketDispatcher publishes orders. MergeManager consumes `FINISHED:<repo>` and
+shows/opens the PR (it does not merge local worktrees).
 
 ## Halves
 
 | Half | What it does |
 |------|--------------|
-| FE (`machine_factory_frontend/app.py`) | Queued WORKORDERs, live agents, Floor repos, sandboxes, error lamp |
-| BE (`MachineFactoryManager/`) | Consume `WORKORDER`, prepare Floor, start and follow sandboxes |
+| FE (`machine_factory_frontend/app.py`) | Queued WORKORDERs, live agents, sandboxes, error lamp |
+| BE (`MachineFactoryManager/`) | Consume `WORKORDER`, start and follow sandboxes with Redis sidecars |
 
 ## The handshake, and why the order matters
 
@@ -51,10 +47,10 @@ truthful without anyone reconciling it.
 gone — the abnormal path only. A container is not a managed service, so a healthy
 sandbox reports its own outcome from inside, where the exit code is, and deletes
 its hash on the way out. `poll_runs` covers the case where it never got the
-chance, which would otherwise leave a hash claiming a run that stopped existing
-and a ticket worktree nobody merges. A sandbox is only treated as lost once it has
-been missing for longer than `orphan_grace`, because there is a real moment
-between publishing `FINISHED` and deleting the hash.
+chance, which would otherwise leave a hash claiming a run that stopped existing.
+A sandbox is only treated as lost once it has been missing for longer than
+`orphan_grace`, because there is a real moment between publishing `FINISHED` and
+deleting the hash.
 
 ## Prerequisites
 
@@ -80,7 +76,7 @@ Builds `machine-factory-agent:latest` — Python, git, the Cursor CLI, `AgentHan
 and `megadesk-contracts`. The build context is the **worktree root**, not this
 folder, because the sandbox installs the same contracts package the manager writes
 with; a copied wire module in the image would be a second definition free to
-drift. `.dockerignore` at the root keeps `Floor/` and friends out of the context.
+drift. `.dockerignore` at the root keeps large trees out of the context.
 
 Rebuild after changing `AgentHandler/`, `MegaDesk-contracts/`, the `Dockerfile` or
 `requirements-sandbox.txt`.
@@ -101,66 +97,48 @@ Per-node progress is a second family, `megadesk_contracts.wire.graph`
 
 | Where | Key | Carries |
 |-------|-----|---------|
-| db 0 stream | `WORKORDER` | `repo`, `URL`, `new_wt`, `wt`, `ticket_name`, `instructions`, `model` |
+| db 0 stream | `WORKORDER` | `repo`, `URL`, `ticket_name`, `instructions`, `model`, `auto_pr` |
 | db 0 hash | `AGENTHANDLER:<guid>` | `ticket_id`, `status`, `error` |
 | db 0 hash | `GRAPHRUN:<guid>` | live work-graph progress (`spec`, `nodes`, `current`, …) |
 | db 0 stream | `GRAPHEVENT` | per-node timeline (`guid`, `node`, `status`, `detail`, `ts`) |
-| db 0 stream | `FINISHED:<repo>` | `ticket_name`, `ticket_id`, `wt`, `agent_dir` |
+| db 0 stream | `FINISHED:<repo>` | `ticket_name`, `ticket_id`, `status`, `pr_url` |
 
-`new_wt=true` creates a ticket worktree from `agents` and requires `URL`;
-`new_wt=false` uses the existing absolute `wt`. `status` is the shared factory
-vocabulary (`queued`, `running`, `finished`, `error`, `cancelled`,
-`startup_error`), validated on write.
+`URL` is always required: the sandbox clones it rather than mounting a host tree.
+`auto_pr` defaults true. `status` is the shared factory vocabulary (`queued`,
+`running`, `finished`, `error`, `cancelled`, `startup_error`), validated on write.
+`pr_url` may be empty on error paths.
 
 `FINISHED` is per-repo rather than one stream because MergeManager watches the
-repos it has checked out, not every repo the Floor knows about. Host paths reach
-the container as `HOST_WT` / `HOST_AGENT_DIR` / `HOST_BARE`, since paths
-inside it are not paths anyone else can use. `HOST_BARE` is the host path of
-`Floor/<repo>/.bare` so the wt rectifier can restore gitdir pointers if a
-previous sandbox left `gitdir: /bare/...` behind.
+repos it cares about. Inside the sandbox, `REDIS_URL` points at the Redis
+sidecar; `MEGADESK_FACTORY_REDIS_URL` is the factory bus on the host pair.
 
 ```powershell
-redis-cli XADD WORKORDER * repo Helmsman URL https://github.com/SamJBoyer/Helmsman.git new_wt true wt "" ticket_name 1 instructions "Create harness-smoke.txt with the text ok" model auto
+redis-cli XADD WORKORDER * repo Helmsman URL https://github.com/SamJBoyer/Helmsman.git ticket_name 1 instructions "Create harness-smoke.txt with the text ok" model auto auto_pr true
 redis-cli XRANGE FINISHED:Helmsman - +
-```
-
-## Floor layout
-
-```text
-Floor/
-  TESTER/
-    .bare/
-    wt/
-      dev/              # branch `dev`
-      agents/           # branch `agents`
-      tickets/
-        1/              # branch `ticket/1` from agents
 ```
 
 ## Layout
 
 | Path | Role |
 |------|------|
-| `MachineFactoryManager/` | WORKORDER loop, Floor setup, run reaping |
+| `MachineFactoryManager/` | WORKORDER loop, sandbox + sidecar launch, run reaping |
 | `MachineFactoryManager/runtime.py` | `AgentFactory` over Docker: launch, poll, cancel |
-| `AgentHandler/` | Inside the sandbox: hash → order → work graph → FINISHED. Streams SDK progress into `Logs/{session}/agent-{guid}.md` (pretty) and `agent-{guid}.tokens.md` (token stream). |
+| `AgentHandler/` | Inside the sandbox: hash → order → clone → work graph → PR → FINISHED. Streams SDK progress into `Logs/{session}/agent-{guid}.md` (pretty) and `agent-{guid}.tokens.md` (token stream). |
+| `AgentHandler/repo_clone.py` | Clone, branch, push, open PR inside the sandbox workspace |
 | `machine_factory_frontend/` | Canvas monitor (read-only; never consumes WORKORDER). Logs are in the Supervisor Logs tab. |
 | `Dockerfile` | Sandbox image; entrypoint `python -m AgentHandler` |
-| `Floor/` | Local bare clones and worktrees (gitignored) |
 
 ## Testing
 
 `FakeMachineFactory` stands in for the Docker daemon, so
-`tests/test_machinefactory_flow.py` exercises the real consumer group, a real git
-Floor, the real registry and the real FINISHED payloads without a container. Its
-mirror is `tests/test_cloudfactory_flow.py`, and the two are meant to be read side
-by side.
+`tests/test_machinefactory_flow.py` exercises the real consumer group, the real
+registry and the real FINISHED payloads without a container. Its mirror is
+`tests/test_cloudfactory_flow.py`, and the two are meant to be read side by side.
 
 ## Notes
 
-- Containers reach host Redis via `host.docker.internal` (`REDIS_URL_CONTAINER`
-  overrides). Sandbox `REDIS_URL` is a leased even DB (the agent's MegaDesk);
-  `MEGADESK_FACTORY_REDIS_URL` is the factory bus.
+- Sandbox `REDIS_URL` is the per-run Redis sidecar; `MEGADESK_FACTORY_REDIS_URL` is
+  the factory bus on the host pair.
 - AgentHandler exits when the job finishes; `--rm` removes the container.
 - Containers are labelled `megadesk.run_key=<guid>`, which is how `poll` and
   `cancel` find one again after a manager restart.

@@ -9,7 +9,7 @@ genuinely different, not because their jobs are:
 
 | Node | Runs agents | Harness | Hands back |
 |------|-------------|---------|------------|
-| [MachineFactory](MachineFactory/README.md) | Docker sandboxes on this machine | `AgentHandler/`, ours end to end | a git worktree, for MergeManager to merge |
+| [MachineFactory](MachineFactory/README.md) | Docker sandboxes on this machine (repo clone + Redis sidecar) | `AgentHandler/`, ours end to end | a pull request |
 | [CloudFactory](CloudFactory/README.md) | Cursor-hosted VMs | the cloud agent SDK, whatever it gives us | a pull request |
 
 ## Why they look alike on purpose
@@ -42,8 +42,8 @@ cancel(run_key: str)   -> None
 `launch` takes a mapping rather than named arguments so one caller can hand the
 same parsed order to either factory; each reads the keys it understands. The
 shared keys are `title`/`ticket_name`, `instructions` and `model`. Beyond those,
-a machine order names a `repo` on the Floor and a `wt`, while a cloud order names
-a `repo_url`, a `ref` and `auto_pr`.
+a machine order names a `repo` plus clone `URL` and `auto_pr`, while a cloud
+order names a `repo_url`, a `ref` and `auto_pr`. Both hand back a PR URL.
 
 Status words come from `megadesk_contracts.wire.factory` and mean the same thing
 on both sides: `queued`, `running`, `finished`, `error`, `cancelled`,
@@ -58,8 +58,8 @@ reports `error`, and the transcript is what to look at.
 
 The FEs follow the same split. Both show **queued work orders** and **live
 agents**, plus a corner lamp that turns red if an error has been thrown.
-MachineFactory also shows Floor repos and active sandboxes. Node logs
-are in the Supervisor Logs tab, not on the factory.
+MachineFactory also shows active sandboxes. Node logs are in the Supervisor Logs
+tab, not on the factory.
 
 Both take their orders from TicketDispatcher (and VoiceDeck can also publish
 `CLOUDORDER`). One click on an agent-ready issue writes `WORKORDER` and
@@ -77,8 +77,10 @@ Both take their orders from TicketDispatcher (and VoiceDeck can also publish
   container is not: a healthy sandbox reports its own outcome from inside, where
   the exit code is, so `poll_runs` on the machine side is a reaper for sandboxes
   that never got the chance, not the normal path.
-- **What "done" produces.** A worktree that still exists and needs merging, versus
-  a pull request that does not.
+- **Where the agent works.** MachineFactory clones into a local Docker sandbox
+  with a Redis sidecar (`REDIS_URL`); factory IPC stays on
+  `MEGADESK_FACTORY_REDIS_URL`. CloudFactory runs on a Cursor-hosted VM. Both
+  still hand back a PR.
 - **Latency.** Redis and a local container start in under a second. A cloud VM
   does not, so a graph that mixes them should expect minutes on those edges.
 
@@ -86,8 +88,8 @@ Both take their orders from TicketDispatcher (and VoiceDeck can also publish
 
 ```text
 Nodes/Factory/
-  MachineFactory/     WORKORDER  → Docker sandbox → FINISHED:<repo>
-  CloudFactory/       CLOUDORDER → Cursor VM      → CLOUDFINISHED
+  MachineFactory/     WORKORDER  → Docker sandbox (+ Redis sidecar) → FINISHED:<repo>
+  CloudFactory/       CLOUDORDER → Cursor VM                         → CLOUDFINISHED
 ```
 
 Each is its own installable node with its own `MegaDesk.nodes` entry point

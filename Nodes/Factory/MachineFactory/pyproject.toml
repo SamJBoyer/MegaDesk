@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "machine-factory"
 version = "0.1.0"
-description = "MegaDesk Factory node: run agents in local sandboxes on this machine (BE) + Floor monitor (FE)"
+description = "MegaDesk Factory node: run agents in local sandboxes on this machine (BE) + canvas monitor (FE)"
 requires-python = ">=3.10"
 dependencies = [
     "cursor-sdk>=0.1.0",

@@ -266,7 +266,6 @@ def test_the_monitor_shows_orders_live_agents_and_sandboxes_not_logs(
         machine_wire.workorder_fields(
             repo="widgets",
             url="https://github.com/acme/widgets.git",
-            new_wt=True,
             ticket_name=TICKET,
             instructions=INSTRUCTIONS,
         ),
@@ -283,8 +282,8 @@ def test_the_monitor_shows_orders_live_agents_and_sandboxes_not_logs(
     assert fe.exists("queue_list")
     assert fe.exists("live_list")
     assert fe.exists("docker_list")
-    assert fe.exists("floor_list")
     assert fe.exists("error_lamp")
+    assert not fe.exists("floor_list")
     assert not fe.exists("log")
     assert not fe.exists("status_lbl")
     assert not fe.exists("redis_dot")

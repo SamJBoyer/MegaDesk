@@ -1,8 +1,7 @@
-"""MachineFactory Floor — queued orders, live agents, sandboxes, and repos."""
+"""MachineFactory canvas monitor — queued orders, live agents, sandboxes."""
 
 from __future__ import annotations
 
-import os
 import subprocess
 import time
 from dataclasses import dataclass
@@ -17,7 +16,6 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
-from MachineFactoryManager.floor import default_floor
 from MachineFactoryManager.pool import CONTAINER_NAME_PREFIX
 
 POLL_INTERVAL_SEC = 1.5
@@ -28,7 +26,7 @@ COLOR_OK = (80, 200, 80, 255)
 COLOR_ERR = (220, 70, 70, 255)
 COLOR_DIM = (140, 140, 140, 255)
 
-_LIVE: dict[str, "MachineFactoryFloor"] = {}
+_LIVE: dict[str, "MachineFactoryFE"] = {}
 
 
 @dataclass
@@ -36,8 +34,8 @@ class WorkorderRow:
     entry_id: str
     repo: str
     ticket_name: str
-    new_wt: bool
     model: str
+    auto_pr: bool
     label: str
 
 
@@ -49,18 +47,11 @@ class AgentHandlerRow:
     label: str
 
 
-@dataclass
-class FloorRepo:
-    name: str
-    tickets: list[str]
-    label: str
-
-
 def _redis_url() -> str:
     return resolve_redis_url()
 
 
-class MachineFactoryFloor:
+class MachineFactoryFE:
     """Read-only MachineFactory monitor (never consumes from the order stream)."""
 
     def __init__(self) -> None:
@@ -69,10 +60,8 @@ class MachineFactoryFloor:
         self._frame_registered = False
         self._last_poll = 0.0
         self._has_error = False
-        self._floor = default_floor()
         self._workorders: list[WorkorderRow] = []
         self._agent_handlers: list[AgentHandlerRow] = []
-        self._repos: list[FloorRepo] = []
         self._containers: list[str] = []
 
     def _tag(self, suffix: str) -> str:
@@ -189,55 +178,29 @@ class MachineFactoryFloor:
                         entry_id=entry_id,
                         repo="?",
                         ticket_name="?",
-                        new_wt=True,
                         model="",
+                        auto_pr=True,
                         label=f"{entry_id}  (unparseable)",
                     )
                 )
                 continue
-            mode = "new" if parsed["new_wt"] else "reuse"
             short_id = entry_id if len(entry_id) <= 14 else entry_id[:14]
+            pr = "pr" if parsed["auto_pr"] else "no-pr"
             label = (
                 f"{short_id}  {parsed['repo']}/{parsed['ticket_name']}  "
-                f"[{mode}]  {parsed['model']}"
+                f"[{pr}]  {parsed['model']}"
             )
             rows.append(
                 WorkorderRow(
                     entry_id=entry_id,
                     repo=parsed["repo"],
                     ticket_name=parsed["ticket_name"],
-                    new_wt=bool(parsed["new_wt"]),
                     model=parsed["model"],
+                    auto_pr=bool(parsed["auto_pr"]),
                     label=label,
                 )
             )
         return rows
-
-    def _scan_floor(self) -> list[FloorRepo]:
-        floor = self._floor
-        if not floor.is_dir():
-            return []
-        repos: list[FloorRepo] = []
-        for child in sorted(floor.iterdir()):
-            if not child.is_dir():
-                continue
-            if not (child / ".bare").is_dir():
-                continue
-            tickets_dir = child / "wt" / "tickets"
-            tickets: list[str] = []
-            if tickets_dir.is_dir():
-                tickets = sorted(
-                    p.name for p in tickets_dir.iterdir() if p.is_dir()
-                )
-            n = len(tickets)
-            sample = ", ".join(tickets[:4])
-            if n > 4:
-                sample = f"{sample}, …"
-            suffix = f"  tickets={n}" + (f" ({sample})" if sample else "")
-            repos.append(
-                FloorRepo(name=child.name, tickets=tickets, label=f"{child.name}{suffix}")
-            )
-        return repos
 
     def _poll(self, force: bool = False) -> None:
         now = time.monotonic()
@@ -247,8 +210,6 @@ class MachineFactoryFloor:
 
         client = self._connect_redis()
         docker_ok = self._probe_docker()
-        self._floor = default_floor()
-        self._repos = self._scan_floor()
         self._containers = self._list_sandbox_containers() if docker_ok else []
 
         if client is None:
@@ -288,11 +249,6 @@ class MachineFactoryFloor:
             items = [h.label for h in self._agent_handlers] or ["(no live agent handlers)"]
             dpg.configure_item(live, items=items)
 
-        floor = self._tag("floor_list")
-        if dpg.does_item_exist(floor):
-            items = [r.label for r in self._repos] or ["(Floor empty)"]
-            dpg.configure_item(floor, items=items)
-
         dock = self._tag("docker_list")
         if dpg.does_item_exist(dock):
             items = self._containers or [f"(no {CONTAINER_NAME_PREFIX}* containers)"]
@@ -304,9 +260,9 @@ class MachineFactoryFloor:
         *,
         tag_prefix: str,
         width: int = 420,
-        height: int = 220,
+        height: int = 180,
     ) -> None:
-        """Fill the host content parent with MachineFactory Floor widgets."""
+        """Fill the host content parent with MachineFactory monitor widgets."""
         self._root_tag = tag_prefix
         _ = width, height
         col_w = 190
@@ -338,30 +294,13 @@ class MachineFactoryFloor:
                         tag=self._tag("error_lamp"),
                     )
 
-            with dpg.group(horizontal=True):
-                with dpg.group():
-                    with dpg.group(horizontal=True):
-                        dpg.add_text("Floor", color=COLOR_DIM)
-                        dpg.add_button(
-                            label="Open",
-                            width=44,
-                            height=20,
-                            callback=lambda: self._on_open_floor(),
-                        )
-                    dpg.add_listbox(
-                        items=["(loading…)"],
-                        tag=self._tag("floor_list"),
-                        num_items=2,
-                        width=col_w,
-                    )
-                with dpg.group():
-                    dpg.add_text("Docker", color=COLOR_DIM)
-                    dpg.add_listbox(
-                        items=["(loading…)"],
-                        tag=self._tag("docker_list"),
-                        num_items=2,
-                        width=-1,
-                    )
+            dpg.add_text("Docker", color=COLOR_DIM)
+            dpg.add_listbox(
+                items=["(loading…)"],
+                tag=self._tag("docker_list"),
+                num_items=2,
+                width=-1,
+            )
 
         dpg.set_item_user_data(parent, self.shutdown)
         self._poll(force=True)
@@ -382,32 +321,16 @@ class MachineFactoryFloor:
         self._redis = None
         _LIVE.pop(self._root_tag, None)
 
-    def _on_open_floor(self) -> None:
-        path = self._floor
-        try:
-            path.mkdir(parents=True, exist_ok=True)
-            if os.name == "nt":
-                os.startfile(str(path))  # type: ignore[attr-defined]
-            else:
-                subprocess.Popen(
-                    ["xdg-open", str(path)],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-        except OSError:
-            self._has_error = True
-            self._refresh_widgets()
-
 
 def build_ui(
     parent: str,
     *,
     tag_prefix: str,
     width: int = 420,
-    height: int = 220,
+    height: int = 180,
 ) -> None:
     """Module-level builder for FeSpec / MegaDesk canvas hosting."""
-    MachineFactoryFloor().build_ui(
+    MachineFactoryFE().build_ui(
         parent,
         tag_prefix=tag_prefix,
         width=width,

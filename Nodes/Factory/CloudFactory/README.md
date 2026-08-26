@@ -15,11 +15,12 @@ two share, and where they honestly differ, is in [Factory](../README.md).
 
 ## How a cloud agent differs from a local one
 
-MachineFactory runs agents on this machine, in a worktree, and MergeManager merges
-the result. A cloud agent is the opposite of that in every way that matters:
+MachineFactory also returns a PR, but from a local Docker sandbox (clone + Redis
+sidecar) rather than a Cursor-hosted VM. A cloud agent still differs where it
+matters:
 
 - Cursor clones the repo **onto its own VM** and pushes a branch itself, so the
-  input is a URL. There is no worktree to hand over and nothing to merge.
+  input is a URL. There is no local sandbox or sidecar to manage.
 - The agent sees **the pushed remote, not your working tree**. Uncommitted work is
   invisible to it.
 - The repo must exist on GitHub with Cursor's GitHub app connected.
