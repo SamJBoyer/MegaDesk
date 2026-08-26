@@ -29,7 +29,7 @@ import contextlib
 import json
 import re
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
