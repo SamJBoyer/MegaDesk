@@ -16,4 +16,4 @@ It never consumes a stream. A missing hash still means "no run".
 ## Wire
 
 Defined once in `megadesk_contracts.wire.graph`. See
-[`MegaDesk-contracts/redis/work-graph.md`](../../MegaDesk-contracts/redis/work-graph.md).
+[`MegaDesk-Contracts/redis/work-graph.md`](../../MegaDesk-Contracts/redis/work-graph.md).

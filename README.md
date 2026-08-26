@@ -9,7 +9,7 @@ Features:
 
 
 Individual modules:
-- MegaDesk canvas (`MegaDesk-Canvas/`): endless Dear PyGui canvas. Discovers FE nodes from `MegaDesk.nodes` via `get_fe_spec()`. Owns Supervisor (BE started on launch via `ensure_supervisor_running()`; collapsible operator panel). Dropping a node that also has a BE `XADD`s `SUPERVISOR:LAUNCHREQUEST` over Redis. Install with `pip install -e MegaDesk-Canvas` (after `pip install -e MegaDesk-contracts`).
+- MegaDesk canvas (`MegaDesk-Canvas/`): endless Dear PyGui canvas. Discovers FE nodes from `MegaDesk.nodes` via `get_fe_spec()`. Owns Supervisor (BE started on launch via `ensure_supervisor_running()`; collapsible operator panel). Dropping a node that also has a BE `XADD`s `SUPERVISOR:LAUNCHREQUEST` over Redis. Install with `pip install -e MegaDesk-Canvas` (after `pip install -e MegaDesk-Contracts`).
   - Supervisor (`MegaDesk-Canvas/supervisor/`): Canvas infrastructure — process lifecycle manager (`SUPERVISOR:LAUNCHREQUEST` / `SUPERVISOR:KILLREQUEST` / `RUNNINGNODES`; Redis DB 0 streams, DB 1 persistent keys). Not a Catalog node.
 
 - Nodes (`Nodes/`): productivity nodes installed via `pip install -e Nodes/<name>` (or `.[canvas]` where noted).
@@ -22,7 +22,7 @@ Individual modules:
   - VoiceDeck: FE + BE node — a speech-to-speech loop (OpenAI Realtime) that calls into CodeScope and CloudFactory by tool call. Audio stays inside the BE; only transcripts and control messages cross Redis. Needs `[audio]` (PortAudio) and `OPENAI_API_KEY`.
   - GraphScope: FE-only node that draws a live AgentHandler work-graph run from `GRAPHRUN:<guid>` and `GRAPHEVENT`.
 
-Shared contract: installable `megadesk-contracts` package in `MegaDesk-contracts/` (`FeSpec` / `BeSpec`, entry-point discovery, Supervisor client). Redis IPC docs live alongside it (DB 0 ephemeral / DB 1 Supervisor persistent).
+Shared contract: installable `megadesk-contracts` package in `MegaDesk-Contracts/` (`FeSpec` / `BeSpec`, entry-point discovery, Supervisor client). Redis IPC docs live alongside it (DB 0 ephemeral / DB 1 Supervisor persistent).
 
 ## Tests
 

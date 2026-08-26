@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path[:0] = [
     str(ROOT / part)
     for part in (
-        "MegaDesk-contracts",
+        "MegaDesk-Contracts",
         "MegaDesk-Canvas",
         "Nodes/TicketDispatcher",
         "Nodes/MergeManager",

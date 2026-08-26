@@ -86,15 +86,26 @@ def test_dev_flush_mode_enabled_truthy(monkeypatch, value: str) -> None:
     assert dev_flush_mode_enabled() is True
 
 
-@pytest.mark.parametrize("value", ["", "0", "false", "no", "off", "2", "maybe"])
+@pytest.mark.parametrize("value", ["0", "false", "FALSE", "no", "off", "Off"])
 def test_dev_flush_mode_enabled_falsey(monkeypatch, value: str) -> None:
     monkeypatch.setenv("DEV_FLUSH_MODE", value)
     assert dev_flush_mode_enabled() is False
 
 
-def test_dev_flush_mode_enabled_off_when_unset(monkeypatch) -> None:
-    monkeypatch.delenv("DEV_FLUSH_MODE", raising=False)
+@pytest.mark.parametrize("value", ["2", "maybe", "enabled"])
+def test_dev_flush_mode_enabled_unknown_is_off(monkeypatch, value: str) -> None:
+    monkeypatch.setenv("DEV_FLUSH_MODE", value)
     assert dev_flush_mode_enabled() is False
+
+
+def test_dev_flush_mode_enabled_on_when_unset(monkeypatch) -> None:
+    monkeypatch.delenv("DEV_FLUSH_MODE", raising=False)
+    assert dev_flush_mode_enabled() is True
+
+
+def test_dev_flush_mode_enabled_on_when_empty(monkeypatch) -> None:
+    monkeypatch.setenv("DEV_FLUSH_MODE", "")
+    assert dev_flush_mode_enabled() is True
 
 
 def test_flush_live_redis_pair_flushes_db_zero_then_one(monkeypatch) -> None:

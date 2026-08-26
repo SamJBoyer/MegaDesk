@@ -31,7 +31,7 @@ status vocabulary they both report in.
 
 Do **not** hardcode host/port. Prefer `redis_connect(url, db=resolve_ephemeral_db(url))` — redis-py 8 ignores a `db=` keyword when the URL already names a database.
 
-**`DEV_FLUSH_MODE`** — debug convenience, default off. When MegaDesk-Canvas `main()` boots and the env var is truthy (`1` / `true` / `yes` / `on`, case-insensitive), it FLUSHDB's live DB 0 then DB 1 (`flush_live_redis_pair`) **before** `ensure_supervisor_running()`. Windows: `set DEV_FLUSH_MODE=1`. Pytest, `python -m supervisor` alone, and agent sandboxes never flush 0/1.
+**`DEV_FLUSH_MODE`** — debug convenience, default on. When MegaDesk-Canvas `main()` boots, unless the env var is explicitly falsey (`0` / `false` / `no` / `off`, case-insensitive), it FLUSHDB's live DB 0 then DB 1 (`flush_live_redis_pair`) **before** `ensure_supervisor_running()`. Disable with `set DEV_FLUSH_MODE=0` (Windows) or `export DEV_FLUSH_MODE=0`. Pytest, `python -m supervisor` alone, and agent sandboxes never flush 0/1.
 
 MachineFactory, TicketDispatcher, MergeManager, `SupervisorClient`, and Supervisor provision all read **`REDIS_URL`**. They **do not** start Redis. The Canvas-owned Supervisor BE may attach to an existing Redis at `REDIS_URL` or (when the URL host is loopback) provision Docker Redis + Redis Insight if none is reachable.
 
@@ -81,14 +81,14 @@ Default Redis has indexes 0–15. Live MegaDesk never leaves 0/1. MachineFactory
 Every package above is defined exactly once, and every writer imports it from
 there. A node shipping its own `redis_packets.py` is a bug, not a shortcut:
 
-- `MegaDesk-contracts/megadesk_contracts/wire/factory.py` — status vocabulary shared by both factories
-- `MegaDesk-contracts/megadesk_contracts/wire/machine.py` — `WORKORDER`, `AGENTHANDLER`, `FINISHED`
-- `MegaDesk-contracts/megadesk_contracts/wire/graph.py` — `GRAPHRUN`, `GRAPHEVENT`, `WORK_GRAPH`
-- `MegaDesk-contracts/megadesk_contracts/wire/cloud.py` — `CLOUDORDER`, `CLOUDFINISHED`, `CLOUDRUN`
-- `MegaDesk-contracts/megadesk_contracts/wire/code_scope.py`
-- `MegaDesk-contracts/megadesk_contracts/wire/voice.py`
+- `MegaDesk-Contracts/megadesk_contracts/wire/factory.py` — status vocabulary shared by both factories
+- `MegaDesk-Contracts/megadesk_contracts/wire/machine.py` — `WORKORDER`, `AGENTHANDLER`, `FINISHED`
+- `MegaDesk-Contracts/megadesk_contracts/wire/graph.py` — `GRAPHRUN`, `GRAPHEVENT`, `WORK_GRAPH`
+- `MegaDesk-Contracts/megadesk_contracts/wire/cloud.py` — `CLOUDORDER`, `CLOUDFINISHED`, `CLOUDRUN`
+- `MegaDesk-Contracts/megadesk_contracts/wire/code_scope.py`
+- `MegaDesk-Contracts/megadesk_contracts/wire/voice.py`
 
 Supervisor keys/streams (Canvas-owned BE):
 
-- `MegaDesk-contracts/megadesk_contracts/supervisor_client.py` — stream names, `RUNNINGNODES`, `SupervisorClient`
+- `MegaDesk-Contracts/megadesk_contracts/supervisor_client.py` — stream names, `RUNNINGNODES`, `SupervisorClient`
 - `MegaDesk-Canvas/supervisor/` — the BE that consumes those streams

@@ -230,8 +230,8 @@ def main() -> None:
 
     # Supervisor BE is canvas-owned — start before the UI so LAUNCHREQUEST works.
     # Log session is Supervisor-generation scoped; reopen does not rotate files.
-    # DEV_FLUSH_MODE empties live 0/1 first so the new supervisor recreates
-    # consumer groups and SUPERVISOR:ALIVE / SINGLETON on a fresh pair.
+    # DEV_FLUSH_MODE (default on) empties live 0/1 first so the new supervisor
+    # recreates consumer groups and SUPERVISOR:ALIVE / SINGLETON on a fresh pair.
     if dev_flush_mode_enabled():
         log.warning("DEV_FLUSH_MODE: flushing Redis DB 0 and DB 1")
         try:

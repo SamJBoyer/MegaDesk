@@ -1,6 +1,6 @@
 # MegaDesk node protocol
 
-Canonical reference for how Nodes are discovered, launched, hosted on the canvas, and torn down. Glossary: [`Docs/glossary.md`](glossary.md). Redis Supervisor streams: [`MegaDesk-contracts/redis/supervisor.md`](../MegaDesk-contracts/redis/supervisor.md). Canvas-package layout and DPG chrome: [`MegaDesk-Canvas/docs/canvas.md`](../MegaDesk-Canvas/docs/canvas.md).
+Canonical reference for how Nodes are discovered, launched, hosted on the canvas, and torn down. Glossary: [`Docs/glossary.md`](glossary.md). Redis Supervisor streams: [`MegaDesk-Contracts/redis/supervisor.md`](../MegaDesk-Contracts/redis/supervisor.md). Canvas-package layout and DPG chrome: [`MegaDesk-Canvas/docs/canvas.md`](../MegaDesk-Canvas/docs/canvas.md).
 
 A **node** is a modular tool inside MegaDesk. Nodes can expose a front-end (FE), a back-end (BE), or both. Discovery and launch are driven by packaging entry points.
 
@@ -9,7 +9,7 @@ A **node** is a modular tool inside MegaDesk. Nodes can expose a front-end (FE),
 | **FE** | Always Dear PyGui. Integrated into the MegaDesk canvas shell. | MegaDesk canvas (`MegaDesk-Canvas/`) via `get_fe_spec()` → `FeSpec` |
 | **BE** | Long-lived process (argv + optional cwd). Managed as a subprocess. | Canvas-owned Supervisor BE via `get_be_spec()` → `BeSpec` |
 
-Shared contract lives in the installable `megadesk-contracts` package (`MegaDesk-contracts/`): `FeSpec`, `BeSpec`, entry-point discovery, `SupervisorClient`, `frame_pump`, and logging helpers.
+Shared contract lives in the installable `megadesk-contracts` package (`MegaDesk-Contracts/`): `FeSpec`, `BeSpec`, entry-point discovery, `SupervisorClient`, `frame_pump`, and logging helpers.
 
 **Supervisor** is Canvas infrastructure (`MegaDesk-Canvas/supervisor/`), not a Catalog / `MegaDesk.nodes` entry. The BE starts on canvas launch via `megadesk_contracts.ensure_supervisor_running()` (`python -m supervisor`). The operator UI is a right-hand collapsible pane with Nodes and Logs tabs (`supervisor.panel.build_supervisor_panel`), matching the left Catalog — not a droppable FE.
 
@@ -211,7 +211,7 @@ Canvas-side install (also summarized in `MegaDesk-Canvas/readme.md`):
 
 ```bash
 conda activate MEGADESK
-pip install -e MegaDesk-contracts
+pip install -e MegaDesk-Contracts
 pip install -e MegaDesk-Canvas
 pip install -e Nodes/TicketDispatcher   # FE example
 pip install -e Nodes/MergeManager       # FE example
@@ -219,7 +219,7 @@ pip install -e Nodes/Factory/MachineFactory[canvas]   # FE + BE example, nested
 python main.py   # from MegaDesk-Canvas/ — starts Supervisor BE on launch
 ```
 
-To reinstall every node from scratch, run `python scripts/refresh_nodes.py` from the MEGADESK env — it uninstalls and editable-reinstalls every node under `Nodes/`, at any depth, then verifies discovery. It skips anything inside a nested git checkout, because CodeScope clones repos into `Nodes/CodeScope/Scope/` and one of them is usually MegaDesk itself. Before changing the Supervisor or a BE, run `python scripts/down_nodes.py`.
+To reinstall every node from scratch, run `python scripts/refresh_nodes.py` from the MEGADESK env — it uninstalls and editable-reinstalls every node under `Nodes/`, at any depth, then verifies discovery. It skips anything inside a nested git checkout, because CodeScope clones repos into `Nodes/CodeScope/Scope/` and one of them is usually MegaDesk itself. Before changing the Supervisor or a BE, run `python scripts/down_nodes.py`. To refresh contracts + canvas, run `python scripts/refresh_contracts.py`; to rebuild the MachineFactory sandbox image, `python scripts/rebuild_sandbox.py`. `python scripts/master_refresh.py` runs down → contracts → nodes → sandbox.
 
 ### Hosted shell (`MegaDeskMember`)
 
@@ -270,7 +270,7 @@ Members are serialized into a graph `.json` (default `Graphs/default.json`; the 
 
 1. The Supervisor BE refreshes backends with `discover_backends()`.
 2. On `SUPERVISOR:LAUNCHREQUEST` (Redis DB 0), it assigns a `unique_id`, resolves `get_backend(node_endpoint)`, redirects stdout/stderr to `Logs/{session}/{endpoint}.md`, injects `MEGADESK_*` env, and writes `RUNNINGNODES:<unique_id>` on DB 1 (`status=running`, PID, `log_path`, …).
-3. A reaper marks natural exits as `status=exited`, publishes `NODEEXIT` (DB 0), and keeps the hash until Stop. `SUPERVISOR:KILLREQUEST` tears down (if needed) and `DEL`s the hash. See `MegaDesk-contracts/redis/supervisor.md`.
+3. A reaper marks natural exits as `status=exited`, publishes `NODEEXIT` (DB 0), and keeps the hash until Stop. `SUPERVISOR:KILLREQUEST` tears down (if needed) and `DEL`s the hash. See `MegaDesk-Contracts/redis/supervisor.md`.
 
 Callers outside the canvas can use `megadesk_contracts.SupervisorClient` (`launch_node`, `kill_node`, `list_running`, `get_running`, `kill_all_running`, `redis_ok`, `backend_ok`).
 

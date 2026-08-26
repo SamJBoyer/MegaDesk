@@ -12,7 +12,7 @@ Install and run from this directory (after installing contracts):
 
 ```bash
 conda activate MEGADESK
-pip install -e ../MegaDesk-contracts
+pip install -e ../MegaDesk-Contracts
 pip install -e .
 python main.py
 ```
@@ -20,6 +20,6 @@ python main.py
 See [`Docs/node_protocol.md`](../Docs/node_protocol.md) for the node protocol
 (`MegaDesk.nodes` / `FeSpec` / `BeSpec` / graph hosting).
 Package layout and DPG chrome: [`docs/canvas.md`](docs/canvas.md).
-Shared importable APIs live in the `megadesk-contracts` package (`MegaDesk-contracts/`).
-Supervisor Redis packages: [`MegaDesk-contracts/redis/supervisor.md`](../MegaDesk-contracts/redis/supervisor.md).
+Shared importable APIs live in the `megadesk-contracts` package (`MegaDesk-Contracts/`).
+Supervisor Redis packages: [`MegaDesk-Contracts/redis/supervisor.md`](../MegaDesk-Contracts/redis/supervisor.md).
 Graphs live under `Graphs/` (default `default.json`); the graph bar loads any `.json`.

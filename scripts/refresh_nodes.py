@@ -115,7 +115,7 @@ def main() -> int:
     if probe.returncode != 0:
         print(
             "error: megadesk-contracts is not installed in "
-            f"{ENV_NAME}; run: {py} -m pip install -e {REPO_ROOT / 'MegaDesk-contracts'}",
+            f"{ENV_NAME}; run: {py} -m pip install -e {REPO_ROOT / 'MegaDesk-Contracts'}",
             file=sys.stderr,
         )
         return 1

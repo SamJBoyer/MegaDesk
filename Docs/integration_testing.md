@@ -7,11 +7,11 @@ broken. The suite in [`tests/`](../tests/) boots the real canvas, presses the
 real widgets, and asserts the real payloads.
 
 Related: [`Docs/node_protocol.md`](node_protocol.md),
-[`MegaDesk-contracts/redis/machine-factory-pipeline.md`](../MegaDesk-contracts/redis/machine-factory-pipeline.md),
-[`MegaDesk-contracts/redis/voice-chain.md`](../MegaDesk-contracts/redis/voice-chain.md).
+[`MegaDesk-Contracts/redis/machine-factory-pipeline.md`](../MegaDesk-Contracts/redis/machine-factory-pipeline.md),
+[`MegaDesk-Contracts/redis/voice-chain.md`](../MegaDesk-Contracts/redis/voice-chain.md).
 
 The harness lives in
-[`MegaDesk-contracts/megadesk_contracts/testing/`](../MegaDesk-contracts/megadesk_contracts/testing/).
+[`MegaDesk-Contracts/megadesk_contracts/testing/`](../MegaDesk-Contracts/megadesk_contracts/testing/).
 It imports nothing from any node — node-specific pieces (which `run_gh` to
 patch, which wire helpers to build payloads with) are injected by `conftest`.
 
@@ -103,7 +103,7 @@ Writers emit canonical field names only. Tests assert that set — see
 ## Harness
 
 ```text
-MegaDesk-contracts/megadesk_contracts/testing/
+MegaDesk-Contracts/megadesk_contracts/testing/
   __init__.py           # public surface
   harness.py            # CanvasHarness
   driver.py             # NodeDriver
