@@ -128,17 +128,31 @@ class CloudFactoryManager:
         self.ensure_group()
         launched = 0
         for stream_id in ("0", ">"):
-            results = self.ephemeral.xreadgroup(
-                groupname=self.group,
-                consumername=self.consumer,
-                streams={wire.CLOUDORDER_STREAM: stream_id},
-                count=ORDER_BATCH,
-            )
+            results = self._xreadgroup(stream_id)
             for _stream, messages in results or []:
                 for entry_id, fields in messages:
                     if self.handle_order(entry_id, fields):
                         launched += 1
         return launched
+
+    def _xreadgroup(self, stream_id: str) -> Any:
+        """Read the group, recreating it if Redis was flushed out from under us."""
+        from redis.exceptions import ResponseError
+
+        kwargs = {
+            "groupname": self.group,
+            "consumername": self.consumer,
+            "streams": {wire.CLOUDORDER_STREAM: stream_id},
+            "count": ORDER_BATCH,
+        }
+        try:
+            return self.ephemeral.xreadgroup(**kwargs)
+        except ResponseError as exc:
+            if "NOGROUP" not in str(exc):
+                raise
+            self._group_ready = False
+            self.ensure_group()
+            return self.ephemeral.xreadgroup(**kwargs)
 
     def handle_order(self, entry_id: str, fields: dict[str, Any]) -> bool:
         """Launch one order. Returns whether an agent now exists for it."""

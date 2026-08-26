@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import threading
 from typing import Any, Mapping, Optional
 
@@ -39,6 +40,7 @@ from megadesk_contracts import (
     AgentStartupError,
     RunHandle,
     RunStatus,
+    repo_name_from_url,
 )
 from megadesk_contracts.wire import cloud as wire
 from megadesk_contracts.wire.factory import normalize_status
@@ -46,6 +48,10 @@ from megadesk_contracts.wire.factory import normalize_status
 log = logging.getLogger("cloud_factory.runtime")
 
 DEFAULT_MODEL = wire.DEFAULT_MODEL
+# Same branch MachineFactory tickets fork from and MergeManager merges into.
+# Cursor cannot always read GitHub's default branch; omitting startingRef is
+# what logged as [validation_error] Failed to determine repository default branch.
+DEFAULT_REF = "agents"
 
 # Cloud agents run unattended, so the prompt has to carry what a person would
 # otherwise supply in review: stay small, and leave the branch in a state a
@@ -59,6 +65,62 @@ that says what changed and why, titled: {title}"""
 
 def prompt_for(*, instructions: str, title: str) -> str:
     return CLOUD_PROMPT.format(instructions=instructions.strip(), title=title.strip())
+
+
+_GITHUB_HTTPS = re.compile(
+    r"^https?://(?:www\.)?github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$",
+    re.IGNORECASE,
+)
+_GITHUB_SSH = re.compile(
+    r"^git@github\.com:([^/]+)/([^/]+?)(?:\.git)?/?$",
+    re.IGNORECASE,
+)
+_GITHUB_SLUG = re.compile(r"^([\w.-]+)/([\w.-]+)$")
+
+
+def canonical_github_repo(repo_url: str) -> tuple[str, str]:
+    """``(clone_url, name)``. ``name`` is the repo, never ``owner/name``.
+
+    Cursor's validation errors print GitHub's nameWithOwner
+    (``SamJBoyer/SMOKETESTREPO``). MegaDesk, Floor, and WORKORDER identify the
+    same repo as ``SMOKETESTREPO`` — the last path segment.
+    """
+    text = str(repo_url).strip()
+    match = _GITHUB_HTTPS.match(text) or _GITHUB_SSH.match(text)
+    if match is None and "://" not in text and not text.startswith("git@"):
+        match = _GITHUB_SLUG.match(text)
+    if match is not None:
+        owner, repo = match.group(1), match.group(2)
+        if repo.endswith(".git"):
+            repo = repo[: -len(".git")]
+        return f"https://github.com/{owner}/{repo}", repo
+    return text, repo_name_from_url(text)
+
+
+def cloud_launch_options(
+    *, repo_url: str, auto_pr: bool = True, ref: str = ""
+) -> dict[str, Any]:
+    """Kwargs for ``CloudAgentOptions``. ``repos`` must be ``{url, ...}`` mappings.
+
+    ``CloudAgentOptions.to_json()`` calls ``dict(repo)`` on each entry. A bare
+    URL string is a sequence of characters, which raises
+    ``dictionary update sequence element #0 has length 1; 2 is required``.
+    ``ref`` belongs on the repo as ``startingRef``, not on the options object.
+    An empty ``ref`` is ``agents``: MegaDesk's working branch, and the value
+    Cursor needs when it cannot determine GitHub's default.
+    """
+    url, _name = canonical_github_repo(repo_url)
+    repo: dict[str, Any] = {
+        "url": url,
+        "startingRef": str(ref).strip() or DEFAULT_REF,
+    }
+    return {
+        "repos": [repo],
+        # Unattended runs must not page a human, and a run with no PR is a
+        # branch nobody will ever find again.
+        "auto_create_pr": bool(auto_pr),
+        "skip_reviewer_request": True,
+    }
 
 
 def _first_attr(obj: Any, *names: str) -> str:
@@ -106,19 +168,20 @@ class CursorCloudFactory:
         auto_pr = bool(order.get("auto_pr", True))
         ref = str(order.get("ref") or "")
 
+        url, name = canonical_github_repo(repo_url)
         CloudAgentOptions = self._options_cls()
-        options: dict[str, Any] = {
-            "repos": [repo_url],
-            # Unattended runs must not page a human, and a run with no PR is a
-            # branch nobody will ever find again.
-            "auto_create_pr": auto_pr,
-            "skip_reviewer_request": True,
-        }
-        if ref:
-            options["ref"] = ref
+        options = cloud_launch_options(
+            repo_url=url, auto_pr=auto_pr, ref=ref
+        )
 
         chosen = str(order.get("model") or self.model).strip() or DEFAULT_MODEL
-        log.info("Launching cloud agent model=%s repo=%s", chosen, repo_url)
+        log.info(
+            "Launching cloud agent model=%s name=%s url=%s ref=%s",
+            chosen,
+            name,
+            url,
+            options["repos"][0]["startingRef"],
+        )
         try:
             return self._run(
                 self._async_launch(

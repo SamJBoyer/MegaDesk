@@ -24,8 +24,8 @@
       "nickname": "merge_manager",
       "node_name": "merge_manager",
       "position": [
-        -202.0,
-        -31.0
+        -29.0,
+        -43.0
       ],
       "parameters": {},
       "data": {
@@ -34,36 +34,20 @@
         "node_name": "merge_manager"
       }
     },
-    "0cb0944c-4d1d-45b4-8ac0-6f7978a28736": {
-      "member_id": "0cb0944c-4d1d-45b4-8ac0-6f7978a28736",
+    "b4a0dbe9-307c-4d13-81a8-d403b9562a20": {
+      "member_id": "b4a0dbe9-307c-4d13-81a8-d403b9562a20",
       "type": "megadesk",
-      "nickname": "graph_scope",
-      "node_name": "graph_scope",
+      "nickname": "cloud_factory",
+      "node_name": "cloud_factory",
       "position": [
-        506.0,
-        -353.0
+        477.0,
+        -291.0
       ],
       "parameters": {},
       "data": {
-        "width": 480.0,
-        "height": 240.0,
-        "node_name": "graph_scope"
-      }
-    },
-    "49b6d375-4125-4f28-89a0-966311a7ab10": {
-      "member_id": "49b6d375-4125-4f28-89a0-966311a7ab10",
-      "type": "megadesk",
-      "nickname": "machine_factory",
-      "node_name": "machine_factory",
-      "position": [
-        505.0,
-        -19.0
-      ],
-      "parameters": {},
-      "data": {
-        "width": 520.0,
-        "height": 320.0,
-        "node_name": "machine_factory"
+        "width": 420.0,
+        "height": 140.0,
+        "node_name": "cloud_factory"
       }
     }
   }

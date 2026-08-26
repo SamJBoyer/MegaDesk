@@ -143,6 +143,18 @@ def test_an_unusable_order_is_acked_rather_than_retried_forever(
     assert pending_orders(redis_client) == 0
 
 
+def test_a_flushed_consumer_group_is_recreated(
+    cloud_factory, fake_cloud_factory, redis_client
+) -> None:
+    """A Redis flush after startup used to leave the BE logging NOGROUP forever."""
+    cloud_factory.ensure_group()
+    redis_client.delete(wire.CLOUDORDER_STREAM)
+    place_order(redis_client)
+
+    assert cloud_factory.poll_orders() == 1
+    assert len(fake_cloud_factory.launches) == 1
+
+
 # --- the two failure modes -------------------------------------------------
 
 
@@ -290,7 +302,9 @@ def test_the_cloud_runtime_asks_for_a_pr_and_never_runs_locally(
     Cut above ``cursor_sdk`` rather than at the network, because the bug this
     guards against is a missing keyword argument, not a bad response. The
     production path is async (Windows cannot ``select()`` a pipe); this test
-    still inspects the ``cloud=`` options the runtime would pass.
+    still inspects the ``cloud=`` options the runtime would pass. Empty ``ref``
+    must still send ``startingRef=agents`` — Cursor otherwise fails to determine
+    the repository default branch.
     """
     import asyncio
 
@@ -327,11 +341,69 @@ def test_the_cloud_runtime_asks_for_a_pr_and_never_runs_locally(
     assert handle.run_key == "bc-stub001"
     assert handle.run_id == "run-1"
     options = created["cloud"].kwargs
-    assert options["repos"] == [REPO_URL]
+    assert options["repos"] == [{"url": REPO_URL, "startingRef": "agents"}]
     assert options["auto_create_pr"] is True
     assert options["skip_reviewer_request"] is True
+    assert "ref" not in options
     assert INSTRUCTIONS in prompts[0]
     assert TITLE in prompts[0]
+
+    runtime.launch(
+        {
+            "repo_url": REPO_URL,
+            "instructions": INSTRUCTIONS,
+            "title": TITLE,
+            "model": "auto",
+            "ref": "main",
+        }
+    )
+    assert created["cloud"].kwargs["repos"] == [
+        {"url": REPO_URL, "startingRef": "main"}
+    ]
+
+
+def test_the_smoke_repo_is_identified_by_name_not_owner_slash_name() -> None:
+    """Cursor prints nameWithOwner; MegaDesk's name is the last path segment."""
+    from CloudFactoryManager.runtime import canonical_github_repo, cloud_launch_options
+    from ticket_dispatcher_app import normalize_repo_url, parse_github_repo
+
+    git_url = "https://github.com/SamJBoyer/SMOKETESTREPO.git"
+    owner, repo = parse_github_repo(git_url)
+    assert repo == "SMOKETESTREPO"
+    assert owner == "SamJBoyer"
+    assert normalize_repo_url(git_url, owner, repo) == (
+        "https://github.com/SamJBoyer/SMOKETESTREPO"
+    )
+
+    url, name = canonical_github_repo(git_url)
+    assert name == "SMOKETESTREPO"
+    assert "/" not in name
+    assert url == "https://github.com/SamJBoyer/SMOKETESTREPO"
+
+    options = cloud_launch_options(repo_url=git_url)
+    assert options["repos"][0]["url"] == url
+    assert options["repos"][0]["url"].rsplit("/", 1)[-1] == "SMOKETESTREPO"
+
+    slug_url, slug_name = canonical_github_repo("SamJBoyer/SMOKETESTREPO")
+    assert slug_name == "SMOKETESTREPO"
+    assert slug_url == url
+
+
+def test_cloud_agent_options_serialize_repo_urls_as_mappings() -> None:
+    """A bare URL in ``repos`` is what production logged as a dict() failure."""
+    pytest.importorskip("cursor_sdk")
+    from cursor_sdk import CloudAgentOptions
+    from CloudFactoryManager.runtime import cloud_launch_options
+
+    payload = CloudAgentOptions(**cloud_launch_options(repo_url=REPO_URL)).to_json()
+    assert payload["repos"] == [{"url": REPO_URL, "startingRef": "agents"}]
+    assert payload["autoCreatePr"] is True
+    assert payload["skipReviewerRequest"] is True
+
+    with_ref = CloudAgentOptions(
+        **cloud_launch_options(repo_url=REPO_URL, ref="main")
+    ).to_json()
+    assert with_ref["repos"] == [{"url": REPO_URL, "startingRef": "main"}]
 
 
 def test_an_unknown_status_is_treated_as_still_running() -> None:

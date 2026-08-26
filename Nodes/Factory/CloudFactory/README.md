@@ -41,10 +41,15 @@ pipe and raises ``WinError 10038`` on Windows):
 ```python
 agent = await client.agents.create(
     model=model, api_key=key,
-    cloud=CloudAgentOptions(repos=[url], auto_create_pr=True,
-                            skip_reviewer_request=True),
+    cloud=CloudAgentOptions(
+        repos=[{"url": url, "startingRef": ref or "agents"}],
+        auto_create_pr=True, skip_reviewer_request=True,
+    ),
 )
 ```
+
+Empty `ref` is `agents` at launch — MegaDesk's working branch, and the value
+Cursor needs when it cannot determine GitHub's default.
 
 ## Wire
 
@@ -86,8 +91,7 @@ registry, which is what the FE renders.
 `FakeCloudFactory` returns `bc-` ids and a canned PR URL, so
 `tests/test_cloudfactory_flow.py` exercises the real consumer group, the real
 registry and the real canvas without a VM or a pull request. The cut for the launch
-options themselves is one level higher — `CursorCloudFactory._async_launch` / the
-`cloud=` options — since the bug worth guarding against there is a missing
-keyword argument, not a bad response.
+options themselves is one level higher — `cloud_launch_options` / `CloudAgentOptions.to_json()`
+— because a bare URL in `repos` never reaches the network.
 
 `tests/test_machinefactory_flow.py` is the same suite against the other factory.
