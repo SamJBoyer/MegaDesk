@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "auto-integrate"
+version = "0.1.0"
+description = "MegaDesk human gate: send an agent at a pull request that no longer merges"
+requires-python = ">=3.10"
+dependencies = [
+    "dearpygui>=1.11.1",
+    "redis>=5.0.0",
+    "megadesk-contracts",
+]
+
+[project.entry-points."MegaDesk.nodes"]
+auto_integrate = "auto_integrate_node"
+
+[tool.setuptools]
+py-modules = ["auto_integrate_app", "auto_integrate_node"]

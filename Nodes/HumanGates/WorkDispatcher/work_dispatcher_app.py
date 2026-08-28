@@ -1,15 +1,11 @@
-"""Ticket Dispatcher — visualize agent-ready git issues and dispatch them via Redis."""
+"""Work Dispatcher — a human gate that hands labeled git issues to a factory."""
 
 from __future__ import annotations
 
-import json
 import queue
-import re
-import subprocess
 import threading
 from dataclasses import dataclass
 from typing import Mapping, Optional
-from urllib.parse import urlparse
 
 import dearpygui.dearpygui as dpg
 import redis
@@ -19,6 +15,15 @@ from megadesk_contracts import (
     redis_connect,
     resolve_ephemeral_db,
     resolve_redis_url,
+)
+from megadesk_contracts.human_gate import (
+    LABEL_AGENT_READY,
+    check_repo,
+    list_labeled_issues,
+    list_repo_labels,
+    normalize_repo_url,
+    parse_github_repo,
+    run_gh,
 )
 from megadesk_contracts.wire.cloud import (
     CLOUDORDER_STREAM,
@@ -35,10 +40,11 @@ POLL_INTERVAL_SEC = 3.0
 MODEL_OPTIONS = ("auto", "grok-4.6", "claude-opus-5")
 FACTORY_OPTIONS = ("machine", "cloud")
 DEFAULT_FACTORY = "machine"
-GH_TIMEOUT_SEC = 15
+DEFAULT_LABEL = LABEL_AGENT_READY
 
-# Graph parameter this node recognizes; declared in parameters.yaml.
+# Graph parameters this node recognizes; declared in parameters.yaml.
 PARAM_GIT_URL = "GIT_URL"
+PARAM_ISSUE_LABEL = "ISSUE_LABEL"
 
 COLOR_GREEN = (80, 200, 80, 255)
 COLOR_RED = (220, 70, 70, 255)
@@ -46,7 +52,7 @@ COLOR_BLUE = (70, 140, 230, 255)
 COLOR_DIM = (90, 90, 90, 255)
 
 # Keep live instances alive while their embed windows exist.
-_LIVE: dict[str, "TicketDispatcher"] = {}
+_LIVE: dict[str, "WorkDispatcher"] = {}
 
 
 @dataclass
@@ -57,66 +63,17 @@ class IssueTicket:
     url: str
 
 
-def parse_github_repo(git_url: str) -> Optional[tuple[str, str]]:
-    """Extract (owner, repo) from common GitHub URL forms."""
-    url = git_url.strip()
-    if not url:
-        return None
-
-    ssh = re.match(r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?/?$", url)
-    if ssh:
-        return ssh.group(1), ssh.group(2)
-
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
-
-    parsed = urlparse(url)
-    if parsed.hostname not in ("github.com", "www.github.com"):
-        return None
-
-    parts = [p for p in parsed.path.strip("/").split("/") if p]
-    if len(parts) < 2:
-        return None
-
-    owner, repo = parts[0], parts[1]
-    if repo.endswith(".git"):
-        repo = repo[:-4]
-    return owner, repo
-
-
-def normalize_repo_url(git_url: str, owner: str, repo: str) -> str:
-    return f"https://github.com/{owner}/{repo}"
-
-
-def run_gh(*args: str) -> tuple[bool, str, str]:
-    try:
-        result = subprocess.run(
-            ["gh", *args],
-            capture_output=True,
-            text=True,
-            timeout=GH_TIMEOUT_SEC,
-            check=False,
-        )
-    except FileNotFoundError:
-        return False, "", "gh CLI not found — install and authenticate GitHub CLI"
-    except subprocess.TimeoutExpired:
-        return False, "", "gh command timed out"
-
-    if result.returncode != 0:
-        err = (result.stderr or result.stdout or "gh command failed").strip()
-        return False, result.stdout, err
-    return True, result.stdout, ""
-
-
-class TicketDispatcher:
+class WorkDispatcher:
     def __init__(self, parameters: Optional[Mapping[str, str]] = None) -> None:
         self._ui_queue: queue.Queue = queue.Queue()
         self._stop = threading.Event()
         self._poll_thread: Optional[threading.Thread] = None
-        self._url_lock = threading.Lock()
+        self._state_lock = threading.Lock()
         values = coerce_parameters(parameters)
         # GIT_URL from the graph: the repo this instance boots pointed at.
         self._current_repo_url = values.get(PARAM_GIT_URL, "").strip()
+        self._label = values.get(PARAM_ISSUE_LABEL, "").strip() or DEFAULT_LABEL
+        self._labels_for = ""
         self._tickets: dict[int, IssueTicket] = {}
         self._dispatched: set[int] = set()
         self._redis: Optional[redis.Redis] = None
@@ -147,10 +104,10 @@ class TicketDispatcher:
         width: int = 480,
         height: int = 160,
     ) -> None:
-        """Fill the host content parent with Ticket Dispatcher widgets."""
+        """Fill the host content parent with Work Dispatcher widgets."""
         self._root_tag = tag_prefix
         _ = width
-        # Compact chrome: URL + status ≈ 48px; list starts at ~2 rows and grows.
+        # Compact chrome: URL + label/status ≈ 48px; list starts at ~2 rows and grows.
         self._row_h = 26
         self._scroll_max = max(self._row_h * 2, height - 48) if height else None
 
@@ -184,9 +141,18 @@ class TicketDispatcher:
                         tag=self._tag("conn_light"),
                     )
 
-            dpg.add_text(
-                "Idle", tag=self._tag("status_text"), color=(160, 160, 160)
-            )
+            with dpg.group(horizontal=True):
+                dpg.add_combo(
+                    items=[self._label],
+                    default_value=self._label,
+                    width=150,
+                    height_mode=dpg.mvComboHeight_Small,
+                    tag=self._tag("label_combo"),
+                    callback=self._on_label_changed,
+                )
+                dpg.add_text(
+                    "Idle", tag=self._tag("status_text"), color=(160, 160, 160)
+                )
             dpg.add_child_window(
                 tag=self._tag("ticket_scroll"),
                 width=-1,
@@ -233,17 +199,34 @@ class TicketDispatcher:
         tag = self._tag("git_url")
         if not dpg.does_item_exist(tag):
             return
-        with self._url_lock:
+        with self._state_lock:
             self._current_repo_url = dpg.get_value(tag).strip()
 
     def _on_url_changed(self, sender, app_data, user_data=None) -> None:
         self._sync_url_from_input()
         self._ui_queue.put(("status", "Checking remote…", (180, 180, 100)))
 
+    def _on_label_changed(self, sender, app_data, user_data=None) -> None:
+        """Retarget the gate: a different label is a different queue of work."""
+        chosen = (app_data or "").strip() or DEFAULT_LABEL
+        with self._state_lock:
+            self._label = chosen
+        self._clear_rows()
+        self._ui_queue.put(("status", f"Tracking {chosen}…", (180, 180, 100)))
+
+    def _clear_rows(self) -> None:
+        for ticket_id in list(self._tickets):
+            row = self._tag(f"ticket_row_{ticket_id}")
+            if dpg.does_item_exist(row):
+                dpg.delete_item(row)
+        self._tickets.clear()
+        self._resize_ticket_scroll()
+
     def _poll_loop(self) -> None:
         while not self._stop.is_set():
-            with self._url_lock:
+            with self._state_lock:
                 url = self._current_repo_url
+                label = self._label
 
             if not url:
                 self._ui_queue.put(("conn", False))
@@ -268,7 +251,7 @@ class TicketDispatcher:
 
             owner, repo = parsed
             repo_url = normalize_repo_url(url, owner, repo)
-            ok, issues, err = self._fetch_agent_ready(owner, repo)
+            ok, issues, err = self._fetch_labeled(owner, repo, label)
 
             if not ok:
                 self._ui_queue.put(("conn", False))
@@ -278,7 +261,7 @@ class TicketDispatcher:
                 self._ui_queue.put(
                     (
                         "status",
-                        f"Connected — {len(issues)} agent-ready issue(s)",
+                        f"Connected — {len(issues)} {label} issue(s)",
                         COLOR_GREEN,
                     )
                 )
@@ -288,51 +271,38 @@ class TicketDispatcher:
 
             self._stop.wait(POLL_INTERVAL_SEC)
 
-    def _fetch_agent_ready(
-        self, owner: str, repo: str
+    def _refresh_labels(self, owner: str, repo: str) -> None:
+        """Offer the repo's own labels once per repo, so the target is real."""
+        slug = f"{owner}/{repo}"
+        if self._labels_for == slug:
+            return
+        ok, labels, _err = list_repo_labels(owner, repo, gh=run_gh)
+        if not ok:
+            return
+        self._labels_for = slug
+        self._ui_queue.put(("labels", labels))
+
+    def _fetch_labeled(
+        self, owner: str, repo: str, label: str
     ) -> tuple[bool, list[IssueTicket], Optional[str]]:
-        repo_slug = f"{owner}/{repo}"
-
-        ok, _, err = run_gh("repo", "view", repo_slug, "--json", "nameWithOwner")
+        ok, err = check_repo(owner, repo, gh=run_gh)
         if not ok:
-            return False, [], err or "Connection failed"
+            return False, [], err
 
-        ok, stdout, err = run_gh(
-            "issue",
-            "list",
-            "--repo",
-            repo_slug,
-            "--label",
-            "agent-ready",
-            "--state",
-            "open",
-            "--limit",
-            "100",
-            "--json",
-            "number,title,body",
+        self._refresh_labels(owner, repo)
+
+        ok, issues, err = list_labeled_issues(owner, repo, label, gh=run_gh)
+        if not ok:
+            return False, [], err
+
+        return (
+            True,
+            [
+                IssueTicket(id=issue.number, name=issue.title, body=issue.body, url="")
+                for issue in issues
+            ],
+            None,
         )
-        if not ok:
-            return False, [], err or "Failed to list issues"
-
-        try:
-            payload = json.loads(stdout or "[]")
-        except json.JSONDecodeError as exc:
-            return False, [], f"Invalid gh JSON: {exc}"
-
-        tickets: list[IssueTicket] = []
-        for item in payload:
-            number = item.get("number")
-            if number is None:
-                continue
-            tickets.append(
-                IssueTicket(
-                    id=int(number),
-                    name=item.get("title") or f"Issue #{number}",
-                    body=item.get("body") or "",
-                    url="",
-                )
-            )
-        return True, tickets, None
 
     def _drain_ui_queue(self) -> None:
         while True:
@@ -350,8 +320,20 @@ class TicketDispatcher:
                 if dpg.does_item_exist(status):
                     dpg.set_value(status, text)
                     dpg.configure_item(status, color=color)
+            elif kind == "labels":
+                self._set_label_items(msg[1])
             elif kind == "ticket":
                 self._ensure_ticket_row(msg[1])
+
+    def _set_label_items(self, labels: list[str]) -> None:
+        tag = self._tag("label_combo")
+        if not dpg.does_item_exist(tag):
+            return
+        items = list(labels)
+        if self._label not in items:
+            items.insert(0, self._label)
+        dpg.configure_item(tag, items=items)
+        dpg.set_value(tag, self._label)
 
     def _resize_ticket_scroll(self) -> None:
         scroll = self._tag("ticket_scroll")
@@ -420,7 +402,7 @@ class TicketDispatcher:
         if dpg.does_item_exist(light_tag):
             dpg.configure_item(light_tag, fill=COLOR_BLUE, color=COLOR_BLUE)
 
-        with self._url_lock:
+        with self._state_lock:
             fallback_url = self._current_repo_url
         repo_url = ticket.url or fallback_url
         parsed = parse_github_repo(repo_url)
@@ -505,7 +487,7 @@ def build_ui(
     parameters: Optional[Mapping[str, str]] = None,
 ) -> None:
     """Module-level builder for FeSpec / MegaDesk graph hosting."""
-    TicketDispatcher(parameters).build_ui(
+    WorkDispatcher(parameters).build_ui(
         parent,
         tag_prefix=tag_prefix,
         width=width,
@@ -516,18 +498,27 @@ def build_ui(
 def read_parameters(tag_prefix: str) -> dict[str, str]:
     """Current parameter values of the instance hosted under ``tag_prefix``.
 
-    Reads the widget rather than the instance's own field, so what the graph
+    Reads the widgets rather than the instance's own fields, so what the graph
     captures is what the operator can see.
     """
-    tag = f"{tag_prefix}::git_url"
-    if not dpg.does_item_exist(tag):
+    url_tag = f"{tag_prefix}::git_url"
+    if not dpg.does_item_exist(url_tag):
         return {}
-    return {PARAM_GIT_URL: (dpg.get_value(tag) or "").strip()}
+    label_tag = f"{tag_prefix}::label_combo"
+    label = (
+        (dpg.get_value(label_tag) or "").strip()
+        if dpg.does_item_exist(label_tag)
+        else ""
+    )
+    return {
+        PARAM_GIT_URL: (dpg.get_value(url_tag) or "").strip(),
+        PARAM_ISSUE_LABEL: label or DEFAULT_LABEL,
+    }
 
 
 def main() -> None:
     raise SystemExit(
-        "Ticket Dispatcher FE is graph-hosted. Drop it from the MegaDesk Catalog."
+        "Work Dispatcher FE is graph-hosted. Drop it from the MegaDesk Catalog."
     )
 
 

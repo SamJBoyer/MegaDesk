@@ -123,11 +123,11 @@ def test_catalog_and_supervisor_collapse(panel_harness) -> None:
 def test_selecting_a_canvas_node_shows_its_log(panel_harness, monkeypatch) -> None:
     begin_log_session()
     marker = "canvas-click-log-marker"
-    session_log_path("ticket_dispatcher").write_text(
+    session_log_path("work_dispatcher").write_text(
         f"{marker}\n", encoding="utf-8"
     )
 
-    driver = panel_harness.drop("ticket_dispatcher")
+    driver = panel_harness.drop("work_dispatcher")
     hosted = f"megadesk::{driver.member_id}"
     monkeypatch.setattr(dpg, "get_selected_nodes", lambda *_a, **_k: [hosted])
     panel_harness.pump(2)
@@ -139,11 +139,11 @@ def test_selecting_a_canvas_node_shows_its_log(panel_harness, monkeypatch) -> No
 def test_notify_member_clicked_uses_the_same_log_path(panel_harness) -> None:
     begin_log_session()
     marker = "notify-click-log-marker"
-    session_log_path("ticket_dispatcher").write_text(
+    session_log_path("work_dispatcher").write_text(
         f"{marker}\n", encoding="utf-8"
     )
 
-    driver = panel_harness.drop("ticket_dispatcher")
+    driver = panel_harness.drop("work_dispatcher")
     panel_harness.engine.notify_member_clicked(driver.member_id)
 
     assert marker in str(dpg.get_value(PROCESS_LOG) or "")

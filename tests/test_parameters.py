@@ -29,10 +29,13 @@ def test_load_parameter_names_is_empty_when_the_file_is_missing(tmp_path: Path) 
     assert load_parameter_names(tmp_path / "node.py") == ()
 
 
-def test_ticket_dispatcher_yaml_declares_git_url() -> None:
-    import ticket_dispatcher_node
+def test_human_gates_declare_a_repo_and_a_target_label() -> None:
+    import auto_integrate_node
+    import work_dispatcher_node
 
-    assert load_parameter_names(ticket_dispatcher_node.__file__) == ("GIT_URL",)
+    names = ("GIT_URL", "ISSUE_LABEL")
+    assert load_parameter_names(work_dispatcher_node.__file__) == names
+    assert load_parameter_names(auto_integrate_node.__file__) == names
 
 
 def test_normalize_parameters_keeps_declared_names_only() -> None:

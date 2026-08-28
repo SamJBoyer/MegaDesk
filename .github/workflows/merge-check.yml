@@ -48,7 +48,7 @@ jobs:
                 --state open \
                 --limit 100 \
                 --json number,body \
-                --jq "[.[] | select(.body | contains(\"megadesk:merge-check:pr-${pr}\") or contains(\"megadesk:merge_success:pr-${pr}\") or contains(\"megadesk:failed-merge:pr-${pr}\")) | .number][0] // empty")"
+                --jq "[.[] | select(.body | contains(\"megadesk:merge-check:pr-${pr} -->\") or contains(\"megadesk:merge_success:pr-${pr} -->\") or contains(\"megadesk:failed-merge:pr-${pr} -->\")) | .number][0] // empty")"
               if [ -n "${n}" ]; then
                 echo "${n}"
                 return 0
@@ -56,22 +56,30 @@ jobs:
             done
           }
 
+          # The markers are read back by MegaDesk (AutoIntegrate, PRManager) and
+          # are spelled once in megadesk_contracts.human_gate. The head branch
+          # also goes in the title: "PR #12" alone says nothing about which
+          # branch is stuck.
           upsert_issue() {
             local pr="$1"
             local base="$2"
             local label="$3"
             local other="$4"
-            local title="$5"
-            local detail="$6"
-            local marker="<!-- megadesk:merge-check:pr-${pr} -->"
-            local pr_url body existing
+            local phrase="$5"
+            local pr_url head title body existing
             pr_url="$(gh pr view "${pr}" --json url --jq .url)"
-            body="${marker}
-
-          ${pr_url} ${detail} \`${base}\`.
-
-          Workflow run: ${RUN_URL}
-          "
+            head="$(gh pr view "${pr}" --json headRefName --jq .headRefName)"
+            title="${label}: ${head} (PR #${pr}) ${phrase} ${base}"
+            body="$(printf '%s\n' \
+              "<!-- megadesk:merge-check:pr-${pr} -->" \
+              "<!-- megadesk:pr-branch:${head} -->" \
+              "<!-- megadesk:pr-base:${base} -->" \
+              "" \
+              "Branch \`${head}\` ${phrase} \`${base}\`." \
+              "" \
+              "${pr_url}" \
+              "" \
+              "Workflow run: ${RUN_URL}")"
             existing="$(find_issue "${pr}")"
 
             if [ -n "${existing}" ]; then
@@ -80,7 +88,7 @@ jobs:
                 --body "${body}" \
                 --add-label "${label}"
               gh issue edit "${existing}" --remove-label "${other}" 2>/dev/null || true
-              echo "Issue #${existing} → ${label} for PR #${pr}"
+              echo "Issue #${existing} → ${label} for PR #${pr} (${head})"
               return 0
             fi
 
@@ -111,13 +119,11 @@ jobs:
             if git merge-tree --write-tree "origin/${BASE}" "pr-${pr}" >/tmp/merge-tree.out; then
               echo "PR #${pr} merges into ${BASE}"
               upsert_issue "${pr}" "${BASE}" "${LABEL_OK}" "${LABEL_FAIL}" \
-                "MERGE_SUCCESS: PR #${pr} can merge into ${BASE}" \
                 "merges into"
             else
               echo "PR #${pr} does not merge into ${BASE}"
               cat /tmp/merge-tree.out || true
               upsert_issue "${pr}" "${BASE}" "${LABEL_FAIL}" "${LABEL_OK}" \
-                "MERGE_FAIL: PR #${pr} cannot merge into ${BASE}" \
                 "does not merge into"
               failed=1
             fi

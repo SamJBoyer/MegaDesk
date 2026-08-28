@@ -3,9 +3,9 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ticket-dispatcher"
+name = "work-dispatcher"
 version = "0.1.0"
-description = "MegaDesk FE node: dispatch agent-ready GitHub issues"
+description = "MegaDesk human gate: dispatch labeled GitHub issues to a factory"
 requires-python = ">=3.10"
 dependencies = [
     "dearpygui>=1.11.1",
@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.entry-points."MegaDesk.nodes"]
-ticket_dispatcher = "ticket_dispatcher_node"
+work_dispatcher = "work_dispatcher_node"
 
 [tool.setuptools]
-py-modules = ["ticket_dispatcher_app", "ticket_dispatcher_node"]
+py-modules = ["work_dispatcher_app", "work_dispatcher_node"]

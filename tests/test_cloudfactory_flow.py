@@ -364,7 +364,7 @@ def test_the_cloud_runtime_asks_for_a_pr_and_never_runs_locally(
 def test_the_smoke_repo_is_identified_by_name_not_owner_slash_name() -> None:
     """Cursor prints nameWithOwner; MegaDesk's name is the last path segment."""
     from CloudFactoryManager.runtime import canonical_github_repo, cloud_launch_options
-    from ticket_dispatcher_app import normalize_repo_url, parse_github_repo
+    from work_dispatcher_app import normalize_repo_url, parse_github_repo
 
     git_url = "https://github.com/SamJBoyer/SMOKETESTREPO.git"
     owner, repo = parse_github_repo(git_url)
@@ -513,11 +513,11 @@ def test_a_launch_failure_keeps_cursors_retry_advice() -> None:
 
 
 @pytest.mark.canvas
-def test_ticket_dispatcher_publishes_a_canonical_cloudorder(
+def test_work_dispatcher_publishes_a_canonical_cloudorder(
     harness, redis_client, fake_gh, read_stream
 ) -> None:
     fake_gh.add_issue(41, TITLE, INSTRUCTIONS)
-    dispatcher = harness.drop("ticket_dispatcher")
+    dispatcher = harness.drop("work_dispatcher")
     dispatcher.type_into("git_url", REPO_URL)
     harness.wait_for_widget(dispatcher, "ticket_btn_41")
     dispatcher.select("ticket_factory_41", "cloud")

@@ -255,6 +255,65 @@ def test_cancelling_a_run_that_does_not_exist_says_so(
     assert fake_machine_factory.cancelled == []
 
 
+def test_the_order_decides_which_branch_the_sandbox_starts_from(
+    machine_factory, fake_machine_factory, redis_client, git_floor
+) -> None:
+    """AutoIntegrate's fix has to be built on the pull request's own branch."""
+    machine_factory.ensure_group()
+    redis_client.xadd(
+        WORKORDER_STREAM,
+        wire.workorder_fields(
+            repo=git_floor.repo,
+            url=str(git_floor.origin),
+            ref="cursor/stuck-branch",
+            ticket_name=TICKET,
+            instructions=INSTRUCTIONS,
+        ),
+    )
+    place_order(redis_client, git_floor, ticket_name="ordinary-ticket")
+
+    machine_factory.poll_orders()
+
+    by_ticket = {run["ticket_name"]: run for run in fake_machine_factory.launches}
+    assert by_ticket[TICKET]["ref"] == "cursor/stuck-branch"
+    assert by_ticket["ordinary-ticket"]["ref"] == "", (
+        "an order that names no branch must leave the default alone"
+    )
+
+
+def test_the_sandbox_environment_carries_the_ref_and_defaults_to_dev() -> None:
+    """``STARTING_REF`` is what AgentHandler clones and bases its PR on."""
+    from unittest.mock import patch
+
+    from MachineFactoryManager import pool
+
+    def env_of(ref: str) -> dict[str, str]:
+        with patch.object(pool, "_docker") as docker, patch.object(
+            pool, "start_redis_sidecar", return_value="mf-redis-test"
+        ), patch.object(pool, "ensure_network"), patch.object(
+            pool, "_follow_container_logs"
+        ):
+            docker.return_value.returncode = 1
+            pool.start_ticket_sandbox(
+                repo="widgets",
+                ticket=TICKET,
+                repo_url="https://github.com/acme/widgets",
+                guid="guid-01",
+                ticket_id="1-0",
+                ref=ref,
+                api_key="key",
+            )
+            args = docker.call_args[0][0]
+        return dict(
+            pair.split("=", 1)
+            for index, pair in enumerate(args)
+            if index and args[index - 1] == "-e"
+        )
+
+    assert env_of("cursor/stuck-branch")["STARTING_REF"] == "cursor/stuck-branch"
+    assert env_of("")["STARTING_REF"] == wire.DEFAULT_STARTING_REF
+
+
 def test_a_repo_only_needs_a_dev_branch(git_floor) -> None:
     """Factories start from ``dev``. ``main`` and ``agents`` are not required."""
     from megadesk_contracts.wire.factory import DEFAULT_STARTING_REF

@@ -20,34 +20,34 @@ def _ticket_graph(member_id: str = "td-1") -> dict:
             member_id: {
                 "member_id": member_id,
                 "type": "megadesk",
-                "nickname": "ticket_dispatcher",
-                "node_name": "ticket_dispatcher",
+                "nickname": "work_dispatcher",
+                "node_name": "work_dispatcher",
                 "position": [40.0, 40.0],
                 "parameters": {"GIT_URL": GIT_URL},
                 "data": {
                     "width": 480.0,
                     "height": 160.0,
-                    "node_name": "ticket_dispatcher",
+                    "node_name": "work_dispatcher",
                 },
             }
         }
     }
 
 
-def test_ticket_dispatcher_boots_from_graph_git_url(
+def test_work_dispatcher_boots_from_graph_git_url(
     tmp_path: Path, artifacts_dir: Path, fast_polling: None, fake_gh
 ) -> None:
     path = tmp_path / "graph.json"
     path.write_text(json.dumps(_ticket_graph()), encoding="utf-8")
     with CanvasHarness(graph_path=path, artifacts_dir=artifacts_dir, supervisor_panel=False) as harness:
-        driver = harness.driver_for("ticket_dispatcher")
+        driver = harness.driver_for("work_dispatcher")
         assert driver.get("git_url") == GIT_URL
 
 
 def test_capture_presses_live_values_into_the_graph(harness, tmp_path: Path) -> None:
     from engine.graph_bar import CAPTURE_TAG, STATUS_TAG
 
-    driver = harness.drop("ticket_dispatcher")
+    driver = harness.drop("work_dispatcher")
     driver.type_into("git_url", GIT_URL)
 
     callback = dpg.get_item_callback(CAPTURE_TAG)
@@ -62,7 +62,7 @@ def test_capture_presses_live_values_into_the_graph(harness, tmp_path: Path) -> 
 def test_a_random_json_is_refused_and_the_board_stays(harness, tmp_path: Path) -> None:
     from engine.graph_bar import STATUS_TAG
 
-    driver = harness.drop("ticket_dispatcher")
+    driver = harness.drop("work_dispatcher")
     member_id = driver.member_id
     junk = tmp_path / "package.json"
     junk.write_text('{"name": "not-a-graph"}', encoding="utf-8")
@@ -77,7 +77,7 @@ def test_a_random_json_is_refused_and_the_board_stays(harness, tmp_path: Path) -
 def test_loading_another_graph_replaces_the_board(
     harness, tmp_path: Path, fake_gh
 ) -> None:
-    dropped = harness.drop("ticket_dispatcher")
+    dropped = harness.drop("work_dispatcher")
     other = tmp_path / "other.json"
     other.write_text(
         json.dumps(

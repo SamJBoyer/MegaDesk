@@ -1,4 +1,4 @@
-"""The node-to-node workflow: TicketDispatcher → MachineFactory → PRManager.
+"""The node-to-node workflow: WorkDispatcher → MachineFactory → PRManager.
 
 Each test crosses a seam that unit tests on either side cannot reach — a Redis
 stream, a GitHub issue list, or a GUI callback. The chain is cut at the sandbox
@@ -7,7 +7,7 @@ the GUI, the stream contracts, the consumer-group semantics and `FakeGh` stay
 real.
 
 PRManager no longer reads `FINISHED:<repo>`. It connects to the same `git_url`
-TicketDispatcher uses and lists open issues labeled `merge_success`.
+WorkDispatcher uses and lists open issues labeled `merge_success`.
 
 The real MachineFactory BE is never launched. Dropping a node only publishes a
 LAUNCHREQUEST when Supervisor is alive, and neither FE under test has a BE, so
@@ -37,8 +37,8 @@ PR_URL = "https://github.com/acme/widgets/pull/1"
 
 
 def connect_dispatcher(harness, url: str = REPO_URL):
-    """Drop TicketDispatcher and point it at a repo, as an operator would."""
-    dispatcher = harness.drop("ticket_dispatcher")
+    """Drop WorkDispatcher and point it at a repo, as an operator would."""
+    dispatcher = harness.drop("work_dispatcher")
     dispatcher.type_into("git_url", url)
     return dispatcher
 
@@ -67,7 +67,7 @@ def dispatch(
     dispatcher.click(f"ticket_btn_{issue_id}")
 
 
-# --- T1 / T2: TicketDispatcher → WORKORDER ---------------------------------
+# --- T1 / T2: WorkDispatcher → WORKORDER ---------------------------------
 
 
 def test_t1_dispatch_writes_the_canonical_workorder(
@@ -234,7 +234,7 @@ def test_t4_merge_success_issue_populates_a_pr_row(fake_gh, harness) -> None:
 
 
 def test_t4b_agent_ready_issue_is_not_shown(fake_gh, harness) -> None:
-    """PRManager must not render TicketDispatcher's agent-ready queue."""
+    """PRManager must not render WorkDispatcher's agent-ready queue."""
     fake_gh.add_issue(4, "agent-only", "Cover the widget module.")
     manager = connect_manager(harness)
 
@@ -310,12 +310,12 @@ def test_t8_full_chain_from_dispatch_to_merge_success_pr(
 
     harness.wait_for_widget(manager, "name::89")
 
-    # TicketDispatcher must still be draining while PRManager works: both
+    # WorkDispatcher must still be draining while PRManager works: both
     # depend on the same shared pump, and its status is written by its own
     # background thread.
     harness.wait_until(
         lambda: "agent-ready" in dispatcher.get("status_text"),
-        message="TicketDispatcher to keep draining alongside PRManager",
+        message="WorkDispatcher to keep draining alongside PRManager",
     )
     assert dispatcher.exists("ticket_btn_88")
 
