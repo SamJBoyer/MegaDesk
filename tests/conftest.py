@@ -378,6 +378,14 @@ def scope_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture
+def pr_scope_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Redirect PRManager's PR checkouts out of the node package."""
+    root = tmp_path / "PRScope"
+    monkeypatch.setenv("PR_SCOPE_ROOT", str(root))
+    return root
+
+
+@pytest.fixture
 def fake_code_agent(redis_client):
     """Canned answers about code: no ``cursor_sdk``, no agent, no network."""
     from megadesk_contracts.testing import FakeCodeAgent

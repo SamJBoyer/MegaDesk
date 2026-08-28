@@ -192,10 +192,12 @@ host DB lanes; if `REDIS_URL` already names a non-live pair, conftest honors it.
 | T2b | `gh repo view` failing surfaces on `status_text` | Errors swallowed |
 | T3 | `FakeAgent` consumes; group has zero pending; `FINISHED:{repo}` has the four canonical fields (`ticket_name`, `ticket_id`, `status`, `pr_url`) | Consumer-group and ack |
 | T3b | A second pass returns nothing | Redelivery of acked entries |
-| T4 | Seed a `merge_success` issue, pump. Row widgets exist, open-PR button visible | GitHub list → GUI; frame-pump drain |
+| T4 | Seed a `merge_success` issue, pump. Row widgets exist, open-PR / pull / vscode / cursor visible | GitHub list → GUI; frame-pump drain |
 | T4b | An `agent-ready` issue is never rendered on PRManager | Label filter inverted |
-| T5 | `merge_success` issue without a PR URL: open-PR disabled | Empty-URL affordance |
+| T5 | `merge_success` issue without a PR URL: open-PR / pull / vscode / cursor disabled | Empty-URL affordance |
 | T7 | Click dismiss. `gh issue close`, row gone | GitHub close vs GUI teardown |
+| T9 | Click pull. PR head lands under `PR_SCOPE_ROOT/<repo>/pr-<n>/` | Button → scoped checkout |
+| T9b | A second pull hard-resets the same checkout onto a newer PR head | Stale Scope |
 | T8 | Full chain in one canvas: dispatch → FakeAgent, merge_success PR row | Two FEs sharing the pump |
 | V1 | TicketDispatcher on SMOKETESTREPO → FakeAgent → PRManager | The sandbox row T8 never hosted |
 
@@ -203,6 +205,7 @@ Failure artifacts: `wait_until` writes a screenshot on timeout into
 `tests/_artifacts/<test name>/`.
 
 Do not fire PRManager's open-PR button in tests: it opens a real browser.
+Do not fire `_on_vscode` / `_on_cursor`: they launch the real editor CLIs.
 
 ---
 
@@ -244,4 +247,4 @@ voice is silent or a key is wrong.
 - Needs a real desktop session. Off-screen viewport works; minimized does not render.
 - One DPG context at a time per process.
 - Requires Redis at `REDIS_URL` (tests set 14/15 in `conftest`).
-- Do not fire `_on_vscode` / `_on_cursor`.
+- Do not fire `_on_vscode` / `_on_cursor` (they launch the real editor CLIs).
