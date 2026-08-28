@@ -520,6 +520,7 @@ def test_ticket_dispatcher_publishes_a_canonical_cloudorder(
     dispatcher = harness.drop("ticket_dispatcher")
     dispatcher.type_into("git_url", REPO_URL)
     harness.wait_for_widget(dispatcher, "ticket_btn_41")
+    dispatcher.select("ticket_factory_41", "cloud")
     dispatcher.click("ticket_btn_41")
 
     orders = read_stream(wire.CLOUDORDER_STREAM)

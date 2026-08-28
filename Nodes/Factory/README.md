@@ -62,8 +62,9 @@ MachineFactory also shows active sandboxes. Node logs are in the Supervisor Logs
 tab, not on the factory.
 
 Both take their orders from TicketDispatcher (and VoiceDeck can also publish
-`CLOUDORDER`). One click on an agent-ready issue writes `WORKORDER` and
-`CLOUDORDER`; neither factory has its own GitHub URL or issue-text input.
+`CLOUDORDER`). Each ticket row picks machine or cloud the same way it picks a
+model, so one click writes either `WORKORDER` or `CLOUDORDER`. Neither factory
+has its own GitHub URL or issue-text input.
 
 ## Where they honestly differ
 

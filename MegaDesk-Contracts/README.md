@@ -51,7 +51,7 @@ from megadesk_contracts import (
 
 | Module | Role |
 |--------|------|
-| **TicketDispatcher** | Publishes `WORKORDER` and `CLOUDORDER` on DB 0 |
+| **TicketDispatcher** | Publishes `WORKORDER` or `CLOUDORDER` on DB 0 |
 | **MachineFactory / MachineFactoryManager** | Consumes `WORKORDER`; writes `AGENTHANDLER:<GUID>` on DB 0, and reaps the ones whose sandbox is gone |
 | **MachineFactory / AgentHandler** | Reads `AGENTHANDLER:<GUID>` + `WORKORDER`; publishes `FINISHED:<REPO>` (`status`, `pr_url`) on DB 0 |
 | **MergeManager** | Consumes `FINISHED:<REPO>`; shows / opens the PR URL |

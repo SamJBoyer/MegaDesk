@@ -36,9 +36,9 @@ matters:
   milliseconds to get going.
 
 TicketDispatcher publishes `CLOUDORDER` the same way it publishes `WORKORDER`:
-one click on an agent-ready issue feeds both factories. VoiceDeck can also
-publish `CLOUDORDER`. This node does not take a GitHub URL or issue text of its
-own.
+each ticket row picks machine or cloud, and one click feeds that factory.
+VoiceDeck can also publish `CLOUDORDER`. This node does not take a GitHub URL
+or issue text of its own.
 
 The whole runtime difference is one keyword. Production talks to the SDK through
 ``AsyncClient.launch_bridge`` (the sync ``Agent.create`` path ``select()``s a
