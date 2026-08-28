@@ -25,10 +25,19 @@ conda activate MEGADESK
 python scripts/refresh_nodes.py
 ```
 
+After changing contracts or canvas packaging, or to rebuild the MachineFactory sandbox image:
+
+```bash
+conda activate MEGADESK
+python scripts/refresh_contracts.py   # megadesk-contracts + megadesk-canvas
+python scripts/rebuild_sandbox.py     # machine-factory-agent:latest
+python scripts/master_refresh.py      # down → contracts → nodes → sandbox
+```
+
 Overview of code implementation: 
 - MegaDesk-Canvas: MegaDesk-Canvas is the folder that contains the code for running the canvas that integrates the Nodes. 
 - Nodes/: contains each node and its implementation. Read each node's README.md before editing. Some nodes are both Front-end and back-end. Always make sure you are placing the content in the appropriate place. Nodes may be grouped in a subfolder when they are variants of one idea — `Nodes/Factory/` holds MachineFactory and CloudFactory — but each stays its own package with its own entry point. Read `Nodes/Factory/README.md` before touching either factory.
-- MegaDesk-contracts: contains shared contracts between modules to ensure standardization. If a contract is modified or added make sure it is reflected in MegaDesk-contracts
+- MegaDesk-Contracts: contains shared contracts between modules to ensure standardization. If a contract is modified or added make sure it is reflected in MegaDesk-Contracts
 - tests: contains unit tests for all implementations 
 - scripts: helper scripts 
 
@@ -52,7 +61,7 @@ We use a Redis **pair** per MegaDesk process. DB 0 is the live ephemeral bus and
 - **SUPERVISOR:KILLREQUEST** — match `node_endpoint` + `unique_id`, graceful→force shutdown, `DEL` the RUNNINGNODES hash
 - **NODEEXIT** — published on natural exit (metadata only; no log bodies)
 - MachineFactory `WORKORDER` / `AGENTHANDLER` / `FINISHED` also live here (same `REDIS_URL`, db 0)
-- Voice chain: `CODEQ:ASK` / `CODEQ:ANSWER`, `VOICE:CONTROL` / `VOICE:EVENT`, `CLOUDORDER` / `CLOUDFINISHED` — defined once in `megadesk_contracts.wire`, documented in `MegaDesk-contracts/redis/voice-chain.md`. Audio never goes on a stream.
+- Voice chain: `CODEQ:ASK` / `CODEQ:ANSWER`, `VOICE:CONTROL` / `VOICE:EVENT`, `CLOUDORDER` / `CLOUDFINISHED` — defined once in `megadesk_contracts.wire`, documented in `MegaDesk-Contracts/redis/voice-chain.md`. Audio never goes on a stream.
 
 Every stream and hash is defined exactly once, in `megadesk_contracts.wire`, and imported by every writer. A node must never ship its own `redis_packets.py`: `WORKORDER` used to be defined twice and the copies were free to drift. Both factories additionally share one status vocabulary (`wire/factory.py`) and one Python surface (`megadesk_contracts.factory.AgentFactory`: launch / poll / cancel), so a graph controller can place an agent locally or in the cloud without the two behaving differently.
 
@@ -64,7 +73,7 @@ Every stream and hash is defined exactly once, in `megadesk_contracts.wire`, and
 - **NODE:SHUTDOWN** / **NODE:SHUTDOWN:<unique_id>** — kill switch (`1` stops the BE; Redis down also stops it)
 - **CODESCOPE:SESSION:<id>** / **CLOUDRUN:<agent_id>** — voice-chain state that must outlive its stream
 
-MachineFactory sandboxes get a Redis **sidecar** injected as agent `REDIS_URL` so MegaDesk inside the container never shares the host live pair; factory IPC stays on `MEGADESK_FACTORY_REDIS_URL` (the factory process's ephemeral DB on the host). Host pytest owns **14/15** and is never handed to an agent. Live 0/1 is never flushed except MegaDesk-Canvas boot when `DEV_FLUSH_MODE` is on (`1` / `true` / `yes` / `on`; default off). That path calls `flush_live_redis_pair()` before `ensure_supervisor_running()` so the new supervisor recreates groups and hashes on empty DBs. Pytest, `python -m supervisor` alone, and agent sandboxes still refuse 0/1.
+MachineFactory sandboxes get a Redis **sidecar** injected as agent `REDIS_URL` so MegaDesk inside the container never shares the host live pair; factory IPC stays on `MEGADESK_FACTORY_REDIS_URL` (the factory process's ephemeral DB on the host). Host pytest owns **14/15** and is never handed to an agent. Live 0/1 is never flushed except MegaDesk-Canvas boot when `DEV_FLUSH_MODE` is on (`1` / `true` / `yes` / `on`; default on — disable with `0` / `false` / `no` / `off`). That path calls `flush_live_redis_pair()` before `ensure_supervisor_running()` so the new supervisor recreates groups and hashes on empty DBs. Pytest, `python -m supervisor` alone, and agent sandboxes still refuse 0/1.
 
 </Redis-policy>
 <FE-Design>

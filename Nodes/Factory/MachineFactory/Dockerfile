@@ -39,8 +39,8 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 
 # The wire contract, installed rather than copied: the sandbox reads the hash the
 # manager wrote, so both must mean the same thing by every field name.
-COPY MegaDesk-contracts /app/MegaDesk-contracts
-RUN pip install --no-cache-dir /app/MegaDesk-contracts
+COPY MegaDesk-Contracts /app/MegaDesk-Contracts
+RUN pip install --no-cache-dir /app/MegaDesk-Contracts
 
 COPY Nodes/Factory/MachineFactory/AgentHandler /app/AgentHandler
 

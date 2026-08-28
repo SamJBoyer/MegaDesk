@@ -130,7 +130,7 @@ status is what makes `CLOUDFINISHED` fire exactly once per run.
 
 ## Code references
 
-- `MegaDesk-contracts/megadesk_contracts/wire/{code_scope,voice,cloud,factory}.py` — the definitions
+- `MegaDesk-Contracts/megadesk_contracts/wire/{code_scope,voice,cloud,factory}.py` — the definitions
 - `Nodes/CodeScope/CodeScopeManager/manager.py`, `Nodes/CodeScope/code_scope_frontend/app.py`
 - `Nodes/VoiceDeck/VoiceDeckManager/session.py`, `Nodes/VoiceDeck/voice_deck_frontend/app.py`
 - `Nodes/Factory/CloudFactory/CloudFactoryManager/{manager,runtime}.py`, `Nodes/Factory/CloudFactory/cloud_factory_frontend/app.py`

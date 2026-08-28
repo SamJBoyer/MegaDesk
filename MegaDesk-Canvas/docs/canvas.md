@@ -17,7 +17,7 @@ MegaDesk-Canvas/
   supervisor/              # Canvas-owned BE (`python -m supervisor`) + collapsible panel
 ```
 
-`build_canvas(model, …)` is the construction seam shared by `main()` and the integration harness. `main()` sets `MEGADESK_CANVAS_ROOT`; if `DEV_FLUSH_MODE` is on (`1` / `true` / `yes` / `on`, case-insensitive; default off) it FLUSHDB's live Redis DB 0 then DB 1 (`flush_live_redis_pair`) so the new supervisor recreates consumer groups and hashes on a fresh pair; then starts Supervisor, loads the graph (empty board on `GraphError`), runs the loop, then `model.save()` and `frame_pump.reset()`. Enable with `set DEV_FLUSH_MODE=1` (Windows) or `export DEV_FLUSH_MODE=1` before starting canvas — no GUI chrome. Flush failure is logged; canvas continues. `python -m supervisor` alone does not flush.
+`build_canvas(model, …)` is the construction seam shared by `main()` and the integration harness. `main()` sets `MEGADESK_CANVAS_ROOT`; unless `DEV_FLUSH_MODE` is explicitly off (`0` / `false` / `no` / `off`, case-insensitive; default on) it FLUSHDB's live Redis DB 0 then DB 1 (`flush_live_redis_pair`) so the new supervisor recreates consumer groups and hashes on a fresh pair; then starts Supervisor, loads the graph (empty board on `GraphError`), runs the loop, then `model.save()` and `frame_pump.reset()`. Disable with `set DEV_FLUSH_MODE=0` (Windows) or `export DEV_FLUSH_MODE=0` before starting canvas — no GUI chrome. Flush failure is logged; canvas continues. `python -m supervisor` alone does not flush.
 
 Boot opens the last graph recorded in `Graphs/CURRENT` when that file still points at a valid graph; otherwise `Graphs/default.json`. Switching or Save As updates the pointer.
 

@@ -1,5 +1,5 @@
 # The MachineFactory sandbox image builds from this directory so it can install
-# MegaDesk-contracts. Everything below would otherwise be shipped into the build
+# MegaDesk-Contracts. Everything below would otherwise be shipped into the build
 # context for nothing, and the first three hold whole repositories: Floor/ has a
 # bare clone per repo, and CodeScope clones into Scope/.
 .git/

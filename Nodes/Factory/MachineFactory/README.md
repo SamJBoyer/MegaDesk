@@ -70,6 +70,8 @@ Restart MegaDesk (and the terminal that launched it) after setting a User env va
 
 ```powershell
 python -m MachineFactoryManager build
+# or from the worktree root:
+python scripts/rebuild_sandbox.py
 ```
 
 Builds `machine-factory-agent:latest` â€” Python, git, the Cursor CLI, `AgentHandler`
@@ -78,7 +80,7 @@ folder, because the sandbox installs the same contracts package the manager writ
 with; a copied wire module in the image would be a second definition free to
 drift. `.dockerignore` at the root keeps large trees out of the context.
 
-Rebuild after changing `AgentHandler/`, `MegaDesk-contracts/`, the `Dockerfile` or
+Rebuild after changing `AgentHandler/`, `MegaDesk-Contracts/`, the `Dockerfile` or
 `requirements-sandbox.txt`.
 
 ## Run it
@@ -93,7 +95,7 @@ Defined once in `megadesk_contracts.wire.machine` and imported by every writer â
 this node, TicketDispatcher and MergeManager. Consumer group `machine_factory`.
 Per-node progress is a second family, `megadesk_contracts.wire.graph`
 (`GRAPHRUN` / `GRAPHEVENT`); see
-[`work-graph.md`](../../../MegaDesk-contracts/redis/work-graph.md).
+[`work-graph.md`](../../../MegaDesk-Contracts/redis/work-graph.md).
 
 | Where | Key | Carries |
 |-------|-----|---------|

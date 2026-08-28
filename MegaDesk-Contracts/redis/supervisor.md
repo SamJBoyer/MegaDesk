@@ -78,8 +78,9 @@ Canvas process: `<worktree>/Logs/<session>/canvas.md`.
 
 ## Bootstrap
 
-Canvas startup (`MegaDesk-Canvas/main.py`) optionally FLUSHDB's live DB 0 then
-DB 1 when `DEV_FLUSH_MODE` is on (`1` / `true` / `yes` / `on`; default off),
+Canvas startup (`MegaDesk-Canvas/main.py`) FLUSHDB's live DB 0 then
+DB 1 when `DEV_FLUSH_MODE` is on (`1` / `true` / `yes` / `on`; default on —
+disable with `0` / `false` / `no` / `off`),
 then calls `megadesk_contracts.ensure_supervisor_running()`, which runs
 `python -m supervisor` from `MegaDesk-Canvas/` and waits for
 `SUPERVISOR:ALIVE` on DB 1 (default timeout 12s). Flush first so the new

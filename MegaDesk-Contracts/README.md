@@ -11,7 +11,7 @@ Central registry of MegaDesk cross-module contracts:
 
 ```bash
 conda activate MEGADESK
-pip install -e MegaDesk-contracts
+pip install -e MegaDesk-Contracts
 ```
 
 Import as:

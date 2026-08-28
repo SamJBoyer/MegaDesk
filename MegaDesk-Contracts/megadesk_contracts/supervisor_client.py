@@ -30,6 +30,7 @@ HOST_PYTEST_PERSISTENT_DB = 15
 ENV_FACTORY_REDIS_URL = "MEGADESK_FACTORY_REDIS_URL"
 ENV_DEV_FLUSH_MODE = "DEV_FLUSH_MODE"
 _DEV_FLUSH_MODE_TRUTHY = frozenset({"1", "true", "yes", "on"})
+_DEV_FLUSH_MODE_FALSEY = frozenset({"0", "false", "no", "off"})
 SUPERVISOR_ALIVE_KEY = "SUPERVISOR:ALIVE"
 SUPERVISOR_SINGLETON_KEY = "SUPERVISOR:SINGLETON"
 SUPERVISOR_NODE_NAME = "supervisor"
@@ -126,15 +127,23 @@ def redis_connect(
 
 
 def dev_flush_mode_enabled() -> bool:
-    """True when ``DEV_FLUSH_MODE`` is ``1`` / ``true`` / ``yes`` / ``on`` (case-insensitive)."""
+    """True by default; off only when ``DEV_FLUSH_MODE`` is explicitly falsey.
+
+    Unset / empty → on. Explicit ``1`` / ``true`` / ``yes`` / ``on`` → on.
+    Explicit ``0`` / ``false`` / ``no`` / ``off`` → off. Unknown values → off.
+    """
     raw = (os.environ.get(ENV_DEV_FLUSH_MODE) or "").strip().lower()
+    if not raw:
+        return True
+    if raw in _DEV_FLUSH_MODE_FALSEY:
+        return False
     return raw in _DEV_FLUSH_MODE_TRUTHY
 
 
 def flush_live_redis_pair(redis_url: Optional[str] = None) -> None:
     """FLUSHDB live DBs 0 then 1. The only allowed live-pair flush.
 
-    Canvas boot calls this when ``DEV_FLUSH_MODE`` is on. Pytest,
+    Canvas boot calls this when ``DEV_FLUSH_MODE`` is on (default). Pytest,
     ``python -m supervisor`` alone, and agent sandboxes must not call this.
     """
     url = resolve_redis_url(redis_url)
