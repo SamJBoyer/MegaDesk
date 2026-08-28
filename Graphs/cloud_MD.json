@@ -3,17 +3,19 @@
     "4976bbe8-9b08-46bf-8554-254a49b3c125": {
       "member_id": "4976bbe8-9b08-46bf-8554-254a49b3c125",
       "type": "megadesk",
-      "nickname": "merge_manager",
-      "node_name": "merge_manager",
+      "nickname": "pr_manager",
+      "node_name": "pr_manager",
       "position": [
         260.0,
         34.0
       ],
-      "parameters": {},
+      "parameters": {
+        "GIT_URL": "https://github.com/SamJBoyer/MegaDesk.git"
+      },
       "data": {
-        "width": 640.0,
-        "height": 220.0,
-        "node_name": "merge_manager"
+        "width": 480.0,
+        "height": 160.0,
+        "node_name": "pr_manager"
       }
     },
     "f60829b6-d591-4a8c-ab72-7bf494eb7928": {

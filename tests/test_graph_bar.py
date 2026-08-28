@@ -74,23 +74,25 @@ def test_a_random_json_is_refused_and_the_board_stays(harness, tmp_path: Path) -
     assert "not a graph" in dpg.get_value(STATUS_TAG).lower()
 
 
-def test_loading_another_graph_replaces_the_board(harness, tmp_path: Path) -> None:
+def test_loading_another_graph_replaces_the_board(
+    harness, tmp_path: Path, fake_gh
+) -> None:
     dropped = harness.drop("ticket_dispatcher")
     other = tmp_path / "other.json"
     other.write_text(
         json.dumps(
             {
                 "members": {
-                    "mm-1": {
-                        "member_id": "mm-1",
+                    "pm-1": {
+                        "member_id": "pm-1",
                         "type": "megadesk",
-                        "node_name": "merge_manager",
+                        "node_name": "pr_manager",
                         "position": [40.0, 40.0],
-                        "parameters": {},
+                        "parameters": {"GIT_URL": GIT_URL},
                         "data": {
-                            "width": 640.0,
-                            "height": 220.0,
-                            "node_name": "merge_manager",
+                            "width": 480.0,
+                            "height": 160.0,
+                            "node_name": "pr_manager",
                         },
                     }
                 }
@@ -103,5 +105,6 @@ def test_loading_another_graph_replaces_the_board(harness, tmp_path: Path) -> No
 
     assert dropped.member_id not in harness.model.members
     assert not dropped.is_hosted()
-    manager = harness.driver_for("merge_manager")
-    assert manager.exists("ticket_table")
+    manager = harness.driver_for("pr_manager")
+    assert manager.exists("issue_scroll")
+    assert manager.get("git_url") == GIT_URL

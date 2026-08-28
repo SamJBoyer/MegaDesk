@@ -40,7 +40,7 @@ def test_catalog_offers_the_installed_frontends(harness) -> None:
     from engine.megadesk_registry import all_fe_specs
 
     names = {spec.name for spec in all_fe_specs()}
-    assert {"ticket_dispatcher", "merge_manager"} <= names
+    assert {"ticket_dispatcher", "pr_manager"} <= names
 
 
 def test_drop_hosts_the_fe_and_persists_the_member(harness, tmp_path) -> None:
@@ -130,9 +130,9 @@ def test_first_node_on_an_empty_board_still_updates(harness) -> None:
     )
 
 
-def test_two_frontends_share_one_live_pump(harness) -> None:
+def test_two_frontends_share_one_live_pump(harness, fake_gh) -> None:
     dispatcher = harness.drop("ticket_dispatcher")
-    manager = harness.drop("merge_manager")
+    manager = harness.drop("pr_manager")
 
     probe = harness.install_pump_probe()
     harness.pump(10)
@@ -142,4 +142,4 @@ def test_two_frontends_share_one_live_pump(harness) -> None:
         lambda: dispatcher.get("status_text") == "Enter a GitHub repository URL",
         message="TicketDispatcher to drain with a second FE on the board",
     )
-    assert manager.exists("ticket_table")
+    assert manager.exists("issue_scroll")

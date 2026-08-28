@@ -1,10 +1,11 @@
 """Stand-ins for the parts of the chain that are not the seam under test.
 
-``FakeGh`` removes GitHub (network, auth, rate limits) from TicketDispatcher's
-poll loop. ``FakeAgent`` replaces the sandbox boundary — clone, Docker,
-Redis sidecar and ``cursor_sdk`` — while keeping everything on both sides of it
-real: the WORKORDER consumer group, the wire payloads, and the FINISHED stream
-MergeManager reads. It publishes a canned PR URL rather than depending on Floor.
+``FakeGh`` removes GitHub (network, auth, rate limits) from TicketDispatcher
+and PRManager poll loops. ``FakeAgent`` replaces the sandbox boundary — clone,
+Docker, Redis sidecar and ``cursor_sdk`` — while keeping everything on both
+sides of it real: the WORKORDER consumer group, the wire payloads, and the
+FINISHED stream the factory publishes. It publishes a canned PR URL rather
+than depending on Floor.
 
 The three newer fakes cut the same way for the voice chain, each at the lowest
 boundary that still removes a network or a device:
@@ -31,7 +32,7 @@ import re
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Iterator, Optional
+from typing import Any, Callable, Iterator, Optional, Sequence
 
 from megadesk_contracts.agent_errors import AgentRunError, AgentStartupError
 from megadesk_contracts.factory import RunHandle, RunStatus
@@ -49,20 +50,36 @@ from megadesk_contracts.wire import code_scope as code_scope_wire
 from megadesk_contracts.wire import factory as factory_wire
 
 
+LABEL_AGENT_READY = "agent-ready"
+LABEL_MERGE_SUCCESS = "MERGE_SUCCESS"
+
+
 @dataclass
 class Issue:
     number: int
     title: str
     body: str = ""
+    labels: tuple[str, ...] = (LABEL_AGENT_READY,)
+    state: str = "open"
+
+
+def _flag(args: tuple[str, ...], name: str) -> str:
+    try:
+        index = args.index(name)
+    except ValueError:
+        return ""
+    if index + 1 >= len(args):
+        return ""
+    return args[index + 1]
 
 
 class FakeGh:
-    """Canned replacement for ``ticket_dispatcher_app.run_gh``.
+    """Canned replacement for ``run_gh`` on TicketDispatcher and PRManager.
 
-    Answers the two real invocations — ``gh repo view`` and
-    ``gh issue list --label agent-ready … --json number,title,body`` — and fails
-    loudly on anything else so a changed argv surfaces as a test failure rather
-    than a hang.
+    Answers ``gh repo view``, ``gh issue list --label …``, and ``gh issue close``,
+    and fails loudly on anything else so a changed argv surfaces as a test
+    failure rather than a hang. ``issue list`` filters by ``--label`` and
+    ``--state`` the way the real CLI does.
     """
 
     def __init__(
@@ -71,16 +88,53 @@ class FakeGh:
         issues: Optional[list[Issue]] = None,
         repo_error: str = "",
         issue_error: str = "",
+        close_error: str = "",
     ) -> None:
         self.issues: list[Issue] = list(issues or [])
         self.repo_error = repo_error
         self.issue_error = issue_error
+        self.close_error = close_error
         self.calls: list[tuple[str, ...]] = []
 
-    def add_issue(self, number: int, title: str, body: str = "") -> Issue:
-        issue = Issue(number=number, title=title, body=body)
+    def add_issue(
+        self,
+        number: int,
+        title: str,
+        body: str = "",
+        *,
+        labels: Optional[Sequence[str]] = None,
+        state: str = "open",
+    ) -> Issue:
+        issue = Issue(
+            number=number,
+            title=title,
+            body=body,
+            labels=tuple(labels) if labels is not None else (LABEL_AGENT_READY,),
+            state=state,
+        )
         self.issues.append(issue)
         return issue
+
+    def add_merge_success(
+        self,
+        number: int,
+        title: str,
+        pr_url: str,
+        *,
+        pr_number: int | None = None,
+    ) -> Issue:
+        """File the issue merge-check would open after a clean PR merge-tree."""
+        pr = pr_number
+        if pr is None:
+            match = re.search(r"/pull/(\d+)", pr_url)
+            pr = int(match.group(1)) if match else number
+        body = (
+            f"<!-- megadesk:merge-check:pr-{pr} -->\n\n"
+            f"{pr_url} merges into `dev`.\n"
+        )
+        return self.add_issue(
+            number, title, body, labels=(LABEL_MERGE_SUCCESS,)
+        )
 
     @property
     def repo_views(self) -> int:
@@ -89,6 +143,10 @@ class FakeGh:
     @property
     def issue_lists(self) -> int:
         return sum(1 for call in self.calls if call[:2] == ("issue", "list"))
+
+    @property
+    def issue_closes(self) -> int:
+        return sum(1 for call in self.calls if call[:2] == ("issue", "close"))
 
     def __call__(self, *args: str) -> tuple[bool, str, str]:
         self.calls.append(tuple(args))
@@ -100,11 +158,26 @@ class FakeGh:
         if args[:2] == ("issue", "list"):
             if self.issue_error:
                 return False, "", self.issue_error
+            label = _flag(args, "--label")
+            state = _flag(args, "--state") or "open"
             payload = [
                 {"number": i.number, "title": i.title, "body": i.body}
                 for i in self.issues
+                if (not label or label in i.labels) and i.state == state
             ]
             return True, json.dumps(payload), ""
+        if args[:2] == ("issue", "close"):
+            if self.close_error:
+                return False, "", self.close_error
+            try:
+                number = int(args[2])
+            except (IndexError, ValueError):
+                return False, "", "FakeGh issue close needs a number"
+            for issue in self.issues:
+                if issue.number == number:
+                    issue.state = "closed"
+                    return True, "", ""
+            return False, "", f"Issue #{number} not found"
         return False, "", f"FakeGh received an unexpected invocation: gh {' '.join(args)}"
 
     @contextlib.contextmanager
@@ -139,7 +212,7 @@ class FakeAgent:
     Reads through MachineFactory's real consumer group with the real ack
     semantics, and builds its payloads with the production wire helpers injected
     as ``wire`` — so a renamed field or a dropped ack fails here. No Floor,
-    worktree, or Docker: MergeManager only needs ``status`` and ``pr_url``.
+    worktree, or Docker: callers only need ``status`` and ``pr_url``.
     """
 
     def __init__(
@@ -212,7 +285,7 @@ class FakeAgent:
 
         commit_sha = ""
         if self.floor is not None and self._ticket_worktree is not None:
-            # Optional path for MergeManager-era tests that still want a real commit.
+            # Optional path for tests that still want a real commit.
             wt = Path(self._ticket_worktree(repo, ticket_name))
             commit_sha = self.floor.commit(
                 wt,

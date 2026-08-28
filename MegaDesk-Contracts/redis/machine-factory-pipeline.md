@@ -7,8 +7,9 @@ and the two are the same shape on purpose — see
 
 MachineFactory clones the named repo into a Docker sandbox, gives the agent a
 Redis **sidecar** as its `REDIS_URL`, and keeps factory IPC on
-`MEGADESK_FACTORY_REDIS_URL` (host pair). On done it hands back a PR URL —
-MergeManager shows/opens PRs; it does not merge local worktrees.
+`MEGADESK_FACTORY_REDIS_URL` (host pair). On done it hands back a PR URL as
+factory outcome on `FINISHED:<REPO>`. PRManager does not read that stream — it
+lists GitHub issues labeled `merge_success`.
 
 Flow:
 
@@ -30,10 +31,12 @@ TicketDispatcher
         │  HSET GRAPHRUN:<GUID> / XADD GRAPHEVENT
         │  XADD + DEL hashes
         ▼
-   FINISHED:<REPO> (stream)
-        │  XREADGROUP group=merge_manager
+   FINISHED:<REPO> (stream, factory outcome)
+
+GitHub issues labeled merge_success
+        │  gh issue list
         ▼
-   MergeManager (show / open PR)
+   PRManager (show / open PR)
 ```
 
 ---
@@ -101,8 +104,8 @@ Ticket payload (`ticket_name`, `instructions`, `model`, `URL`, `auto_pr`) is **n
 |----------|-------|
 | Type | Stream (**not** a list) |
 | Key | `FINISHED:<REPO>` where `<REPO>` is the repo name (same as `WORKORDER.repo`) |
-| Consumer group | `merge_manager` |
-| Primary consumer | MergeManager |
+| Consumer group | `merge_manager` (unused by any FE; kept as the historical group name) |
+| Primary consumer | none — PRManager reads GitHub `merge_success` issues instead |
 | Producer | AgentHandler; MachineFactoryManager for launches that failed and for sandboxes reaped after dying without reporting |
 
 ### Fields
@@ -127,7 +130,8 @@ XRANGE FINISHED:Helmsman - +
 | Stream | Group | Ack when |
 |--------|-------|----------|
 | `WORKORDER` | `machine_factory` | After MachineFactoryManager finishes handling the entry (success or handled failure) |
-| `FINISHED:<REPO>` | `merge_manager` | After MergeManager processes / dismisses the item (may also `XDEL`) |
+
+`FINISHED:<REPO>` is factory outcome telemetry. No FE currently joins `merge_manager`.
 
 Groups are created with `XGROUP CREATE … MKSTREAM` if missing (`BUSYGROUP` is ignored).
 

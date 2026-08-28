@@ -1,8 +1,8 @@
 """The WORKORDER / FINISHED wire format itself, independent of any GUI.
 
-TicketDispatcher, MachineFactory and MergeManager all write to this family, and
-all three import it from ``megadesk_contracts.wire.machine``. Tests assert the
-canonical field set so a writer drifting off it fails here.
+TicketDispatcher and MachineFactory write to this family, and both import it
+from ``megadesk_contracts.wire.machine``. Tests assert the canonical field set
+so a writer drifting off it fails here.
 """
 
 from __future__ import annotations
@@ -44,12 +44,11 @@ def test_finished_writer_emits_only_canonical_fields(machine_wire) -> None:
 
 
 def test_every_writer_shares_one_definition() -> None:
-    """The three nodes on this stream family must import the same module.
+    """The nodes on this stream family must import the same module.
 
     This is what replaced the old copy-versus-copy comparison: sameness is now
     an import fact rather than something a test has to keep checking.
     """
-    import merge_manager_app
     import ticket_dispatcher_app
     from megadesk_contracts.wire import cloud, machine
 
@@ -57,9 +56,6 @@ def test_every_writer_shares_one_definition() -> None:
     assert ticket_dispatcher_app.workorder_fields is machine.workorder_fields
     assert ticket_dispatcher_app.CLOUDORDER_STREAM == cloud.CLOUDORDER_STREAM
     assert ticket_dispatcher_app.cloudorder_fields is cloud.cloudorder_fields
-    assert merge_manager_app.FINISHED_PREFIX == machine.FINISHED_PREFIX
-    assert merge_manager_app.FINISHED_GROUP == machine.FINISHED_GROUP
-    assert merge_manager_app.parse_finished is machine.parse_finished
 
 
 def test_workorder_round_trips_through_the_parser(machine_wire) -> None:

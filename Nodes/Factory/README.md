@@ -97,4 +97,4 @@ Each is its own installable node with its own `MegaDesk.nodes` entry point
 (`machine_factory`, `cloud_factory`); the nesting groups them, it does not merge
 them. Their wire formats are defined once in `megadesk_contracts.wire.machine` and
 `megadesk_contracts.wire.cloud`, and every consumer — TicketDispatcher,
-MergeManager, VoiceDeck — imports from there.
+VoiceDeck — imports from there.

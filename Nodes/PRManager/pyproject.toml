@@ -3,18 +3,17 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "merge-manager"
+name = "pr-manager"
 version = "0.1.0"
-description = "MegaDesk FE node: merge finished agent worktrees"
+description = "MegaDesk FE node: show and open PRs from merge_success GitHub issues"
 requires-python = ">=3.10"
 dependencies = [
     "dearpygui>=1.11.1",
-    "redis>=5.0.0",
     "megadesk-contracts",
 ]
 
 [project.entry-points."MegaDesk.nodes"]
-merge_manager = "merge_manager_node"
+pr_manager = "pr_manager_node"
 
 [tool.setuptools]
-py-modules = ["merge_manager_app", "merge", "merge_manager_node"]
+py-modules = ["pr_manager_app", "pr_manager_node"]

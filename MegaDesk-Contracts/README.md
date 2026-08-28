@@ -3,7 +3,7 @@
 Central registry of MegaDesk cross-module contracts:
 
 1. **Python package `megadesk-contracts`** — installable shared library (`FeSpec` / `BeSpec`, `MegaDesk.nodes` discovery, Supervisor Redis client, Dear PyGui frame pump).
-2. **Wire modules** (`megadesk_contracts/wire/`) — one canonical definition per stream, with build and parse helpers, imported by both halves of a node. New streams belong here. A node must never ship its own copy: `WORKORDER` used to be defined twice, in MachineFactory and MergeManager, and two copies of a contract both sides of a stream depend on is exactly the seam that drifts silently.
+2. **Wire modules** (`megadesk_contracts/wire/`) — one canonical definition per stream, with build and parse helpers, imported by both halves of a node. New streams belong here. A node must never ship its own copy: `WORKORDER` used to be defined twice and the copies were free to drift.
 3. **Redis docs** (`redis/`) — expected Redis package layouts and IPC conventions (DB 0 ephemeral / DB 1 persistent for Supervisor).
 4. **Test harness** (`megadesk_contracts/testing/`) — drives a real canvas in-process so integration tests can cross GUI and stream seams. See [`Docs/integration_testing.md`](../Docs/integration_testing.md).
 
@@ -54,7 +54,7 @@ from megadesk_contracts import (
 | **TicketDispatcher** | Publishes `WORKORDER` or `CLOUDORDER` on DB 0 |
 | **MachineFactory / MachineFactoryManager** | Consumes `WORKORDER`; writes `AGENTHANDLER:<GUID>` on DB 0, and reaps the ones whose sandbox is gone |
 | **MachineFactory / AgentHandler** | Reads `AGENTHANDLER:<GUID>` + `WORKORDER`; publishes `FINISHED:<REPO>` (`status`, `pr_url`) on DB 0 |
-| **MergeManager** | Consumes `FINISHED:<REPO>`; shows / opens the PR URL |
+| **PRManager** | Does not speak Redis. Lists GitHub issues labeled `merge_success` and opens the tracked PR. |
 | **Supervisor** (Canvas-owned, `MegaDesk-Canvas/supervisor/`) | Consumes `SUPERVISOR:LAUNCHREQUEST` / `SUPERVISOR:KILLREQUEST` on DB 0; writes `RUNNINGNODES:<unique_id>` + singleton/alive on DB 1. Bootstrapped by canvas startup via `ensure_supervisor_running()` — not a Catalog node. |
 | **MegaDesk canvas (`MegaDesk-Canvas/`)** | On graph drop/open of a MegaDesk FE that also exposes a BE, `XADD`s `SUPERVISOR:LAUNCHREQUEST` with `FeSpec.backend_parameters` |
 | **CodeScope** | Consumes `CODEQ:ASK`, publishes `CODEQ:ANSWER` on DB 0; owns `CODESCOPE:SESSION:<id>` on DB 1 |

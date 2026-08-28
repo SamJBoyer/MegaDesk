@@ -28,7 +28,6 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Check pull requests are mergeable
-        id: check
         env:
           EVENT: ${{ github.event_name }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -37,47 +36,58 @@ jobs:
         run: |
           set -euo pipefail
 
-          ensure_label() {
-            local name="$1"
-            local color="$2"
-            local description="$3"
-            gh label create "${name}" \
-              --description "${description}" \
-              --color "${color}" \
-              --force
+          LABEL_OK="MERGE_SUCCESS"
+          LABEL_FAIL="MERGE_FAIL"
+
+          find_issue() {
+            local pr="$1"
+            local label n
+            for label in "${LABEL_OK}" "${LABEL_FAIL}"; do
+              n="$(gh issue list \
+                --label "${label}" \
+                --state open \
+                --limit 100 \
+                --json number,body \
+                --jq "[.[] | select(.body | contains(\"megadesk:merge-check:pr-${pr}\") or contains(\"megadesk:merge_success:pr-${pr}\") or contains(\"megadesk:failed-merge:pr-${pr}\")) | .number][0] // empty")"
+              if [ -n "${n}" ]; then
+                echo "${n}"
+                return 0
+              fi
+            done
           }
 
-          file_issue() {
+          upsert_issue() {
             local pr="$1"
             local base="$2"
             local label="$3"
-            local title="$4"
-            local detail="$5"
-            local marker="<!-- megadesk:${label}:pr-${pr} -->"
-            local pr_url
+            local other="$4"
+            local title="$5"
+            local detail="$6"
+            local marker="<!-- megadesk:merge-check:pr-${pr} -->"
+            local pr_url body existing
             pr_url="$(gh pr view "${pr}" --json url --jq .url)"
+            body="${marker}
 
-            local existing
-            existing="$(gh issue list \
-              --label "${label}" \
-              --state open \
-              --json number,body \
-              --jq ".[] | select(.body | contains(\"megadesk:${label}:pr-${pr}\")) | .number" \
-              | head -n 1)"
+          ${pr_url} ${detail} \`${base}\`.
+
+          Workflow run: ${RUN_URL}
+          "
+            existing="$(find_issue "${pr}")"
+
             if [ -n "${existing}" ]; then
-              echo "Issue #${existing} already tracks PR #${pr} (${label})"
+              gh issue edit "${existing}" \
+                --title "${title}" \
+                --body "${body}" \
+                --add-label "${label}"
+              gh issue edit "${existing}" --remove-label "${other}" 2>/dev/null || true
+              echo "Issue #${existing} → ${label} for PR #${pr}"
               return 0
             fi
 
             gh issue create \
               --title "${title}" \
               --label "${label}" \
-              --body "${marker}
-
-          ${pr_url} ${detail} \`${base}\`.
-
-          Workflow run: ${RUN_URL}
-          "
+              --body "${body}"
           }
 
           if [ "${EVENT}" = "pull_request" ]; then
@@ -94,71 +104,22 @@ jobs:
           fi
 
           git fetch --no-tags origin "${BASE}"
-          ensure_label failed-merge B60205 "PR does not merge into its base"
-          ensure_label merge_success 0E8A16 "PR merges cleanly into its base"
 
           failed=0
           for pr in ${PRS}; do
             git fetch --no-tags origin "refs/pull/${pr}/head:refs/heads/pr-${pr}"
             if git merge-tree --write-tree "origin/${BASE}" "pr-${pr}" >/tmp/merge-tree.out; then
               echo "PR #${pr} merges into ${BASE}"
-              file_issue "${pr}" "${BASE}" merge_success \
-                "merge_success: PR #${pr} can merge into ${BASE}" \
+              upsert_issue "${pr}" "${BASE}" "${LABEL_OK}" "${LABEL_FAIL}" \
+                "MERGE_SUCCESS: PR #${pr} can merge into ${BASE}" \
                 "merges into"
             else
               echo "PR #${pr} does not merge into ${BASE}"
               cat /tmp/merge-tree.out || true
-              file_issue "${pr}" "${BASE}" failed-merge \
-                "failed-merge: PR #${pr} cannot merge into ${BASE}" \
+              upsert_issue "${pr}" "${BASE}" "${LABEL_FAIL}" "${LABEL_OK}" \
+                "MERGE_FAIL: PR #${pr} cannot merge into ${BASE}" \
                 "does not merge into"
               failed=1
             fi
           done
           exit "${failed}"
-
-      - name: Open failed-merge issue
-        if: failure() && steps.check.outcome != 'failure'
-        env:
-          PR: ${{ github.event.pull_request.number }}
-          BASE: ${{ github.base_ref || 'dev' }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          PR_URL: ${{ github.event.pull_request.html_url }}
-        run: |
-          set -euo pipefail
-          gh label create failed-merge \
-            --description "PR does not merge into its base" \
-            --color B60205 \
-            --force
-
-          if [ -n "${PR}" ]; then
-            MARKER="<!-- megadesk:failed-merge:pr-${PR} -->"
-            TITLE="failed-merge: PR #${PR} cannot merge into ${BASE}"
-            BODY="${MARKER}
-
-          ${PR_URL} does not merge into \`${BASE}\`.
-
-          Workflow run: ${RUN_URL}
-          "
-          else
-            MARKER="<!-- megadesk:failed-merge:run-${{ github.run_id }} -->"
-            TITLE="failed-merge: merge check failed on ${BASE}"
-            BODY="${MARKER}
-
-          Merge check failed on \`${BASE}\` before it could test pull requests.
-
-          Workflow run: ${RUN_URL}
-          "
-          fi
-
-          EXISTING="$(gh issue list \
-            --label failed-merge \
-            --state open \
-            --json number,body \
-            --jq ".[] | select(.body | contains(\"${MARKER}\")) | .number" \
-            | head -n 1)"
-          if [ -n "${EXISTING}" ]; then
-            echo "Issue #${EXISTING} already tracks this failure"
-            exit 0
-          fi
-
-          gh issue create --title "${TITLE}" --label failed-merge --body "${BODY}"

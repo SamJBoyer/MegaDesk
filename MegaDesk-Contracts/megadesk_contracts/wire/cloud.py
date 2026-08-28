@@ -16,8 +16,8 @@ which kind of factory started it.
 
 Where this family differs is infrastructure, not taste. A cloud agent clones the
 repo onto Cursor's own VM and pushes a branch, so ``repo_url`` is the whole input
-and a pull request is the whole output: there is no local worktree to hand over
-and nothing for MergeManager to merge. The run also lives on db 1 rather than
+and a pull request is the whole output: there is no local worktree to hand over.
+The run also lives on db 1 rather than
 db 0, because it outlives this process by minutes and a machine sandbox does not.
 ``order_id`` is minted before launch and survives the round trip, so a FE row can
 be reconciled with its run after a restart, when the only other identifier is

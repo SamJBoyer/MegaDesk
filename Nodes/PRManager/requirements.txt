@@ -1,0 +1,2 @@
+dearpygui>=1.11.1
+megadesk-contracts

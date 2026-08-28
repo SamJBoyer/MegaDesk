@@ -37,17 +37,19 @@
     "332256e8-2699-4eab-b492-b0339bec1001": {
       "member_id": "332256e8-2699-4eab-b492-b0339bec1001",
       "type": "megadesk",
-      "nickname": "merge_manager",
-      "node_name": "merge_manager",
+      "nickname": "pr_manager",
+      "node_name": "pr_manager",
       "position": [
         559.0,
         389.0
       ],
-      "parameters": {},
+      "parameters": {
+        "GIT_URL": "https://github.com/SamJBoyer/SMOKETESTREPO.git"
+      },
       "data": {
-        "width": 640.0,
-        "height": 220.0,
-        "node_name": "merge_manager"
+        "width": 480.0,
+        "height": 160.0,
+        "node_name": "pr_manager"
       }
     },
     "80aebfd7-99d2-479f-bc0b-0da1275c1fe3": {

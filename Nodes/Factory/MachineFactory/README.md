@@ -21,8 +21,8 @@ WORKORDER
     → DEL AGENTHANDLER + GRAPHRUN, exits
 ```
 
-TicketDispatcher publishes orders. MergeManager consumes `FINISHED:<repo>` and
-shows/opens the PR (it does not merge local worktrees).
+TicketDispatcher publishes orders. PRManager lists `merge_success` GitHub
+issues on the same repo URL and shows/opens the tracked PR.
 
 ## Halves
 
@@ -92,7 +92,7 @@ python -m MachineFactoryManager        # same as: run
 ## Wire
 
 Defined once in `megadesk_contracts.wire.machine` and imported by every writer —
-this node, TicketDispatcher and MergeManager. Consumer group `machine_factory`.
+this node, TicketDispatcher and the factory FEs. Consumer group `machine_factory`.
 Per-node progress is a second family, `megadesk_contracts.wire.graph`
 (`GRAPHRUN` / `GRAPHEVENT`); see
 [`work-graph.md`](../../../MegaDesk-Contracts/redis/work-graph.md).
@@ -110,8 +110,8 @@ Per-node progress is a second family, `megadesk_contracts.wire.graph`
 `running`, `finished`, `error`, `cancelled`, `startup_error`), validated on write.
 `pr_url` may be empty on error paths.
 
-`FINISHED` is per-repo rather than one stream because MergeManager watches the
-repos it cares about. Inside the sandbox, `REDIS_URL` points at the Redis
+`FINISHED` is per-repo rather than one stream so a factory FE can watch one
+repo's outcomes. Inside the sandbox, `REDIS_URL` points at the Redis
 sidecar; `MEGADESK_FACTORY_REDIS_URL` is the factory bus on the host pair.
 
 ```powershell

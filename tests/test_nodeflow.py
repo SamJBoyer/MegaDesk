@@ -1,9 +1,13 @@
-"""The node-to-node workflow: TicketDispatcher → MachineFactory → MergeManager.
+"""The node-to-node workflow: TicketDispatcher → MachineFactory → PRManager.
 
 Each test crosses a seam that unit tests on either side cannot reach — a Redis
-stream or a GUI callback. The chain is cut at the sandbox boundary: `FakeAgent`
-stands in for Floor cloning, Docker and `cursor_sdk`, while the GUI, the stream
-contracts, the consumer-group semantics and the real `git merge` stay real.
+stream, a GitHub issue list, or a GUI callback. The chain is cut at the sandbox
+boundary: `FakeAgent` stands in for Floor cloning, Docker and `cursor_sdk`, while
+the GUI, the stream contracts, the consumer-group semantics and `FakeGh` stay
+real.
+
+PRManager no longer reads `FINISHED:<repo>`. It connects to the same `git_url`
+TicketDispatcher uses and lists open issues labeled `merge_success`.
 
 The real MachineFactory BE is never launched. Dropping a node only publishes a
 LAUNCHREQUEST when Supervisor is alive, and neither FE under test has a BE, so
@@ -18,7 +22,6 @@ import pytest
 from conftest import (
     CLOUDORDER_CANONICAL_FIELDS,
     FINISHED_CANONICAL_FIELDS,
-    FINISHED_GROUP,
     WORKORDER_CANONICAL_FIELDS,
     WORKORDER_STREAM,
 )
@@ -27,6 +30,7 @@ pytestmark = [pytest.mark.canvas, pytest.mark.redis, pytest.mark.git]
 
 REPO_URL = "https://github.com/acme/widgets"
 REPO = "widgets"
+PR_URL = "https://github.com/acme/widgets/pull/1"
 
 
 # --- helpers ---------------------------------------------------------------
@@ -37,6 +41,13 @@ def connect_dispatcher(harness, url: str = REPO_URL):
     dispatcher = harness.drop("ticket_dispatcher")
     dispatcher.type_into("git_url", url)
     return dispatcher
+
+
+def connect_manager(harness, url: str = REPO_URL):
+    """Drop PRManager and point it at a repo, as an operator would."""
+    manager = harness.drop("pr_manager")
+    manager.type_into("git_url", url)
+    return manager
 
 
 def dispatch(
@@ -54,54 +65,6 @@ def dispatch(
     if model is not None:
         dispatcher.select(f"ticket_model_{issue_id}", model)
     dispatcher.click(f"ticket_btn_{issue_id}")
-
-
-def seed_finished(
-    redis_client,
-    wire,
-    floor,
-    *,
-    ticket_name: str,
-    status: str = "finished",
-    pr_url: str = "https://github.com/acme/widgets/pull/1",
-) -> str:
-    """XADD a FINISHED entry the way MachineFactory would, and return its id."""
-    return str(
-        redis_client.xadd(
-            wire.finished_stream(floor.repo),
-            wire.finished_fields(
-                ticket_name=ticket_name,
-                ticket_id="0-1",
-                status=status,
-                pr_url=pr_url,
-            ),
-        )
-    )
-
-
-def finished_row(
-    harness,
-    redis_client,
-    wire,
-    floor,
-    *,
-    ticket_name: str,
-    status: str = "finished",
-    pr_url: str = "https://github.com/acme/widgets/pull/1",
-):
-    """Seed a FINISHED entry, host MergeManager, and wait for its row."""
-    entry_id = seed_finished(
-        redis_client,
-        wire,
-        floor,
-        ticket_name=ticket_name,
-        status=status,
-        pr_url=pr_url,
-    )
-    manager = harness.drop("merge_manager")
-    key = f"{floor.repo}|{entry_id}"
-    harness.wait_for_widget(manager, f"name::{key}")
-    return manager, key, entry_id
 
 
 # --- T1 / T2: TicketDispatcher → WORKORDER ---------------------------------
@@ -246,123 +209,84 @@ def test_t3b_a_second_pass_delivers_nothing_new(
     assert redis_client.xlen(machine_wire.finished_stream(REPO)) == 1
 
 
-# --- T4: FINISHED → MergeManager GUI --------------------------------------
+# --- T4: merge_success issues → PRManager GUI --------------------------------
 
 
-def test_t4_finished_entry_populates_a_pr_row(
-    redis_client, harness, git_floor, machine_wire
-) -> None:
-    """Catches stream → GUI population, which depends on the frame-pump drain."""
+def test_t4_merge_success_issue_populates_a_pr_row(fake_gh, harness) -> None:
+    """Catches GitHub list → GUI population, which depends on the frame-pump drain."""
     pr_url = "https://github.com/acme/widgets/pull/4"
-    manager, key, _entry_id = finished_row(
-        harness,
-        redis_client,
-        machine_wire,
-        git_floor,
-        ticket_name="t4-ticket",
-        pr_url=pr_url,
-    )
+    fake_gh.add_merge_success(4, "t4-ticket", pr_url)
+    manager = connect_manager(harness)
 
-    label = manager.get(f"name::{key}")
+    harness.wait_for_widget(manager, "name::4")
+    label = manager.get("name::4")
     assert "t4-ticket" in label
-    assert "finished" in label
-    assert manager.exists(f"open_pr::{key}")
-    assert manager.shown(f"dismiss::{key}")
+    assert "pull/4" in label
+    assert manager.exists("open_pr::4")
+    assert manager.enabled("open_pr::4")
+    assert manager.shown("dismiss::4")
 
 
-def test_t4b_malformed_finished_entry_is_acked_not_shown(
-    redis_client, harness, git_floor, machine_wire
-) -> None:
-    """A bad entry must be acked away, not retried forever or rendered."""
-    redis_client.xadd(machine_wire.finished_stream(REPO), {"ticket_name": "broken"})
-    manager = harness.drop("merge_manager")
+def test_t4b_agent_ready_issue_is_not_shown(fake_gh, harness) -> None:
+    """PRManager must not render TicketDispatcher's agent-ready queue."""
+    fake_gh.add_issue(4, "agent-only", "Cover the widget module.")
+    manager = connect_manager(harness)
 
     harness.wait_until(
-        lambda: _group_exists(redis_client, machine_wire.finished_stream(REPO)),
-        message="MergeManager to create its consumer group",
-    )
-    harness.wait_until(
-        lambda: _pending(redis_client, machine_wire.finished_stream(REPO)) == 0,
-        message="the malformed entry to be acked",
+        lambda: "merge_success" in manager.get("status_text"),
+        message="PRManager to connect and list merge_success issues",
     )
     assert manager.suffixes(r"^name::") == []
-
-
-def _group_exists(redis_client, stream: str) -> bool:
-    try:
-        groups = redis_client.xinfo_groups(stream)
-    except Exception:  # noqa: BLE001 - stream or group not created yet
-        return False
-    return any(g.get("name") == FINISHED_GROUP for g in groups)
-
-
-def _pending(redis_client, stream: str) -> int:
-    info = redis_client.xpending(stream, FINISHED_GROUP)
-    if isinstance(info, dict):
-        return int(info.get("pending") or 0)
-    return int(info[0]) if info else 0
 
 
 # --- T5 / T7: open-PR affordance and dismiss cleanup ----------------------
 
 
-def test_t5_open_pr_disabled_without_url(
-    redis_client, harness, git_floor, machine_wire
-) -> None:
-    """Error paths may omit pr_url; the button must stay disabled."""
-    manager, key, _entry_id = finished_row(
-        harness,
-        redis_client,
-        machine_wire,
-        git_floor,
-        ticket_name="t5-ticket",
-        status="error",
-        pr_url="",
-    )
-    assert not manager.enabled(f"open_pr::{key}")
-    assert "error" in manager.get(f"name::{key}")
-    assert manager.shown(f"dismiss::{key}")
+def test_t5_open_pr_disabled_without_url(fake_gh, harness) -> None:
+    """A merge_success issue with no PR link must keep the button disabled."""
+    fake_gh.add_issue(5, "t5-ticket", "no pull request yet", labels=("MERGE_SUCCESS",))
+    manager = connect_manager(harness)
+
+    harness.wait_for_widget(manager, "name::5")
+    assert not manager.enabled("open_pr::5")
+    assert "t5-ticket" in manager.get("name::5")
+    assert manager.shown("dismiss::5")
 
 
-def test_t7_dismiss_acks_deletes_and_removes_the_row(
-    redis_client, harness, git_floor, machine_wire
-) -> None:
-    """Catches stream cleanup drifting apart from GUI teardown."""
-    stream = machine_wire.finished_stream(REPO)
+def test_t7_dismiss_closes_the_issue_and_removes_the_row(fake_gh, harness) -> None:
+    """Catches GitHub close drifting apart from GUI teardown."""
+    issue = fake_gh.add_merge_success(7, "t7-ticket", PR_URL)
+    manager = connect_manager(harness)
+    harness.wait_for_widget(manager, "name::7")
+    assert manager.shown("dismiss::7")
 
-    manager, key, _entry_id = finished_row(
-        harness,
-        redis_client,
-        machine_wire,
-        git_floor,
-        ticket_name="t7-ticket",
-    )
-    assert manager.shown(f"dismiss::{key}")
-
-    manager.click(f"dismiss::{key}")
+    manager.click("dismiss::7")
     harness.pump(2)
 
-    assert redis_client.xlen(stream) == 0, "dismiss must XDEL the FINISHED entry"
-    assert _pending(redis_client, stream) == 0, "dismiss must XACK the FINISHED entry"
-    assert not manager.exists(f"name::{key}"), "the row widget outlived its entry"
-    assert not manager.exists(f"open_pr::{key}")
+    assert fake_gh.issue_closes == 1, "dismiss must gh issue close"
+    assert issue.state == "closed"
+    assert not manager.exists("name::7"), "the row widget outlived its issue"
+    assert not manager.exists("open_pr::7")
 
 
 # --- T8: the whole chain over one shared frame pump ------------------------
 
 
-def test_t8_full_chain_from_dispatch_to_finished_pr(
-    redis_client, fake_gh, harness, git_floor, fake_agent, machine_wire
+def test_t8_full_chain_from_dispatch_to_merge_success_pr(
+    redis_client, fake_gh, harness, fake_agent, machine_wire
 ) -> None:
-    """Dispatch → FakeAgent → MergeManager PR row, with both FEs hosted.
+    """Dispatch → FakeAgent, and a merge_success row, with both FEs hosted.
 
     The only scenario where two FEs share pump state, which is the exact
-    condition under which the frame-pump blockers manifest.
+    condition under which the frame-pump blockers manifest. PRManager reads
+    GitHub, not FINISHED, so the two sides of the board are independent inputs
+    on one pump.
     """
     fake_gh.add_issue(88, "t8-ticket", "Do the thing.")
+    fake_gh.add_merge_success(89, "t8-pr", PR_URL)
 
     dispatcher = connect_dispatcher(harness)
-    manager = harness.drop("merge_manager")
+    manager = connect_manager(harness)
 
     dispatch(harness, dispatcher, 88)
     assert redis_client.xlen(WORKORDER_STREAM) == 1
@@ -370,22 +294,22 @@ def test_t8_full_chain_from_dispatch_to_finished_pr(
     runs = fake_agent.run_once()
     assert len(runs) == 1
     run = runs[0]
+    assert redis_client.xlen(machine_wire.finished_stream(REPO)) == 1
 
-    key = f"{REPO}|{run.finished_id}"
-    harness.wait_for_widget(manager, f"name::{key}")
+    harness.wait_for_widget(manager, "name::89")
 
-    # TicketDispatcher must still be draining while MergeManager works: both
+    # TicketDispatcher must still be draining while PRManager works: both
     # depend on the same shared pump, and its status is written by its own
     # background thread.
     harness.wait_until(
         lambda: "agent-ready" in dispatcher.get("status_text"),
-        message="TicketDispatcher to keep draining alongside MergeManager",
+        message="TicketDispatcher to keep draining alongside PRManager",
     )
     assert dispatcher.exists("ticket_btn_88")
 
-    label = manager.get(f"name::{key}")
-    assert "t8-ticket" in label
+    label = manager.get("name::89")
+    assert "t8-pr" in label
     assert run.pr_url
-    assert manager.enabled(f"open_pr::{key}")
-    assert manager.shown(f"dismiss::{key}")
-    harness.screenshot("t8-finished-pr")
+    assert manager.enabled("open_pr::89")
+    assert manager.shown("dismiss::89")
+    harness.screenshot("t8-merge-success-pr")

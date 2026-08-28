@@ -1,9 +1,9 @@
-"""Vertical slice: TicketDispatcher → MachineFactory → MergeManager.
+"""Vertical slice: TicketDispatcher → MachineFactory → PRManager.
 
 Uses the public smoke-test repo URL and one agent-ready issue. The sandbox
 boundary is still FakeAgent (no Docker, no Cursor API), but MachineFactory's
 FE is hosted and must show a live AGENTHANDLER while the agent works — the
-gap T8 left open.
+gap T8 left open. PRManager lists a merge_success issue on the same repo URL.
 """
 
 from __future__ import annotations
@@ -57,12 +57,18 @@ def test_ticket_factory_merge_vertical_slice(
 ) -> None:
     """Dispatch the smoke-test issue, show a live factory sandbox, then a PR row."""
     fake_gh.add_issue(ISSUE_NUMBER, ISSUE_TITLE, ISSUE_BODY)
+    fake_gh.add_merge_success(
+        2,
+        "merge_success: PR #1 can merge into dev",
+        "https://github.com/SamJBoyer/SMOKETESTREPO/pull/1",
+    )
 
     dispatcher = harness.drop("ticket_dispatcher")
     factory = harness.drop("machine_factory")
-    manager = harness.drop("merge_manager")
+    manager = harness.drop("pr_manager")
 
     dispatcher.type_into("git_url", SMOKE_URL)
+    manager.type_into("git_url", SMOKE_URL)
     harness.wait_for_widget(dispatcher, f"ticket_btn_{ISSUE_NUMBER}")
     dispatcher.click(f"ticket_btn_{ISSUE_NUMBER}")
 
@@ -96,9 +102,8 @@ def test_ticket_factory_merge_vertical_slice(
     assert run.ticket_name == ISSUE_TITLE
     redis_client.delete(f"AGENTHANDLER:{guid}")
 
-    key = f"{SMOKE_REPO}|{run.finished_id}"
-    harness.wait_for_widget(manager, f"name::{key}")
-    assert manager.enabled(f"open_pr::{key}")
-    assert manager.shown(f"dismiss::{key}")
+    harness.wait_for_widget(manager, "name::2")
+    assert manager.enabled("open_pr::2")
+    assert manager.shown("dismiss::2")
     assert run.pr_url
-    harness.screenshot("vertical-slice-finished-pr")
+    harness.screenshot("vertical-slice-merge-success-pr")

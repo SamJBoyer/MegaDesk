@@ -77,15 +77,17 @@ plus `test_first_node_on_an_empty_board_still_updates` in
 
 ## Machine pipeline under test
 
-TicketDispatcher → MachineFactory → MergeManager. All pipeline traffic is on
+TicketDispatcher → MachineFactory → PRManager. Factory pipeline traffic is on
 the process **ephemeral** Redis DB (0 on the live pair; 14 when host pytest
 isolates). Supervisor keys live on the persistent half and are not involved.
+PRManager does not read Redis: it lists GitHub issues labeled `merge_success`.
 
 The middle of the chain is not testable in a fast loop: `MachineFactoryManager`
 shells out to `docker run` (clone-in-sandbox + Redis sidecar), and
 `AgentHandler` calls the real Cursor API. **Cut at the sandbox boundary.**
 `FakeAgent` consumes `WORKORDER` using the real `machine_factory` consumer
-group and `XADD`s `FINISHED:{repo}` with a canned `pr_url`. Everything on both
+group and `XADD`s `FINISHED:{repo}` with a canned `pr_url`. PRManager is fed
+`merge_success` issues through `FakeGh`, not that stream. Everything on both
 sides of that cut stays real.
 
 The real MachineFactory BE is never launched: with no Supervisor alive,
@@ -96,7 +98,8 @@ Writers emit canonical field names only. Tests assert that set — see
 
 `WORKORDER` fields: `repo`, `URL`, `ticket_name`, `instructions`, `model`,
 `auto_pr`. `FINISHED:<REPO>` fields: `ticket_name`, `ticket_id`, `status`,
-`pr_url`. MergeManager shows and opens PRs; it does not merge local trees.
+`pr_url`. PRManager shows and opens PRs from `merge_success` GitHub issues; it
+does not consume `FINISHED`.
 
 ---
 
@@ -113,7 +116,7 @@ tests/
   conftest.py
   test_frame_pump.py
   test_canvas_harness.py
-  test_nodeflow.py              # TicketDispatcher → MergeManager seams
+  test_nodeflow.py              # TicketDispatcher → PRManager seams
   test_vertical_slice.py
   test_node_runtime.py
   test_wire_contract.py
@@ -156,11 +159,12 @@ with as many of `(sender, app_data, user_data)` as their signature accepts.
 
 ### Fixtures
 
-**`FakeGh`** — monkeypatches `ticket_dispatcher_app.run_gh` for `gh repo view`
-and `gh issue list --label agent-ready`.
+**`FakeGh`** — monkeypatches `ticket_dispatcher_app.run_gh` and
+`pr_manager_app.run_gh` for `gh repo view`, `gh issue list --label …`, and
+`gh issue close`. Lists are filtered by label (`agent-ready` vs `merge_success`).
 
-**`GitFloor`** — a real git Floor in a temp dir. `attempt_merge` always pushes
-on success, so the fixture includes a pushable local `origin`.
+**`GitFloor`** — a real git Floor in a temp dir. A successful merge test always
+pushes, so the fixture includes a pushable local `origin`.
 
 **`FakeAgent`** — consumes through the real `machine_factory` group and builds
 FINISHED with `finished_fields` (`status=finished`, canned `pr_url`). No Floor
@@ -188,18 +192,17 @@ host DB lanes; if `REDIS_URL` already names a non-live pair, conftest honors it.
 | T2b | `gh repo view` failing surfaces on `status_text` | Errors swallowed |
 | T3 | `FakeAgent` consumes; group has zero pending; `FINISHED:{repo}` has the four canonical fields (`ticket_name`, `ticket_id`, `status`, `pr_url`) | Consumer-group and ack |
 | T3b | A second pass returns nothing | Redelivery of acked entries |
-| T4 | `XADD FINISHED:{repo}`, pump. Row widgets exist, open-PR button visible | Stream → GUI; frame-pump drain |
-| T4b | A FINISHED entry missing fields is acked and never rendered | Poison entries retried forever |
-| T5 | Error FINISHED without `pr_url`: open-PR disabled | Empty-URL affordance |
-| T7 | Click dismiss. `XACK` + `XDEL`, row gone | Stream cleanup vs GUI teardown |
-| T8 | Full chain in one canvas: dispatch → FakeAgent → PR row | Two FEs sharing the pump |
-| V1 | TicketDispatcher on SMOKETESTREPO → FakeAgent → MergeManager | The sandbox row T8 never hosted |
+| T4 | Seed a `merge_success` issue, pump. Row widgets exist, open-PR button visible | GitHub list → GUI; frame-pump drain |
+| T4b | An `agent-ready` issue is never rendered on PRManager | Label filter inverted |
+| T5 | `merge_success` issue without a PR URL: open-PR disabled | Empty-URL affordance |
+| T7 | Click dismiss. `gh issue close`, row gone | GitHub close vs GUI teardown |
+| T8 | Full chain in one canvas: dispatch → FakeAgent, merge_success PR row | Two FEs sharing the pump |
+| V1 | TicketDispatcher on SMOKETESTREPO → FakeAgent → PRManager | The sandbox row T8 never hosted |
 
 Failure artifacts: `wait_until` writes a screenshot on timeout into
 `tests/_artifacts/<test name>/`.
 
-Do not fire MergeManager's editor buttons: they `Popen(..., shell=True)` and
-would launch real editors.
+Do not fire PRManager's open-PR button in tests: it opens a real browser.
 
 ---
 

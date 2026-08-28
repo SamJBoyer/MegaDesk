@@ -1,3 +1,0 @@
-dearpygui>=1.11.1
-redis>=5.0.0
-megadesk

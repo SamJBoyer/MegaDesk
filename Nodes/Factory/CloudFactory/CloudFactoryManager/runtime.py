@@ -4,8 +4,7 @@ The same three verbs MachineFactory answers with Docker — see
 ``megadesk_contracts.factory`` — answered here with the Cursor SDK. The
 difference from a local run is one keyword: Cursor clones the repository onto its
 own VM, works there, pushes a branch, and opens a pull request, so the input is a
-URL and the output is a link. There is no worktree to hand over and nothing for
-MergeManager to merge afterwards.
+URL and the output is a link. There is no worktree to hand over.
 
 Two consequences shape everything below:
 

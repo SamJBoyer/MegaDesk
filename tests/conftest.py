@@ -25,7 +25,7 @@ sys.path[:0] = [
         "MegaDesk-Contracts",
         "MegaDesk-Canvas",
         "Nodes/TicketDispatcher",
-        "Nodes/MergeManager",
+        "Nodes/PRManager",
         "Nodes/CodeScope",
         "Nodes/VoiceDeck",
         "Nodes/Factory/MachineFactory",
@@ -122,7 +122,6 @@ GRAPHEVENT_CANONICAL_FIELDS = frozenset(
 
 WORKORDER_STREAM = "WORKORDER"
 WORKORDER_GROUP = "machine_factory"
-FINISHED_GROUP = "merge_manager"
 CODEQ_ASK_GROUP = "code_scope"
 CLOUDORDER_GROUP = "cloud_factory"
 
@@ -138,8 +137,8 @@ FAST_POLL_SEC = 0.1
 def machine_wire() -> ModuleType:
     """The one definition of WORKORDER / AGENTHANDLER / FINISHED.
 
-    TicketDispatcher, MachineFactory and MergeManager all write to this family
-    and all import it from here, so there is no second copy to drift.
+    TicketDispatcher and MachineFactory write to this family and import it
+    from here, so there is no second copy to drift.
     """
     from megadesk_contracts.wire import machine
 
@@ -183,10 +182,10 @@ def cloud_factory_module() -> ModuleType:
 
 
 @pytest.fixture(scope="session")
-def merge_manager_module() -> ModuleType:
-    import merge_manager_app
+def pr_manager_module() -> ModuleType:
+    import pr_manager_app
 
-    return merge_manager_app
+    return pr_manager_app
 
 
 # --- Redis -----------------------------------------------------------------
@@ -267,7 +266,7 @@ def artifacts_dir(request: pytest.FixtureRequest) -> Path:
 @pytest.fixture
 def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
     """Shorten FE background poll intervals so tests do not wait on real cadence."""
-    import merge_manager_app
+    import pr_manager_app
     import ticket_dispatcher_app
     from cloud_factory_frontend import app as cloud_factory_app
     from code_scope_frontend import app as code_scope_app
@@ -277,7 +276,7 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
 
     for module in (
         ticket_dispatcher_app,
-        merge_manager_app,
+        pr_manager_app,
         code_scope_app,
         voice_deck_app,
         cloud_factory_app,
@@ -328,12 +327,17 @@ def git_floor(tmp_path: Path):
 
 
 @pytest.fixture
-def fake_gh(monkeypatch: pytest.MonkeyPatch, ticket_dispatcher_module: ModuleType):
-    """Swap TicketDispatcher's ``run_gh`` for canned answers — no network, no auth."""
+def fake_gh(
+    monkeypatch: pytest.MonkeyPatch,
+    ticket_dispatcher_module: ModuleType,
+    pr_manager_module: ModuleType,
+):
+    """Swap both GitHub pollers' ``run_gh`` for canned answers — no network, no auth."""
     from megadesk_contracts.testing import FakeGh
 
     gh = FakeGh()
     monkeypatch.setattr(ticket_dispatcher_module, "run_gh", gh)
+    monkeypatch.setattr(pr_manager_module, "run_gh", gh)
     return gh
 
 

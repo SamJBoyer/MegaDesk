@@ -13,8 +13,8 @@ MachineFactory clones the named repo into a Docker sandbox, gives the agent a
 Redis sidecar as its ``REDIS_URL`` (so MegaDesk inside the sandbox never shares
 the host live pair), and keeps factory IPC on ``MEGADESK_FACTORY_REDIS_URL`` —
 the factory process's ephemeral DB on the host. When the agent finishes it hands
-back a pull-request URL, not a worktree: MergeManager shows and opens PRs; it
-does not merge local trees.
+back a pull-request URL, not a worktree. PRManager does not read this stream:
+it scans GitHub issues labeled ``merge_success``.
 
 The cloud family's counterpart is ``wire.cloud``, and the two are deliberately
 the same shape: an order stream, a hash per live run, a finished stream. They
@@ -22,8 +22,8 @@ differ where the infrastructure differs. A machine order names a ``repo`` plus
 clone ``URL`` and an optional ``auto_pr``; a cloud order names a ``repo_url`` /
 ``ref`` / ``auto_pr``. Both hand back a PR URL as the addressable result.
 
-``FINISHED`` is per-repo rather than one stream because MergeManager watches the
-repos it cares about, not every repo the Floor knows about.
+``FINISHED`` is per-repo rather than one stream so a factory FE can watch one
+repo's outcomes without scanning every other.
 
 The AGENTHANDLER hash is the run registry, and it is also the handshake: the
 manager writes it before the sandbox starts, the sandbox reads its own ``guid``

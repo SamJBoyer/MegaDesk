@@ -55,7 +55,7 @@ Examples in-repo:
 |------|-------------|-------|
 | MachineFactory (`Nodes/Factory/MachineFactory`) | `machine_factory` | FE + BE |
 | CloudFactory (`Nodes/Factory/CloudFactory`) | `cloud_factory` | FE + BE |
-| MergeManager | `merge_manager` | FE only |
+| PRManager | `pr_manager` | FE only |
 | TicketDispatcher | `ticket_dispatcher` | FE only |
 | CodeScope | `code_scope` | FE + BE |
 | VoiceDeck | `voice_deck` | FE + BE |
@@ -119,7 +119,7 @@ from megadesk_contracts import FeSpec
 
 def get_fe_spec():
     return FeSpec(
-        name="merge_manager",
+        name="pr_manager",
         description="…",
         icon=icon_path_or_none,
         default_width=960,
@@ -214,7 +214,7 @@ conda activate MEGADESK
 pip install -e MegaDesk-Contracts
 pip install -e MegaDesk-Canvas
 pip install -e Nodes/TicketDispatcher   # FE example
-pip install -e Nodes/MergeManager       # FE example
+pip install -e Nodes/PRManager          # FE example
 pip install -e Nodes/Factory/MachineFactory[canvas]   # FE + BE example, nested
 python main.py   # from MegaDesk-Canvas/ — starts Supervisor BE on launch
 ```
@@ -240,7 +240,7 @@ A node that takes parameters ships `parameters.yaml` next to its entry-point mod
 - GIT_URL # the http of the git repo this node will connect to
 ```
 
-Helpers live in `megadesk_contracts.parameters` (`load_parameter_names`, `normalize_parameters`, `parameters_to_json`, `parameters_from_env`). The graph stores a value per declared name per member. **Capture** on the graph bar reads live sub-GUI values via `FeSpec.read_parameters` and writes them into the graph. What a node does with incoming parameters is its own business — TicketDispatcher seeds the repo URL field from `GIT_URL`.
+Helpers live in `megadesk_contracts.parameters` (`load_parameter_names`, `normalize_parameters`, `parameters_to_json`, `parameters_from_env`). The graph stores a value per declared name per member. **Capture** on the graph bar reads live sub-GUI values via `FeSpec.read_parameters` and writes them into the graph. What a node does with incoming parameters is its own business — TicketDispatcher and PRManager seed the repo URL field from `GIT_URL`.
 
 A Supervisor-launched BE reads the same packet from `MEGADESK_PARAMETERS` (JSON object, or empty).
 

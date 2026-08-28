@@ -2,7 +2,7 @@
 
 ``FakeMachineFactory`` stands in for the sandbox; everything either side of it is
 real — the WORKORDER consumer group, the AGENTHANDLER registry and the FINISHED
-payloads MergeManager reads. MachineFactory clones into the sandbox (no Floor
+payloads the factory publishes. MachineFactory clones into the sandbox (no Floor
 worktrees) and hands back a pull-request URL.
 
 The cloud suite's risk is launching twice and opening two pull requests. Here the
@@ -135,7 +135,7 @@ def test_an_unusable_order_is_acked_rather_than_retried_forever(
 def test_a_sandbox_that_never_started_is_reported_not_left_hanging(
     machine_factory, fake_machine_factory, redis_client, git_floor, read_stream
 ) -> None:
-    """Silence would leave MergeManager waiting on a PR that will never arrive."""
+    """Silence would leave a FINISHED stream with no outcome for a run that died."""
     fake_machine_factory.startup_error = "docker daemon is not running"
     ticket_id = place_order(redis_client, git_floor)
 
