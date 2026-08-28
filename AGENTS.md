@@ -9,6 +9,8 @@ Read /Docs and Docs/glossary for information about specific terms. For how Nodes
 
 Always use the **MEGADESK** conda environment (`conda activate MEGADESK`). Do not run MegaDesk, pytest, or pip against any other interpreter.
 
+Cursor Cloud agents: `.cursor/environment.json` installs Miniconda at `~/miniconda3`, creates `MEGADESK` (Python 3.13), and starts a native Redis on `localhost:6379`. Docker is not required for Redis.
+
 Before working, always make sure the supervisor is down by running. 
 
 ```bash
