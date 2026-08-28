@@ -58,6 +58,12 @@ from megadesk_contracts.paths import (
     resolve_worktree_root,
 )
 from megadesk_contracts.realtime import RealtimeEvent, RealtimeTransport
+from megadesk_contracts.github import (
+    canonical_github_repo,
+    list_github_issues,
+    parse_github_repo,
+    run_gh,
+)
 from megadesk_contracts.repo import (
     CloneError,
     clone_path,
@@ -120,6 +126,7 @@ __all__ = [
     "attach_log_session",
     "begin_log_session",
     "clear_shutdown",
+    "canonical_github_repo",
     "clone_path",
     "coerce_parameters",
     "configure_node_logging",
@@ -136,6 +143,7 @@ __all__ = [
     "heartbeat_key",
     "is_clone",
     "is_reported_node_alive",
+    "list_github_issues",
     "load_be_spec",
     "load_fe_spec",
     "load_parameter_names",
@@ -143,6 +151,7 @@ __all__ = [
     "normalize_parameters",
     "parameters_from_env",
     "parameters_to_json",
+    "parse_github_repo",
     "pid_is_alive",
     "refresh_clone",
     "repo_name_from_url",
@@ -158,6 +167,7 @@ __all__ = [
     "resolve_persistent_db",
     "resolve_redis_pair",
     "resolve_redis_url",
+    "run_gh",
     "session_log_path",
     "shutdown_key",
     "wire",

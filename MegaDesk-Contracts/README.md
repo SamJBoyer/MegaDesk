@@ -37,6 +37,7 @@ from megadesk_contracts import (
 | [`megadesk_contracts/wire/factory.py`](megadesk_contracts/wire/factory.py) | The status vocabulary both factories report in, and `normalize_status` |
 | [`megadesk_contracts/wire/graph.py`](megadesk_contracts/wire/graph.py) | `GRAPHRUN` / `GRAPHEVENT` — AgentHandler work-graph telemetry |
 | [`megadesk_contracts/repo.py`](megadesk_contracts/repo.py) | `ensure_clone` / `refresh_clone` for disposable read-only clones |
+| [`megadesk_contracts/github.py`](megadesk_contracts/github.py) | GitHub URL parse/normalize, `run_gh`, and labeled-issue poll shared by TicketDispatcher, PRManager, CloudFactory, and CodeScope |
 | [`megadesk_contracts/agent_errors.py`](megadesk_contracts/agent_errors.py) | `AgentStartupError` (never ran, maybe retry) vs `AgentRunError` (ran and failed) |
 | [`megadesk_contracts/realtime.py`](megadesk_contracts/realtime.py) | `RealtimeTransport` — the speech-to-speech surface VoiceDeck is written against |
 | [`megadesk_contracts/factory.py`](megadesk_contracts/factory.py) | `AgentFactory` — the launch / poll / cancel surface both factories implement, plus `RunHandle` / `RunStatus` |

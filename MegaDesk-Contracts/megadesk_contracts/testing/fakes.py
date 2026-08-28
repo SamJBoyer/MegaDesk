@@ -79,7 +79,8 @@ class FakeGh:
     Answers ``gh repo view``, ``gh issue list --label …``, and ``gh issue close``,
     and fails loudly on anything else so a changed argv surfaces as a test
     failure rather than a hang. ``issue list`` filters by ``--label`` and
-    ``--state`` the way the real CLI does.
+    ``--state`` the way the real CLI does. Nodes re-export
+    ``megadesk_contracts.github.run_gh``; patch that binding on the node module.
     """
 
     def __init__(

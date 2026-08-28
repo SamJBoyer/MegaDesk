@@ -2,21 +2,18 @@
 
 from __future__ import annotations
 
-import json
 import queue
 import re
-import subprocess
 import threading
 import webbrowser
 from dataclasses import dataclass, field
 from typing import Mapping, Optional
-from urllib.parse import urlparse
 
 import dearpygui.dearpygui as dpg
-from megadesk_contracts import coerce_parameters, frame_pump
+from megadesk_contracts import coerce_parameters, frame_pump, list_github_issues
+from megadesk_contracts.github import parse_github_repo, resolve_github_remote, run_gh
 
 POLL_INTERVAL_SEC = 3.0
-GH_TIMEOUT_SEC = 15
 MERGE_SUCCESS_LABEL = "MERGE_SUCCESS"
 PARAM_GIT_URL = "GIT_URL"
 
@@ -44,37 +41,6 @@ class MergeIssue:
     row_tag: str = field(default="")
 
 
-def parse_github_repo(git_url: str) -> Optional[tuple[str, str]]:
-    """Extract (owner, repo) from common GitHub URL forms."""
-    url = git_url.strip()
-    if not url:
-        return None
-
-    ssh = re.match(r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?/?$", url)
-    if ssh:
-        return ssh.group(1), ssh.group(2)
-
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
-
-    parsed = urlparse(url)
-    if parsed.hostname not in ("github.com", "www.github.com"):
-        return None
-
-    parts = [p for p in parsed.path.strip("/").split("/") if p]
-    if len(parts) < 2:
-        return None
-
-    owner, repo = parts[0], parts[1]
-    if repo.endswith(".git"):
-        repo = repo[:-4]
-    return owner, repo
-
-
-def normalize_repo_url(git_url: str, owner: str, repo: str) -> str:
-    return f"https://github.com/{owner}/{repo}"
-
-
 def pr_url_from_issue(body: str, owner: str, repo: str) -> str:
     """Pull the tracked PR URL out of a merge_success issue body.
 
@@ -89,26 +55,6 @@ def pr_url_from_issue(body: str, owner: str, repo: str) -> str:
     if marker:
         return f"https://github.com/{owner}/{repo}/pull/{marker.group(1)}"
     return ""
-
-
-def run_gh(*args: str) -> tuple[bool, str, str]:
-    try:
-        result = subprocess.run(
-            ["gh", *args],
-            capture_output=True,
-            text=True,
-            timeout=GH_TIMEOUT_SEC,
-            check=False,
-        )
-    except FileNotFoundError:
-        return False, "", "gh CLI not found — install and authenticate GitHub CLI"
-    except subprocess.TimeoutExpired:
-        return False, "", "gh command timed out"
-
-    if result.returncode != 0:
-        err = (result.stderr or result.stdout or "gh command failed").strip()
-        return False, result.stdout, err
-    return True, result.stdout, ""
 
 
 def short_pr_url(url: str) -> str:
@@ -177,28 +123,20 @@ class PRManager:
             with self._url_lock:
                 url = self._current_repo_url
 
-            if not url:
-                self._ui_queue.put(("conn", False))
-                self._ui_queue.put(
-                    ("status", "Enter a GitHub repository URL", (160, 160, 160))
-                )
-                self._stop.wait(POLL_INTERVAL_SEC)
-                continue
-
-            parsed = parse_github_repo(url)
-            if not parsed:
+            resolved, status = resolve_github_remote(url)
+            if resolved is None:
                 self._ui_queue.put(("conn", False))
                 self._ui_queue.put(
                     (
                         "status",
-                        "Unsupported URL (GitHub https or SSH required)",
-                        COLOR_ERR,
+                        status or "Enter a GitHub repository URL",
+                        COLOR_ERR if url else (160, 160, 160),
                     )
                 )
                 self._stop.wait(POLL_INTERVAL_SEC)
                 continue
 
-            owner, repo = parsed
+            owner, repo, _repo_url = resolved
             ok, issues, err = self._fetch_merge_success(owner, repo)
             if not ok:
                 self._ui_queue.put(("conn", False))
@@ -220,48 +158,20 @@ class PRManager:
     def _fetch_merge_success(
         self, owner: str, repo: str
     ) -> tuple[bool, list[MergeIssue], Optional[str]]:
-        repo_slug = f"{owner}/{repo}"
-
-        ok, _, err = run_gh("repo", "view", repo_slug, "--json", "nameWithOwner")
-        if not ok:
-            return False, [], err or "Connection failed"
-
-        ok, stdout, err = run_gh(
-            "issue",
-            "list",
-            "--repo",
-            repo_slug,
-            "--label",
-            MERGE_SUCCESS_LABEL,
-            "--state",
-            "open",
-            "--limit",
-            "100",
-            "--json",
-            "number,title,body",
+        ok, items, err = list_github_issues(
+            owner, repo, MERGE_SUCCESS_LABEL, gh=run_gh
         )
         if not ok:
-            return False, [], err or "Failed to list issues"
-
-        try:
-            payload = json.loads(stdout or "[]")
-        except json.JSONDecodeError as exc:
-            return False, [], f"Invalid gh JSON: {exc}"
-
-        issues: list[MergeIssue] = []
-        for item in payload:
-            number = item.get("number")
-            if number is None:
-                continue
-            body = item.get("body") or ""
-            issues.append(
-                MergeIssue(
-                    id=int(number),
-                    name=item.get("title") or f"Issue #{number}",
-                    body=body,
-                    pr_url=pr_url_from_issue(body, owner, repo),
-                )
+            return False, [], err
+        issues = [
+            MergeIssue(
+                id=item["number"],
+                name=item["title"],
+                body=item["body"],
+                pr_url=pr_url_from_issue(item["body"], owner, repo),
             )
+            for item in items
+        ]
         return True, issues, None
 
     def _drain_ui_queue(self) -> None:

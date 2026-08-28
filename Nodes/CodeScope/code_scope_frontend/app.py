@@ -14,20 +14,18 @@ from __future__ import annotations
 
 import logging
 import queue
-import re
 import threading
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse
 
 import dearpygui.dearpygui as dpg
 import redis
 from megadesk_contracts import (
+    canonical_github_repo,
     ensure_clone,
     frame_pump,
     refresh_clone,
     redis_connect,
-    repo_name_from_url,
     resolve_ephemeral_db,
     resolve_persistent_db,
     resolve_redis_url,
@@ -71,25 +69,8 @@ def normalize_repo_url(git_url: str) -> Optional[tuple[str, str]]:
     text = str(git_url or "").strip()
     if not text:
         return None
-
-    ssh = re.match(r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?/?$", text)
-    if ssh:
-        owner, repo = ssh.group(1), ssh.group(2)
-        return f"https://github.com/{owner}/{repo}", repo
-
-    if text.startswith(("http://", "https://")):
-        parsed = urlparse(text)
-        if parsed.hostname in ("github.com", "www.github.com"):
-            parts = [p for p in parsed.path.strip("/").split("/") if p]
-            if len(parts) < 2:
-                return None
-            owner, repo = parts[0], parts[1]
-            if repo.endswith(".git"):
-                repo = repo[:-4]
-            return f"https://github.com/{owner}/{repo}", repo
-
     try:
-        return text, repo_name_from_url(text)
+        return canonical_github_repo(text)
     except ValueError:
         return None
 

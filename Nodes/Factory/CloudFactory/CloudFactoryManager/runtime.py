@@ -29,7 +29,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import re
 import threading
 from typing import Any, Mapping, Optional
 
@@ -39,7 +38,7 @@ from megadesk_contracts import (
     AgentStartupError,
     RunHandle,
     RunStatus,
-    repo_name_from_url,
+    canonical_github_repo,
 )
 from megadesk_contracts.wire import cloud as wire
 from megadesk_contracts.wire.factory import normalize_status
@@ -63,36 +62,6 @@ that says what changed and why, titled: {title}"""
 
 def prompt_for(*, instructions: str, title: str) -> str:
     return CLOUD_PROMPT.format(instructions=instructions.strip(), title=title.strip())
-
-
-_GITHUB_HTTPS = re.compile(
-    r"^https?://(?:www\.)?github\.com/([^/]+)/([^/]+?)(?:\.git)?/?$",
-    re.IGNORECASE,
-)
-_GITHUB_SSH = re.compile(
-    r"^git@github\.com:([^/]+)/([^/]+?)(?:\.git)?/?$",
-    re.IGNORECASE,
-)
-_GITHUB_SLUG = re.compile(r"^([\w.-]+)/([\w.-]+)$")
-
-
-def canonical_github_repo(repo_url: str) -> tuple[str, str]:
-    """``(clone_url, name)``. ``name`` is the repo, never ``owner/name``.
-
-    Cursor's validation errors print GitHub's nameWithOwner
-    (``SamJBoyer/SMOKETESTREPO``). MegaDesk, Floor, and WORKORDER identify the
-    same repo as ``SMOKETESTREPO`` — the last path segment.
-    """
-    text = str(repo_url).strip()
-    match = _GITHUB_HTTPS.match(text) or _GITHUB_SSH.match(text)
-    if match is None and "://" not in text and not text.startswith("git@"):
-        match = _GITHUB_SLUG.match(text)
-    if match is not None:
-        owner, repo = match.group(1), match.group(2)
-        if repo.endswith(".git"):
-            repo = repo[: -len(".git")]
-        return f"https://github.com/{owner}/{repo}", repo
-    return text, repo_name_from_url(text)
 
 
 def cloud_launch_options(

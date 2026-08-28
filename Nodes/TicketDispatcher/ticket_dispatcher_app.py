@@ -2,23 +2,26 @@
 
 from __future__ import annotations
 
-import json
 import queue
-import re
-import subprocess
 import threading
 from dataclasses import dataclass
 from typing import Mapping, Optional
-from urllib.parse import urlparse
 
 import dearpygui.dearpygui as dpg
 import redis
 from megadesk_contracts import (
     coerce_parameters,
     frame_pump,
+    list_github_issues,
     redis_connect,
     resolve_ephemeral_db,
     resolve_redis_url,
+)
+from megadesk_contracts.github import (
+    normalize_repo_url,
+    parse_github_repo,
+    resolve_github_remote,
+    run_gh,
 )
 from megadesk_contracts.wire.cloud import (
     CLOUDORDER_STREAM,
@@ -35,7 +38,6 @@ POLL_INTERVAL_SEC = 3.0
 MODEL_OPTIONS = ("auto", "grok-4.6", "claude-opus-5")
 FACTORY_OPTIONS = ("machine", "cloud")
 DEFAULT_FACTORY = "machine"
-GH_TIMEOUT_SEC = 15
 
 # Graph parameter this node recognizes; declared in parameters.yaml.
 PARAM_GIT_URL = "GIT_URL"
@@ -55,57 +57,6 @@ class IssueTicket:
     name: str
     body: str
     url: str
-
-
-def parse_github_repo(git_url: str) -> Optional[tuple[str, str]]:
-    """Extract (owner, repo) from common GitHub URL forms."""
-    url = git_url.strip()
-    if not url:
-        return None
-
-    ssh = re.match(r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?/?$", url)
-    if ssh:
-        return ssh.group(1), ssh.group(2)
-
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
-
-    parsed = urlparse(url)
-    if parsed.hostname not in ("github.com", "www.github.com"):
-        return None
-
-    parts = [p for p in parsed.path.strip("/").split("/") if p]
-    if len(parts) < 2:
-        return None
-
-    owner, repo = parts[0], parts[1]
-    if repo.endswith(".git"):
-        repo = repo[:-4]
-    return owner, repo
-
-
-def normalize_repo_url(git_url: str, owner: str, repo: str) -> str:
-    return f"https://github.com/{owner}/{repo}"
-
-
-def run_gh(*args: str) -> tuple[bool, str, str]:
-    try:
-        result = subprocess.run(
-            ["gh", *args],
-            capture_output=True,
-            text=True,
-            timeout=GH_TIMEOUT_SEC,
-            check=False,
-        )
-    except FileNotFoundError:
-        return False, "", "gh CLI not found — install and authenticate GitHub CLI"
-    except subprocess.TimeoutExpired:
-        return False, "", "gh command timed out"
-
-    if result.returncode != 0:
-        err = (result.stderr or result.stdout or "gh command failed").strip()
-        return False, result.stdout, err
-    return True, result.stdout, ""
 
 
 class TicketDispatcher:
@@ -245,29 +196,20 @@ class TicketDispatcher:
             with self._url_lock:
                 url = self._current_repo_url
 
-            if not url:
-                self._ui_queue.put(("conn", False))
-                self._ui_queue.put(
-                    ("status", "Enter a GitHub repository URL", (160, 160, 160))
-                )
-                self._stop.wait(POLL_INTERVAL_SEC)
-                continue
-
-            parsed = parse_github_repo(url)
-            if not parsed:
+            resolved, status = resolve_github_remote(url)
+            if resolved is None:
                 self._ui_queue.put(("conn", False))
                 self._ui_queue.put(
                     (
                         "status",
-                        "Unsupported URL (GitHub https or SSH required)",
-                        COLOR_RED,
+                        status or "Enter a GitHub repository URL",
+                        COLOR_RED if url else (160, 160, 160),
                     )
                 )
                 self._stop.wait(POLL_INTERVAL_SEC)
                 continue
 
-            owner, repo = parsed
-            repo_url = normalize_repo_url(url, owner, repo)
+            owner, repo, repo_url = resolved
             ok, issues, err = self._fetch_agent_ready(owner, repo)
 
             if not ok:
@@ -291,47 +233,20 @@ class TicketDispatcher:
     def _fetch_agent_ready(
         self, owner: str, repo: str
     ) -> tuple[bool, list[IssueTicket], Optional[str]]:
-        repo_slug = f"{owner}/{repo}"
-
-        ok, _, err = run_gh("repo", "view", repo_slug, "--json", "nameWithOwner")
-        if not ok:
-            return False, [], err or "Connection failed"
-
-        ok, stdout, err = run_gh(
-            "issue",
-            "list",
-            "--repo",
-            repo_slug,
-            "--label",
-            "agent-ready",
-            "--state",
-            "open",
-            "--limit",
-            "100",
-            "--json",
-            "number,title,body",
+        ok, items, err = list_github_issues(
+            owner, repo, "agent-ready", gh=run_gh
         )
         if not ok:
-            return False, [], err or "Failed to list issues"
-
-        try:
-            payload = json.loads(stdout or "[]")
-        except json.JSONDecodeError as exc:
-            return False, [], f"Invalid gh JSON: {exc}"
-
-        tickets: list[IssueTicket] = []
-        for item in payload:
-            number = item.get("number")
-            if number is None:
-                continue
-            tickets.append(
-                IssueTicket(
-                    id=int(number),
-                    name=item.get("title") or f"Issue #{number}",
-                    body=item.get("body") or "",
-                    url="",
-                )
+            return False, [], err
+        tickets = [
+            IssueTicket(
+                id=item["number"],
+                name=item["title"],
+                body=item["body"],
+                url="",
             )
+            for item in items
+        ]
         return True, tickets, None
 
     def _drain_ui_queue(self) -> None:
