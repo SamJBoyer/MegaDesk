@@ -126,6 +126,7 @@ tests/
   test_voicedeck_flow.py
   test_voice_contract.py
   test_workgraph_flow.py
+  test_vision_board.py
 ```
 
 ### `CanvasHarness`
