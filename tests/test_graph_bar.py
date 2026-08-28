@@ -23,7 +23,7 @@ def _ticket_graph(member_id: str = "td-1") -> dict:
                 "nickname": "work_dispatcher",
                 "node_name": "work_dispatcher",
                 "position": [40.0, 40.0],
-                "parameters": {"GIT_URL": GIT_URL},
+                "parameters": {"GIT_URL": GIT_URL, "ISSUE_LABEL": "needs-a-human"},
                 "data": {
                     "width": 480.0,
                     "height": 160.0,
@@ -34,7 +34,7 @@ def _ticket_graph(member_id: str = "td-1") -> dict:
     }
 
 
-def test_work_dispatcher_boots_from_graph_git_url(
+def test_work_dispatcher_boots_from_graph_git_url_and_label(
     tmp_path: Path, artifacts_dir: Path, fast_polling: None, fake_gh
 ) -> None:
     path = tmp_path / "graph.json"
@@ -42,6 +42,7 @@ def test_work_dispatcher_boots_from_graph_git_url(
     with CanvasHarness(graph_path=path, artifacts_dir=artifacts_dir, supervisor_panel=False) as harness:
         driver = harness.driver_for("work_dispatcher")
         assert driver.get("git_url") == GIT_URL
+        assert driver.get("label_combo") == "needs-a-human"
 
 
 def test_capture_presses_live_values_into_the_graph(harness, tmp_path: Path) -> None:
@@ -49,13 +50,16 @@ def test_capture_presses_live_values_into_the_graph(harness, tmp_path: Path) -> 
 
     driver = harness.drop("work_dispatcher")
     driver.type_into("git_url", GIT_URL)
+    driver.select("label_combo", "needs-a-human")
 
     callback = dpg.get_item_callback(CAPTURE_TAG)
     assert callback is not None
     invoke_callback(callback, CAPTURE_TAG, None, None)
 
     saved = json.loads((tmp_path / "graph.json").read_text(encoding="utf-8"))
-    assert saved["members"][driver.member_id]["parameters"]["GIT_URL"] == GIT_URL
+    parameters = saved["members"][driver.member_id]["parameters"]
+    assert parameters["GIT_URL"] == GIT_URL
+    assert parameters["ISSUE_LABEL"] == "needs-a-human"
     assert "captured" in dpg.get_value(STATUS_TAG)
 
 
