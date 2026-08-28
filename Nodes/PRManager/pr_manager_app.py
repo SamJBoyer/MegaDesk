@@ -206,12 +206,11 @@ def pull_pr(
         _git(["clone", clone_url, str(dest)])
 
     ref = f"pr-{int(pr_number)}"
-    _git(
-        ["fetch", "origin", f"+refs/pull/{int(pr_number)}/head:refs/heads/{ref}"],
-        cwd=dest,
-    )
-    _git(["checkout", "--force", ref], cwd=dest)
-    _git(["reset", "--hard", ref], cwd=dest)
+    # Fetch into FETCH_HEAD rather than the checked-out branch — git refuses
+    # `fetch origin +refs/pull/N/head:refs/heads/pr-N` while pr-N is current.
+    _git(["fetch", "origin", f"+refs/pull/{int(pr_number)}/head"], cwd=dest)
+    _git(["checkout", "--force", "-B", ref, "FETCH_HEAD"], cwd=dest)
+    _git(["reset", "--hard", "FETCH_HEAD"], cwd=dest)
     _git(["clean", "-fd"], cwd=dest)
     return dest
 
@@ -608,7 +607,7 @@ class PRManager:
         parent: str,
         *,
         tag_prefix: str,
-        width: int = 560,
+        width: int = 640,
         height: int = 160,
     ) -> None:
         """Fill the host content parent with PRManager widgets."""
@@ -682,7 +681,7 @@ def build_ui(
     parent: str,
     *,
     tag_prefix: str,
-    width: int = 560,
+    width: int = 640,
     height: int = 160,
     parameters: Optional[Mapping[str, str]] = None,
 ) -> None:

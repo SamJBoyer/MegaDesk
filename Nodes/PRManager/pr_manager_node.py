@@ -31,7 +31,7 @@ def get_fe_spec(
         name="pr_manager",
         description="Show merge_success PRs, pull them locally, open in VS Code or Cursor.",
         icon=icon,
-        default_width=560,
+        default_width=640,
         default_height=160,
         build=build,
         parameters=PARAMETERS,
