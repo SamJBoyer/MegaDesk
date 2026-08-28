@@ -3,22 +3,28 @@
 from __future__ import annotations
 
 import json
+import os
 import queue
 import re
 import subprocess
 import threading
+import time
 import webbrowser
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Mapping, Optional
 from urllib.parse import urlparse
 
 import dearpygui.dearpygui as dpg
 from megadesk_contracts import coerce_parameters, frame_pump
+from megadesk_contracts.repo import CloneError, is_clone, safe_repo_name
 
 POLL_INTERVAL_SEC = 3.0
 GH_TIMEOUT_SEC = 15
+GIT_TIMEOUT_SEC = 300
 MERGE_SUCCESS_LABEL = "MERGE_SUCCESS"
 PARAM_GIT_URL = "GIT_URL"
+ENV_SCOPE_ROOT = "PR_SCOPE_ROOT"
 
 COLOR_OK = (80, 200, 80, 255)
 COLOR_ERR = (220, 70, 70, 255)
@@ -42,6 +48,7 @@ class MergeIssue:
     body: str
     pr_url: str
     row_tag: str = field(default="")
+    clone_path: Optional[Path] = None
 
 
 def parse_github_repo(git_url: str) -> Optional[tuple[str, str]]:
@@ -133,6 +140,109 @@ def open_pr_url(url: str) -> tuple[bool, str]:
     return True, f"Opened {short_pr_url(text)}"
 
 
+def pr_number_from_url(url: str) -> Optional[int]:
+    match = re.search(r"/pull/(\d+)(?:/|$)", (url or "").strip())
+    return int(match.group(1)) if match else None
+
+
+def scope_root() -> Path:
+    """Where PR checkouts land. ``PR_SCOPE_ROOT`` overrides the node-local Scope/."""
+    configured = (os.environ.get(ENV_SCOPE_ROOT) or "").strip()
+    if configured:
+        return Path(configured)
+    return Path(__file__).resolve().parent / "Scope"
+
+
+def pr_checkout_path(
+    repo: str, pr_number: int, root: Optional[Path] = None
+) -> Path:
+    return (root if root is not None else scope_root()) / safe_repo_name(repo) / f"pr-{int(pr_number)}"
+
+
+def _git(args: list[str], *, cwd: Optional[Path] = None) -> str:
+    env = os.environ.copy()
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=str(cwd) if cwd else None,
+            capture_output=True,
+            text=True,
+            timeout=GIT_TIMEOUT_SEC,
+            check=False,
+            env=env,
+        )
+    except FileNotFoundError as exc:
+        raise CloneError("git not found on PATH") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise CloneError(f"git {' '.join(args)} timed out") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise CloneError(f"git {' '.join(args)} failed: {detail}")
+    return result.stdout
+
+
+def pull_pr(
+    *,
+    url: str,
+    repo: str,
+    pr_number: int,
+    root: Optional[Path] = None,
+) -> Path:
+    """Clone ``url`` into PRManager's Scope and check out ``refs/pull/<n>/head``.
+
+    Idempotent: an existing checkout is fetched and hard-reset onto the PR head.
+    """
+    dest = pr_checkout_path(repo, pr_number, root)
+    clone_url = (url or "").strip()
+    if not clone_url:
+        raise ValueError("pull_pr requires a repository URL")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if not is_clone(dest):
+        if dest.exists() and any(dest.iterdir()):
+            raise ValueError(
+                f"{dest} already exists and is not a git clone; refusing to overwrite it"
+            )
+        _git(["clone", clone_url, str(dest)])
+
+    ref = f"pr-{int(pr_number)}"
+    _git(
+        ["fetch", "origin", f"+refs/pull/{int(pr_number)}/head:refs/heads/{ref}"],
+        cwd=dest,
+    )
+    _git(["checkout", "--force", ref], cwd=dest)
+    _git(["reset", "--hard", ref], cwd=dest)
+    _git(["clean", "-fd"], cwd=dest)
+    return dest
+
+
+def open_in_editor(editor: str, path: Path) -> tuple[bool, str]:
+    """Open a folder in VS Code or Cursor IDE (not the agents window)."""
+    if not path.is_dir():
+        return False, f"Path does not exist: {path}"
+
+    commands = {
+        "vscode": ["code", str(path)],
+        "cursor": ["cursor", str(path)],
+    }
+    cmd = commands.get(editor)
+    if not cmd:
+        return False, f"Unknown editor: {editor}"
+
+    try:
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            shell=os.name == "nt",
+        )
+    except FileNotFoundError:
+        return False, f"{cmd[0]} CLI not found on PATH"
+    except OSError as exc:
+        return False, str(exc)
+    return True, f"Opened {path} in {editor}"
+
+
 class PRManager:
     def __init__(self, parameters: Optional[Mapping[str, str]] = None) -> None:
         self._ui_queue: queue.Queue = queue.Queue()
@@ -142,6 +252,7 @@ class PRManager:
         values = coerce_parameters(parameters)
         self._current_repo_url = values.get(PARAM_GIT_URL, "").strip()
         self._items: dict[int, MergeIssue] = {}
+        self._jobs: queue.Queue[tuple[int, Optional[str]]] = queue.Queue()
         self._root_tag = "primary"
         self._frame_registered = False
         self._row_h = 26
@@ -173,7 +284,24 @@ class PRManager:
         self._ui_queue.put(("status", "Checking remote…", (180, 180, 100)))
 
     def _poll_loop(self) -> None:
+        last_list = 0.0
         while not self._stop.is_set():
+            try:
+                issue_id, then_open = self._jobs.get(timeout=0.05)
+            except queue.Empty:
+                issue_id = None
+                then_open = None
+
+            if issue_id is not None:
+                self._do_pull(issue_id, then_open=then_open)
+                last_list = time.monotonic()
+                continue
+
+            now = time.monotonic()
+            if now - last_list < POLL_INTERVAL_SEC:
+                continue
+            last_list = now
+
             with self._url_lock:
                 url = self._current_repo_url
 
@@ -182,7 +310,6 @@ class PRManager:
                 self._ui_queue.put(
                     ("status", "Enter a GitHub repository URL", (160, 160, 160))
                 )
-                self._stop.wait(POLL_INTERVAL_SEC)
                 continue
 
             parsed = parse_github_repo(url)
@@ -195,7 +322,6 @@ class PRManager:
                         COLOR_ERR,
                     )
                 )
-                self._stop.wait(POLL_INTERVAL_SEC)
                 continue
 
             owner, repo = parsed
@@ -214,8 +340,6 @@ class PRManager:
                 )
                 for issue in issues:
                     self._ui_queue.put(("issue", issue))
-
-            self._stop.wait(POLL_INTERVAL_SEC)
 
     def _fetch_merge_success(
         self, owner: str, repo: str
@@ -277,6 +401,8 @@ class PRManager:
                 self._set_status(msg[1], msg[2])
             elif kind == "issue":
                 self._add_row(msg[1])
+            elif kind == "pulled":
+                self._on_pulled(msg[1], msg[2], msg[3])
 
     def _row_label(self, item: MergeIssue) -> str:
         bits = [item.name]
@@ -295,16 +421,41 @@ class PRManager:
             h = min(h, self._scroll_max)
         dpg.configure_item(scroll, height=h)
 
+    def _has_pr(self, issue: MergeIssue) -> bool:
+        return bool(issue.pr_url) and pr_number_from_url(issue.pr_url) is not None
+
+    def _existing_checkout(self, issue: MergeIssue) -> Optional[Path]:
+        number = pr_number_from_url(issue.pr_url)
+        if number is None:
+            return None
+        with self._url_lock:
+            url = self._current_repo_url
+        parsed = parse_github_repo(url)
+        if not parsed:
+            return None
+        path = pr_checkout_path(parsed[1], number)
+        return path if is_clone(path) else None
+
+    def _set_row_enabled(self, issue: MergeIssue) -> None:
+        has_pr = self._has_pr(issue)
+        for suffix in ("open_pr", "pull", "vscode", "cursor"):
+            tag = self._tag(f"{suffix}::{issue.id}")
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, enabled=has_pr)
+
     def _add_row(self, issue: MergeIssue) -> None:
+        if issue.clone_path is None:
+            issue.clone_path = self._existing_checkout(issue)
         if issue.id in self._items:
-            issue.row_tag = self._items[issue.id].row_tag
+            previous = self._items[issue.id]
+            issue.row_tag = previous.row_tag
+            if issue.clone_path is None:
+                issue.clone_path = previous.clone_path
             self._items[issue.id] = issue
             name_tag = self._tag(f"name::{issue.id}")
-            open_tag = self._tag(f"open_pr::{issue.id}")
             if dpg.does_item_exist(name_tag):
                 dpg.set_value(name_tag, self._row_label(issue))
-            if dpg.does_item_exist(open_tag):
-                dpg.configure_item(open_tag, enabled=bool(issue.pr_url))
+            self._set_row_enabled(issue)
             return
 
         scroll = self._tag("issue_scroll")
@@ -314,6 +465,7 @@ class PRManager:
         row_tag = self._tag(f"row::{issue.id}")
         issue.row_tag = row_tag
         self._items[issue.id] = issue
+        has_pr = self._has_pr(issue)
         with dpg.group(parent=scroll, horizontal=True, tag=row_tag):
             dpg.add_button(
                 label="open PR",
@@ -321,7 +473,31 @@ class PRManager:
                 tag=self._tag(f"open_pr::{issue.id}"),
                 callback=self._on_open_pr,
                 user_data=issue.id,
-                enabled=bool(issue.pr_url),
+                enabled=has_pr,
+            )
+            dpg.add_button(
+                label="pull",
+                width=40,
+                tag=self._tag(f"pull::{issue.id}"),
+                callback=self._on_pull,
+                user_data=issue.id,
+                enabled=has_pr,
+            )
+            dpg.add_button(
+                label="vscode",
+                width=55,
+                tag=self._tag(f"vscode::{issue.id}"),
+                callback=self._on_vscode,
+                user_data=issue.id,
+                enabled=has_pr,
+            )
+            dpg.add_button(
+                label="cursor",
+                width=55,
+                tag=self._tag(f"cursor::{issue.id}"),
+                callback=self._on_cursor,
+                user_data=issue.id,
+                enabled=has_pr,
             )
             dpg.add_text(self._row_label(issue), tag=self._tag(f"name::{issue.id}"))
             dpg.add_button(
@@ -339,6 +515,66 @@ class PRManager:
             return
         ok, msg = open_pr_url(item.pr_url)
         self._set_status(msg, COLOR_OK if ok else COLOR_ERR)
+
+    def _on_pull(self, _sender: str, _app_data: object, issue_id: int) -> None:
+        if self._items.get(issue_id) is None:
+            return
+        self._set_status("Pulling PR…", COLOR_INFO)
+        self._jobs.put((issue_id, None))
+
+    def _on_vscode(self, _sender: str, _app_data: object, issue_id: int) -> None:
+        self._open_or_pull(issue_id, "vscode")
+
+    def _on_cursor(self, _sender: str, _app_data: object, issue_id: int) -> None:
+        self._open_or_pull(issue_id, "cursor")
+
+    def _open_or_pull(self, issue_id: int, editor: str) -> None:
+        item = self._items.get(issue_id)
+        if item is None:
+            return
+        if item.clone_path is not None and is_clone(item.clone_path):
+            ok, msg = open_in_editor(editor, item.clone_path)
+            self._set_status(msg, COLOR_OK if ok else COLOR_ERR)
+            return
+        self._set_status(f"Pulling PR for {editor}…", COLOR_INFO)
+        self._jobs.put((issue_id, editor))
+
+    def _do_pull(self, issue_id: int, *, then_open: Optional[str] = None) -> None:
+        item = self._items.get(issue_id)
+        if item is None:
+            return
+        pr_number = pr_number_from_url(item.pr_url)
+        if pr_number is None:
+            self._ui_queue.put(("status", "No PR URL", COLOR_ERR))
+            return
+        with self._url_lock:
+            url = self._current_repo_url
+        parsed = parse_github_repo(url)
+        if not parsed:
+            self._ui_queue.put(
+                ("status", "Unsupported URL (GitHub https or SSH required)", COLOR_ERR)
+            )
+            return
+        owner, repo = parsed
+        clone_url = normalize_repo_url(url, owner, repo)
+        self._ui_queue.put(("status", f"Pulling PR #{pr_number}…", COLOR_INFO))
+        try:
+            path = pull_pr(url=clone_url, repo=repo, pr_number=pr_number)
+        except (CloneError, ValueError, OSError) as exc:
+            self._ui_queue.put(("status", f"Pull failed: {exc}", COLOR_ERR))
+            return
+        self._ui_queue.put(("pulled", issue_id, path, then_open))
+
+    def _on_pulled(
+        self, issue_id: int, path: Path, then_open: Optional[str]
+    ) -> None:
+        item = self._items.get(issue_id)
+        if item is not None:
+            item.clone_path = path
+        self._set_status(f"Pulled {path.name}", COLOR_OK)
+        if then_open:
+            ok, msg = open_in_editor(then_open, path)
+            self._set_status(msg, COLOR_OK if ok else COLOR_ERR)
 
     def _close_issue(self, issue_id: int) -> tuple[bool, str]:
         with self._url_lock:
@@ -372,7 +608,7 @@ class PRManager:
         parent: str,
         *,
         tag_prefix: str,
-        width: int = 480,
+        width: int = 560,
         height: int = 160,
     ) -> None:
         """Fill the host content parent with PRManager widgets."""
@@ -446,7 +682,7 @@ def build_ui(
     parent: str,
     *,
     tag_prefix: str,
-    width: int = 480,
+    width: int = 560,
     height: int = 160,
     parameters: Optional[Mapping[str, str]] = None,
 ) -> None:

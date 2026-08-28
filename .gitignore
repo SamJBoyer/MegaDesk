@@ -65,6 +65,9 @@ Nodes/Factory/MachineFactory/Floor/
 # CodeScope disposable clones (never share with a writing agent)
 Nodes/CodeScope/Scope/
 
+# PRManager disposable PR checkouts (override with PR_SCOPE_ROOT)
+Nodes/PRManager/Scope/
+
 # Local clone of the public smoke-test repo (not part of MegaDesk)
 SMOKETESTREPO/
 

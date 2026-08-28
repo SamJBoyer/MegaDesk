@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "pr-manager"
 version = "0.1.0"
-description = "MegaDesk FE node: show and open PRs from merge_success GitHub issues"
+description = "MegaDesk FE node: show, pull, and open merge_success PRs"
 requires-python = ">=3.10"
 dependencies = [
     "dearpygui>=1.11.1",

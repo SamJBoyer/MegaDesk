@@ -1,1 +1,1 @@
-"""PRManager: scan merge_success GitHub issues, show and open PRs."""
+"""PRManager: scan merge_success GitHub issues, pull PRs locally, open editors."""

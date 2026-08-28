@@ -224,6 +224,12 @@ def test_t4_merge_success_issue_populates_a_pr_row(fake_gh, harness) -> None:
     assert "pull/4" in label
     assert manager.exists("open_pr::4")
     assert manager.enabled("open_pr::4")
+    assert manager.exists("pull::4")
+    assert manager.enabled("pull::4")
+    assert manager.exists("vscode::4")
+    assert manager.enabled("vscode::4")
+    assert manager.exists("cursor::4")
+    assert manager.enabled("cursor::4")
     assert manager.shown("dismiss::4")
 
 
@@ -249,6 +255,9 @@ def test_t5_open_pr_disabled_without_url(fake_gh, harness) -> None:
 
     harness.wait_for_widget(manager, "name::5")
     assert not manager.enabled("open_pr::5")
+    assert not manager.enabled("pull::5")
+    assert not manager.enabled("vscode::5")
+    assert not manager.enabled("cursor::5")
     assert "t5-ticket" in manager.get("name::5")
     assert manager.shown("dismiss::5")
 
@@ -267,6 +276,9 @@ def test_t7_dismiss_closes_the_issue_and_removes_the_row(fake_gh, harness) -> No
     assert issue.state == "closed"
     assert not manager.exists("name::7"), "the row widget outlived its issue"
     assert not manager.exists("open_pr::7")
+    assert not manager.exists("pull::7")
+    assert not manager.exists("vscode::7")
+    assert not manager.exists("cursor::7")
 
 
 # --- T8: the whole chain over one shared frame pump ------------------------
@@ -311,5 +323,90 @@ def test_t8_full_chain_from_dispatch_to_merge_success_pr(
     assert "t8-pr" in label
     assert run.pr_url
     assert manager.enabled("open_pr::89")
+    assert manager.enabled("pull::89")
+    assert manager.enabled("vscode::89")
+    assert manager.enabled("cursor::89")
     assert manager.shown("dismiss::89")
     harness.screenshot("t8-merge-success-pr")
+
+
+# --- T9: pull button → PRManager Scope ------------------------------------
+
+
+def _route_pulls_to_floor(monkeypatch, git_floor) -> None:
+    """Keep the GitHub URL in the GUI; clone from the local Floor origin."""
+    import pr_manager_app
+
+    original = pr_manager_app.pull_pr
+
+    def routed(*, url: str, repo: str, pr_number: int, root=None):
+        return original(
+            url=str(git_floor.origin),
+            repo=repo,
+            pr_number=pr_number,
+            root=root,
+        )
+
+    monkeypatch.setattr(pr_manager_app, "pull_pr", routed)
+
+
+def test_t9_pull_clones_the_pr_into_scope(
+    fake_gh, harness, git_floor, monkeypatch, pr_scope_root
+) -> None:
+    """Catches the pull button wiring to a gitignored Scope checkout."""
+    from test_pr_manager_scope import publish_pull_ref
+
+    publish_pull_ref(git_floor, 4)
+    fake_gh.add_merge_success(4, "t9-ticket", "https://github.com/acme/widgets/pull/4")
+    _route_pulls_to_floor(monkeypatch, git_floor)
+
+    manager = connect_manager(harness)
+    harness.wait_for_widget(manager, "pull::4")
+    assert manager.enabled("vscode::4")
+    assert manager.enabled("cursor::4")
+
+    manager.click("pull::4")
+    dest = pr_scope_root / "widgets" / "pr-4"
+    harness.wait_until(
+        lambda: (dest / "pr.txt").is_file(),
+        message="PR checkout to land under PR_SCOPE_ROOT",
+    )
+    assert (dest / ".git").exists()
+    assert (dest / "pr.txt").read_text(encoding="utf-8") == "changes from pr 4\n"
+    harness.wait_until(
+        lambda: "Pulled pr-4" in manager.get("status_text"),
+        message="status to report the scoped checkout",
+    )
+    harness.screenshot("t9-pulled-pr")
+
+
+def test_t9b_a_second_pull_resets_the_same_checkout(
+    fake_gh, harness, git_floor, monkeypatch, pr_scope_root
+) -> None:
+    """A later PR head must replace the files already in Scope."""
+    from megadesk_contracts.testing import git
+    from test_pr_manager_scope import publish_pull_ref
+
+    publish_pull_ref(git_floor, 4, text="first\n")
+    fake_gh.add_merge_success(4, "t9b-ticket", "https://github.com/acme/widgets/pull/4")
+    _route_pulls_to_floor(monkeypatch, git_floor)
+
+    manager = connect_manager(harness)
+    harness.wait_for_widget(manager, "pull::4")
+    manager.click("pull::4")
+    dest = pr_scope_root / "widgets" / "pr-4"
+    harness.wait_until(
+        lambda: (dest / "pr.txt").is_file()
+        and (dest / "pr.txt").read_text(encoding="utf-8") == "first\n",
+        message="first PR head to land in Scope",
+    )
+
+    ticket = git_floor.ticket_dir("pr-4")
+    git_floor.commit(ticket, "pr.txt", "second\n", "pr 4 follow-up")
+    git("push", str(git_floor.origin), "HEAD:refs/pull/4/head", cwd=ticket)
+
+    manager.click("pull::4")
+    harness.wait_until(
+        lambda: (dest / "pr.txt").read_text(encoding="utf-8") == "second\n",
+        message="second pull to hard-reset onto the new PR head",
+    )
