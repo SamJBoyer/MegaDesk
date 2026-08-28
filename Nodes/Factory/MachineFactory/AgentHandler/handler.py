@@ -21,6 +21,7 @@ from megadesk_contracts import redis_connect, resolve_ephemeral_db, resolve_fact
 from megadesk_contracts.agent_audit import AgentAuditLog
 from megadesk_contracts.wire.graph import WORK_GRAPH
 from megadesk_contracts.wire.machine import (
+    DEFAULT_STARTING_REF,
     STATUS_ERROR,
     agent_handler_fields,
     finished_fields,
@@ -201,7 +202,7 @@ class AgentHandler:
         self.ticket = os.environ.get("TICKET", "")
         self.guid = _env("GUID")
         self.model = os.environ.get("CURSOR_MODEL", "")
-        self.starting_ref = os.environ.get("STARTING_REF", "agents")
+        self.starting_ref = os.environ.get("STARTING_REF", DEFAULT_STARTING_REF)
         self.auto_pr = os.environ.get("AUTO_PR", "true").strip().lower() in {
             "1",
             "true",

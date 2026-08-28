@@ -23,6 +23,9 @@ from __future__ import annotations
 from typing import Any
 
 DEFAULT_MODEL = "auto"
+# Both factories clone from this branch. Repos only need to have it; there is
+# no required ``main`` or ``agents`` alongside.
+DEFAULT_STARTING_REF = "dev"
 
 STATUS_QUEUED = "queued"
 STATUS_RUNNING = "running"

@@ -13,6 +13,7 @@ from pathlib import Path
 
 from megadesk_contracts import DEFAULT_REDIS_URL, redis_url_with_db, resolve_ephemeral_db
 from megadesk_contracts.agent_audit import agent_audit_bind_args
+from megadesk_contracts.wire.factory import DEFAULT_STARTING_REF
 
 log = logging.getLogger("pool")
 
@@ -321,7 +322,7 @@ def start_ticket_sandbox(
         "-e",
         "WORKSPACE=/workspace",
         "-e",
-        "STARTING_REF=agents",
+        f"STARTING_REF={DEFAULT_STARTING_REF}",
         *([f"-e", f"GH_TOKEN={gh_token}"] if gh_token else []),
         *([f"-e", f"GITHUB_TOKEN={gh_token}"] if gh_token else []),
         *agent_audit_bind_args(guid),

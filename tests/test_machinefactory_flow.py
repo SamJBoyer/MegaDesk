@@ -255,6 +255,17 @@ def test_cancelling_a_run_that_does_not_exist_says_so(
     assert fake_machine_factory.cancelled == []
 
 
+def test_a_repo_only_needs_a_dev_branch(git_floor) -> None:
+    """Factories start from ``dev``. ``main`` and ``agents`` are not required."""
+    from megadesk_contracts.wire.factory import DEFAULT_STARTING_REF
+
+    assert DEFAULT_STARTING_REF == "dev"
+    assert git_floor.origin_sha("dev")
+    assert git_floor.current_branch(git_floor.dev_dir) == "dev"
+    assert not git_floor.origin_sha("agents")
+    assert not git_floor.origin_sha("main")
+
+
 # --- the frontend ----------------------------------------------------------
 
 

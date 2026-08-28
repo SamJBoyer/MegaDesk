@@ -48,14 +48,14 @@ pipe and raises ``WinError 10038`` on Windows):
 agent = await client.agents.create(
     model=model, api_key=key,
     cloud=CloudAgentOptions(
-        repos=[{"url": url, "startingRef": ref or "agents"}],
+        repos=[{"url": url, "startingRef": ref or "dev"}],
         auto_create_pr=True, skip_reviewer_request=True,
     ),
 )
 ```
 
-Empty `ref` is `agents` at launch — MegaDesk's working branch, so a cloud PR
-lands where a local one would.
+Empty `ref` is `dev` at launch — MegaDesk's working branch, so a cloud PR
+lands where a local one would. Repos only need this branch.
 
 ## Wire
 

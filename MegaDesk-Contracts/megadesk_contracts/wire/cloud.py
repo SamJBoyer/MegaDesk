@@ -39,6 +39,7 @@ from megadesk_contracts.wire._fields import (
 )
 from megadesk_contracts.wire.factory import (
     DEFAULT_MODEL,
+    DEFAULT_STARTING_REF,
     RUN_STATUSES,
     STATUS_CANCELLED,
     STATUS_ERROR,
@@ -67,6 +68,7 @@ __all__ = [
     "CLOUDRUN_PREFIX",
     "CLOUD_AGENT_ID_PREFIX",
     "DEFAULT_MODEL",
+    "DEFAULT_STARTING_REF",
     "RUN_STATUSES",
     "STATUS_CANCELLED",
     "STATUS_ERROR",

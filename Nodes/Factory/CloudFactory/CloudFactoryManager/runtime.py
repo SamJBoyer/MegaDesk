@@ -48,9 +48,9 @@ from megadesk_contracts.wire.factory import normalize_status
 log = logging.getLogger("cloud_factory.runtime")
 
 DEFAULT_MODEL = wire.DEFAULT_MODEL
-# Same branch MachineFactory tickets fork from and MergeManager merges into, so
-# a cloud PR lands where a local one would.
-DEFAULT_REF = "agents"
+# Same branch MachineFactory clones from, so a cloud PR lands where a local one
+# would. Repos only need this branch.
+DEFAULT_REF = wire.DEFAULT_STARTING_REF
 
 # Cloud agents run unattended, so the prompt has to carry what a person would
 # otherwise supply in review: stay small, and leave the branch in a state a
@@ -105,7 +105,7 @@ def cloud_launch_options(
     URL string is a sequence of characters, which raises
     ``dictionary update sequence element #0 has length 1; 2 is required``.
     ``ref`` belongs on the repo as ``startingRef``, not on the options object.
-    An empty ``ref`` is ``agents``, MegaDesk's working branch.
+    An empty ``ref`` is ``dev``, MegaDesk's working branch.
 
     A ``[validation_error] Failed to verify existence of branch`` here is not
     about the ref: Cursor reports it for any branch, including the repository's

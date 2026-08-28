@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, TypedDict
 
+from megadesk_contracts.wire.factory import DEFAULT_STARTING_REF
+
 from AgentHandler.repo_clone import SandboxRepo
 
 
@@ -53,7 +55,7 @@ class RunContext:
     ticket: str = ""
     repo: str = ""
     repo_url: str = ""
-    starting_ref: str = "agents"
+    starting_ref: str = DEFAULT_STARTING_REF
     auto_pr: bool = True
     env_ticket_id: str = ""
     default_model: str = ""

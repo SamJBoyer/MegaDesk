@@ -303,7 +303,7 @@ def test_the_cloud_runtime_asks_for_a_pr_and_never_runs_locally(
     guards against is a missing keyword argument, not a bad response. The
     production path is async (Windows cannot ``select()`` a pipe); this test
     still inspects the ``cloud=`` options the runtime would pass. Empty ``ref``
-    sends ``startingRef=agents``, the branch MergeManager merges into.
+    sends ``startingRef=dev``, the branch factories start work from.
     """
     import asyncio
 
@@ -340,7 +340,7 @@ def test_the_cloud_runtime_asks_for_a_pr_and_never_runs_locally(
     assert handle.run_key == "bc-stub001"
     assert handle.run_id == "run-1"
     options = created["cloud"].kwargs
-    assert options["repos"] == [{"url": REPO_URL, "startingRef": "agents"}]
+    assert options["repos"] == [{"url": REPO_URL, "startingRef": "dev"}]
     assert options["auto_create_pr"] is True
     assert options["skip_reviewer_request"] is True
     assert "ref" not in options
@@ -395,7 +395,7 @@ def test_cloud_agent_options_serialize_repo_urls_as_mappings() -> None:
     from CloudFactoryManager.runtime import cloud_launch_options
 
     payload = CloudAgentOptions(**cloud_launch_options(repo_url=REPO_URL)).to_json()
-    assert payload["repos"] == [{"url": REPO_URL, "startingRef": "agents"}]
+    assert payload["repos"] == [{"url": REPO_URL, "startingRef": "dev"}]
     assert payload["autoCreatePr"] is True
     assert payload["skipReviewerRequest"] is True
 

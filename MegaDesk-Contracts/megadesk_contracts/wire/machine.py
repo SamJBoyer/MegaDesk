@@ -46,6 +46,7 @@ from megadesk_contracts.wire._fields import (
 )
 from megadesk_contracts.wire.factory import (
     DEFAULT_MODEL,
+    DEFAULT_STARTING_REF,
     RUN_STATUSES,
     STATUS_CANCELLED,
     STATUS_ERROR,
@@ -67,6 +68,7 @@ FINISHED_GROUP = "merge_manager"
 __all__ = [
     "AGENTHANDLER_PREFIX",
     "DEFAULT_MODEL",
+    "DEFAULT_STARTING_REF",
     "FINISHED_GROUP",
     "FINISHED_PREFIX",
     "RUN_STATUSES",

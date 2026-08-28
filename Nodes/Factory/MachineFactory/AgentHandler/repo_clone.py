@@ -14,10 +14,12 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse, urlunparse
 
+from megadesk_contracts.wire.factory import DEFAULT_STARTING_REF
+
 log = logging.getLogger("agent_handler.repo_clone")
 
 _GIT_TIMEOUT_SEC = 300
-_DEFAULT_REF = "agents"
+_DEFAULT_REF = DEFAULT_STARTING_REF
 
 
 def _run(

@@ -95,7 +95,7 @@ Stream, DB 0. Consumer group `cloud_factory`.
 |---|---|
 | `order_id` | Minted by whoever ordered; survives the round trip |
 | `repo_url` | The whole input — a cloud agent clones from GitHub itself |
-| `ref` | Optional base ref |
+| `ref` | Optional base ref; empty means `dev` |
 | `title` | PR title, under ten words |
 | `instructions` | What to change; the agent has no other context |
 | `model` | Model id, or `auto` |

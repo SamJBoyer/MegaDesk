@@ -15,7 +15,7 @@ Logs: Worktree-root session transcripts owned by the Supervisor (`Logs/CURRENT` 
 
 Factory: a Node that deploys agents — it reads orders, builds somewhere for an agent to work, starts a harness that carries instructions in and results out, and follows the run. **MachineFactory** does that in Docker sandboxes on this machine; **CloudFactory** does it on Cursor-hosted VMs. Both implement the same `AgentFactory` surface (launch / poll / cancel) so a graph can place an agent either way. See `Nodes/Factory/README.md`. 
 
-Floor: MachineFactory's local repo farm (`Nodes/Factory/MachineFactory/Floor/`) — one bare clone per repo plus the `dev`, `agents` and `tickets/*` worktrees agents actually work in. 
+Floor: MachineFactory's local repo farm (`Nodes/Factory/MachineFactory/Floor/`) — one bare clone per repo plus the `dev` worktree (and `tickets/*` when a merge test needs one). Factories start work from `dev`; that is the only required branch. 
 
 AgentHandler: the harness that runs inside a MachineFactory sandbox. It reads its own run hash, loads the order, and executes the work graph (startup → pathfinder → workhorse → git → teardown) before publishing the outcome. There is no cloud equivalent — the SDK is the harness there.
 

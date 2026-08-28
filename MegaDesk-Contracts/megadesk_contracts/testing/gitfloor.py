@@ -7,12 +7,13 @@ produces::
     <root>/origin.git                          bare, stands in for GitHub
     <root>/Floor/<repo>/.bare                  bare clone of origin
     <root>/Floor/<repo>/wt/dev                 worktree on 'dev'
-    <root>/Floor/<repo>/wt/agents              worktree on 'agents'
     <root>/Floor/<repo>/wt/tickets/<ticket>    worktree on 'ticket/<ticket>'
 
 The pushable local ``origin`` matters: a successful merge *always* pushes, so
 without one the success path would report ERROR and a test would assert the
 wrong thing.
+
+Repos only need a ``dev`` branch — the branch both factories start work from.
 """
 
 from __future__ import annotations
@@ -25,7 +26,9 @@ import sys
 from pathlib import Path
 from typing import Optional, Sequence
 
-REQUIRED_BRANCHES = ("main", "dev", "agents")
+from megadesk_contracts.wire.factory import DEFAULT_STARTING_REF
+
+REQUIRED_BRANCHES = (DEFAULT_STARTING_REF,)
 TICKET_BRANCH_PREFIX = "ticket/"
 
 _IDENTITY = (
@@ -98,12 +101,8 @@ class GitFloor:
         return self.repo_dir / ".bare"
 
     @property
-    def agents_dir(self) -> Path:
-        return self.repo_dir / "wt" / "agents"
-
-    @property
     def dev_dir(self) -> Path:
-        return self.repo_dir / "wt" / "dev"
+        return self.repo_dir / "wt" / DEFAULT_STARTING_REF
 
     @property
     def tickets_dir(self) -> Path:
@@ -119,18 +118,15 @@ class GitFloor:
     # --- construction ---
 
     def create(self) -> "GitFloor":
-        """Build ``origin.git`` with main/dev/agents, then clone it into Floor."""
+        """Build ``origin.git`` with a ``dev`` branch, then clone it into Floor."""
         self.root.mkdir(parents=True, exist_ok=True)
         seed = self.root / "seed"
         seed.mkdir(parents=True, exist_ok=True)
 
-        git("init", "-b", "main", ".", cwd=seed)
+        git("init", "-b", DEFAULT_STARTING_REF, ".", cwd=seed)
         (seed / "README.md").write_text("seed repo\n", encoding="utf-8")
         git("add", "README.md", cwd=seed)
         git("commit", "-m", "seed: initial commit", cwd=seed)
-        for branch in REQUIRED_BRANCHES:
-            if branch != "main":
-                git("branch", branch, cwd=seed)
 
         git("clone", "--bare", str(seed), str(self.origin), cwd=self.root)
 
@@ -138,12 +134,11 @@ class GitFloor:
         self.repo_dir.mkdir(parents=True, exist_ok=True)
         git("clone", "--bare", str(self.origin), str(self.bare_dir), cwd=self.root)
         self.tickets_dir.mkdir(parents=True, exist_ok=True)
-        git("worktree", "add", str(self.dev_dir), "dev", cwd=self.bare_dir)
-        git("worktree", "add", str(self.agents_dir), "agents", cwd=self.bare_dir)
+        git("worktree", "add", str(self.dev_dir), DEFAULT_STARTING_REF, cwd=self.bare_dir)
         return self
 
     def add_ticket(self, ticket_name: str) -> Path:
-        """Create ``wt/tickets/<name>`` on ``ticket/<name>``, forked from agents."""
+        """Create ``wt/tickets/<name>`` on ``ticket/<name>``, forked from ``dev``."""
         path = self.ticket_dir(ticket_name)
         self.tickets_dir.mkdir(parents=True, exist_ok=True)
         git(
@@ -152,7 +147,7 @@ class GitFloor:
             "-b",
             self.ticket_branch(ticket_name),
             str(path),
-            "agents",
+            DEFAULT_STARTING_REF,
             cwd=self.bare_dir,
         )
         return path
@@ -188,10 +183,10 @@ class GitFloor:
         *,
         relpath: str = "conflict.txt",
     ) -> Path:
-        """Commit divergent content for the same file on agents and the ticket.
+        """Commit divergent content for the same file on ``dev`` and the ticket.
 
         The ticket worktree must already exist, otherwise its branch would start
-        from the agents commit and the merge would fast-forward cleanly.
+        from the ``dev`` commit and the merge would fast-forward cleanly.
         """
         ticket_path = self.ticket_dir(ticket_name)
         if not ticket_path.is_dir():
@@ -199,7 +194,7 @@ class GitFloor:
                 f"ticket worktree {ticket_path} does not exist; call add_ticket first"
             )
         self.commit(ticket_path, relpath, "ticket version\n", "ticket: edit shared file")
-        self.commit(self.agents_dir, relpath, "agents version\n", "agents: edit shared file")
+        self.commit(self.dev_dir, relpath, "dev version\n", "dev: edit shared file")
         return ticket_path
 
     # --- inspection ---
