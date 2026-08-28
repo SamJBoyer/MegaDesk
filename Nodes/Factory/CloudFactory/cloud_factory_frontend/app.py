@@ -16,7 +16,7 @@ from megadesk_contracts import (
     resolve_redis_url,
 )
 from megadesk_contracts.wire import cloud as wire
-from megadesk_contracts.wire.factory import is_terminal
+from megadesk_contracts.wire.factory import TERMINAL_STATUSES, is_terminal
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
 from redis.exceptions import TimeoutError as RedisTimeoutError
@@ -25,10 +25,17 @@ POLL_INTERVAL_SEC = 1.5
 CLOUDORDER_RECENT = 12
 FINISHED_RECENT = 12
 HASH_SCAN_COUNT = 100
+LAMP_BLINK_SEC = 0.45
 
 COLOR_OK = (80, 200, 80, 255)
 COLOR_ERR = (220, 70, 70, 255)
 COLOR_DIM = (140, 140, 140, 255)
+COLOR_BLUE = (70, 140, 230, 255)
+COLOR_BLUE_DIM = (28, 58, 110, 255)
+
+LAMP_ERROR = True
+LAMP_STARTING = "starting"
+LAMP_OK = False
 
 _LIVE: dict[str, "CloudFactoryFE"] = {}
 
@@ -46,13 +53,14 @@ class OrderRow:
 @dataclass
 class LiveRow:
     agent_id: str
+    order_id: str
     title: str
     status: str
     label: str
 
 
 class CloudFactoryFE:
-    """Read-only CloudFactory monitor: queue, live agents, error lamp."""
+    """CloudFactory monitor: queue, boot lamp, live agents, reject."""
 
     def __init__(self) -> None:
         self.redis_url = resolve_redis_url()
@@ -60,6 +68,7 @@ class CloudFactoryFE:
         self._frame_registered = False
         self._last_poll = 0.0
         self._has_error = False
+        self._starting = False
         self._redis: Optional[redis.Redis] = None
         self._persistent: Optional[redis.Redis] = None
         self._orders: list[OrderRow] = []
@@ -106,11 +115,11 @@ class CloudFactoryFE:
         *,
         tag_prefix: str,
         width: int = 420,
-        height: int = 140,
+        height: int = 160,
     ) -> None:
         self._root_tag = tag_prefix
         _ = width, height
-        col_w = 190
+        col_w = 176
 
         with dpg.group(parent=parent):
             with dpg.group(horizontal=True):
@@ -122,6 +131,21 @@ class CloudFactoryFE:
                         num_items=2,
                         width=col_w,
                     )
+                    dpg.add_button(
+                        label="reject",
+                        width=54,
+                        height=20,
+                        tag=self._tag("reject_btn"),
+                        callback=self._on_reject,
+                    )
+                with dpg.drawlist(width=20, height=44):
+                    dpg.draw_circle(
+                        (10, 22),
+                        8,
+                        fill=COLOR_OK,
+                        color=COLOR_OK,
+                        tag=self._tag("error_lamp"),
+                    )
                 with dpg.group():
                     dpg.add_text("Live", color=COLOR_DIM)
                     dpg.add_listbox(
@@ -129,14 +153,6 @@ class CloudFactoryFE:
                         tag=self._tag("live_list"),
                         num_items=2,
                         width=-1,
-                    )
-                with dpg.drawlist(width=16, height=16):
-                    dpg.draw_circle(
-                        (8, 8),
-                        6,
-                        fill=COLOR_ERR,
-                        color=COLOR_ERR,
-                        tag=self._tag("error_lamp"),
                     )
 
         dpg.set_item_user_data(parent, self.shutdown)
@@ -150,6 +166,8 @@ class CloudFactoryFE:
         if not dpg.does_item_exist(self._root_tag):
             return
         self._poll()
+        if self._starting and not self._has_error:
+            self._paint_lamp()
 
     def shutdown(self) -> None:
         if self._frame_registered:
@@ -245,6 +263,7 @@ class CloudFactoryFE:
             rows.append(
                 LiveRow(
                     agent_id=agent_id,
+                    order_id=run["order_id"],
                     title=run["title"],
                     status=status,
                     label=f"{short}…  {status}  {run['title']}",
@@ -263,6 +282,7 @@ class CloudFactoryFE:
             self._orders = []
             self._live = []
             self._has_error = True
+            self._starting = False
             self._refresh_widgets()
             return
 
@@ -283,19 +303,40 @@ class CloudFactoryFE:
                 run.get("status") in {wire.STATUS_ERROR, wire.STATUS_STARTUP_ERROR}
                 for run in runs.values()
             )
+            self._starting = any(o.order_id and not o.status for o in self._orders)
         except RedisError:
             self._redis = None
             self._persistent = None
             self._has_error = True
+            self._starting = False
 
         self._refresh_widgets()
 
-    def _refresh_widgets(self) -> None:
+    def _lamp_state(self) -> object:
+        if self._has_error:
+            return LAMP_ERROR
+        if self._starting:
+            return LAMP_STARTING
+        return LAMP_OK
+
+    def _lamp_color(self) -> tuple[int, int, int, int]:
+        if self._has_error:
+            return COLOR_ERR
+        if self._starting:
+            on = int(time.monotonic() / LAMP_BLINK_SEC) % 2 == 0
+            return COLOR_BLUE if on else COLOR_BLUE_DIM
+        return COLOR_OK
+
+    def _paint_lamp(self) -> None:
         lamp = self._tag("error_lamp")
-        if dpg.does_item_exist(lamp):
-            color = COLOR_ERR if self._has_error else COLOR_OK
-            dpg.configure_item(lamp, fill=color, color=color)
-            dpg.set_item_user_data(lamp, self._has_error)
+        if not dpg.does_item_exist(lamp):
+            return
+        color = self._lamp_color()
+        dpg.configure_item(lamp, fill=color, color=color)
+        dpg.set_item_user_data(lamp, self._lamp_state())
+
+    def _refresh_widgets(self) -> None:
+        self._paint_lamp()
 
         queue = self._tag("queue_list")
         if dpg.does_item_exist(queue):
@@ -307,13 +348,48 @@ class CloudFactoryFE:
             items = [h.label for h in self._live] or ["(no live agents)"]
             dpg.configure_item(live, items=items)
 
+    def _on_reject(self, sender=None, app_data=None, user_data=None) -> None:
+        if not self._connect_redis():
+            return
+        client = self._redis
+        assert client is not None
+        queue = self._tag("queue_list")
+        if not dpg.does_item_exist(queue):
+            return
+        selected = str(dpg.get_value(queue) or "")
+        row = next((order for order in self._orders if order.label == selected), None)
+        if row is None or not row.order_id:
+            return
+        if row.status in TERMINAL_STATUSES:
+            return
+        agent_id = next(
+            (live.agent_id for live in self._live if live.order_id == row.order_id),
+            "",
+        )
+        try:
+            client.xadd(
+                wire.CLOUDFINISHED_STREAM,
+                wire.cloudfinished_fields(
+                    order_id=row.order_id,
+                    status=wire.STATUS_CANCELLED,
+                    agent_id=agent_id,
+                ),
+            )
+        except RedisError:
+            self._redis = None
+            self._persistent = None
+            self._has_error = True
+            self._paint_lamp()
+            return
+        self._poll(force=True)
+
 
 def build_ui(
     parent: str,
     *,
     tag_prefix: str,
     width: int = 420,
-    height: int = 140,
+    height: int = 160,
 ) -> None:
     """Module-level builder for FeSpec / MegaDesk canvas hosting."""
     CloudFactoryFE().build_ui(

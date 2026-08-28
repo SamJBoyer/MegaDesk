@@ -10,7 +10,7 @@ two share, and where they honestly differ, is in [Factory](../README.md).
 
 | Half | What it does |
 |------|--------------|
-| FE (`cloud_factory_frontend/app.py`) | Queued CLOUDORDERs, live agents, error lamp |
+| FE (`cloud_factory_frontend/app.py`) | Queued CLOUDORDERs, boot lamp, live agents, reject |
 | BE (`CloudFactoryManager/`) | Consume `CLOUDORDER`, launch cloud agents, follow them, publish `CLOUDFINISHED` |
 
 ## How a cloud agent differs from a local one
@@ -38,7 +38,9 @@ matters:
 TicketDispatcher publishes `CLOUDORDER` the same way it publishes `WORKORDER`:
 each ticket row picks machine or cloud, and one click feeds that factory.
 VoiceDeck can also publish `CLOUDORDER`. This node does not take a GitHub URL
-or issue text of its own.
+or issue text of its own. The FE **reject** button writes `CLOUDFINISHED` with
+`cancelled` (no `agent_id` if nothing has launched yet); the BE then skips that
+order instead of starting a VM.
 
 The whole runtime difference is one keyword. Production talks to the SDK through
 ``AsyncClient.launch_bridge`` (the sync ``Agent.create`` path ``select()``s a
@@ -95,9 +97,12 @@ registry, which is what the FE renders.
 A launch that fails with `[validation_error] Failed to verify existence of branch
 '<ref>'` is almost never about the ref. Cursor says the same thing for every
 branch, including the repository's real default, when the repo is not connected
-to the account behind `CURSOR_API_KEY`. Check that before touching the ref:
-`client.list_repositories()` comes back empty when the GitHub app is the problem,
-and lists the repo when it is not.
+to the account behind `CURSOR_API_KEY`. CloudFactory asks
+`client.list_repositories()` / `client.repositories.list()` *before*
+`agents.create`, so that case is logged as a GitHub-app problem and never
+starts a VM. An empty list means the app is not connected at all; a list that
+omits this repo means this repo is not on the account. The same hint is
+appended if Cursor still returns the branch-verification error.
 
 ## Testing
 

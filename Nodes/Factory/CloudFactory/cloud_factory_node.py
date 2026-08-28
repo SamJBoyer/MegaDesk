@@ -25,7 +25,7 @@ def get_fe_spec() -> FeSpec | None:
         description="Run agents in the cloud — queued orders and live agents.",
         icon=icon,
         default_width=420,
-        default_height=140,
+        default_height=160,
         build=build_ui,
         backends=(NODE_NAME,),
     )

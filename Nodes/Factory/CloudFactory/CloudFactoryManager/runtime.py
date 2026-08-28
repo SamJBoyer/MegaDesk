@@ -95,6 +95,79 @@ def canonical_github_repo(repo_url: str) -> tuple[str, str]:
     return text, repo_name_from_url(text)
 
 
+def github_repo_key(repo_url: str) -> str:
+    """Canonical clone URL, lowercased, so listing and the order compare equal."""
+    url, _name = canonical_github_repo(repo_url)
+    return url.lower().rstrip("/")
+
+
+def listed_repo_urls(listed: Any) -> list[str]:
+    """Pull clone URLs out of whatever shape ``repositories.list`` returned."""
+    if listed is None:
+        return []
+    if isinstance(listed, (str, bytes)):
+        text = str(listed).strip()
+        return [text] if text else []
+    items: Any = listed
+    for attr in ("repositories", "repos", "items", "data"):
+        inner = getattr(listed, attr, None)
+        if inner is not None and not isinstance(inner, (str, bytes)):
+            items = inner
+            break
+    if isinstance(items, dict):
+        items = items.values()
+    try:
+        rows = list(items)
+    except TypeError:
+        rows = [items]
+    urls: list[str] = []
+    for item in rows:
+        if item is None:
+            continue
+        if isinstance(item, str):
+            if item.strip():
+                urls.append(item.strip())
+            continue
+        url = _first_attr(
+            item, "url", "clone_url", "cloneUrl", "html_url", "htmlUrl", "repo_url", "repoUrl"
+        )
+        if url:
+            urls.append(url)
+    return urls
+
+
+def repo_is_connected(repo_url: str, listed_urls: list[str]) -> bool:
+    want = github_repo_key(repo_url)
+    return any(github_repo_key(url) == want for url in listed_urls)
+
+
+def unavailable_repo_message(*, repo_url: str, listed: list[str]) -> str:
+    """What to log when Cursor cannot see the repo. Never blame the branch."""
+    if not listed:
+        return (
+            f"repo {repo_url} is not available to Cursor cloud agents: "
+            "Cursor returned an empty repository list. The GitHub app is not "
+            "connected to the account behind CURSOR_API_KEY — this is not a "
+            "missing-branch problem."
+        )
+    return (
+        f"repo {repo_url} is not connected to Cursor for this account. "
+        f"Cursor listed {len(listed)} other "
+        f"repositor{'y' if len(listed) == 1 else 'ies'}, but not this one. "
+        "Connect the GitHub app to this repo, then retry — this is not a "
+        "missing-branch problem."
+    )
+
+
+_BRANCH_VERIFY = "failed to verify existence of branch"
+_BRANCH_VERIFY_HINT = (
+    "Cursor reports this for any branch, including the repository's real "
+    "default, when the repo is not connected to the GitHub app for "
+    "CURSOR_API_KEY. Connect the repo in Cursor before changing the ref."
+)
+_LISTING_UNSUPPORTED = object()
+
+
 def cloud_launch_options(
     *, repo_url: str, auto_pr: bool = True, ref: str = ""
 ) -> dict[str, Any]:
@@ -109,8 +182,9 @@ def cloud_launch_options(
     A ``[validation_error] Failed to verify existence of branch`` here is not
     about the ref: Cursor reports it for any branch, including the repository's
     real default, when the repo is not connected to the account behind
-    ``CURSOR_API_KEY``. ``client.list_repositories()`` is what tells the two
-    apart — it comes back empty when the GitHub app is the problem.
+    ``CURSOR_API_KEY``. The runtime asks Cursor which repos it can see
+    *before* ``agents.create``, so that case fails as a GitHub-app problem
+    rather than a missing branch.
     """
     url, _name = canonical_github_repo(repo_url)
     repo: dict[str, Any] = {
@@ -192,6 +266,7 @@ class CursorCloudFactory:
                     cloud=CloudAgentOptions(**options),
                     instructions=instructions,
                     title=title,
+                    repo_url=url,
                 )
             )
         except AgentError:
@@ -206,8 +281,11 @@ class CursorCloudFactory:
         cloud: Any,
         instructions: str,
         title: str,
+        repo_url: str = "",
     ) -> RunHandle:
         client = await self._ensure_client()
+        if repo_url:
+            await self._ensure_repo_connected(client, repo_url)
         try:
             agent = await client.agents.create(
                 model=model,
@@ -234,6 +312,55 @@ class CursorCloudFactory:
         run_id = _first_attr(run, "id", "run_id", "runId")
         log.info("Cloud agent %s running (run=%s)", agent_id, run_id or "?")
         return RunHandle(run_key=agent_id, run_id=run_id)
+
+    async def _ensure_repo_connected(self, client: Any, repo_url: str) -> None:
+        """Fail before create() when Cursor cannot see the repo at all.
+
+        An empty list is the GitHub app, not a missing branch. Asking first is
+        what stops a 15-second boot from dying with a branch-verification error.
+        """
+        listed = await self._async_list_connected_repos(client)
+        if listed is None:
+            return
+        if repo_is_connected(repo_url, listed):
+            log.info(
+                "Cursor lists %s (%d connected repo(s))", repo_url, len(listed)
+            )
+            return
+        raise AgentStartupError(
+            unavailable_repo_message(repo_url=repo_url, listed=listed)
+        )
+
+    async def _async_list_connected_repos(self, client: Any) -> Optional[list[str]]:
+        """Clone URLs this account can launch against, or None if we cannot ask."""
+        try:
+            listed = await self._async_fetch_repo_listing(client)
+        except Exception as exc:  # noqa: BLE001
+            raise self._startup_error(
+                exc, "could not list Cursor repositories"
+            ) from exc
+        if listed is _LISTING_UNSUPPORTED:
+            return None
+        return listed_repo_urls(listed)
+
+    async def _async_fetch_repo_listing(self, client: Any) -> Any:
+        lister = getattr(client, "list_repositories", None)
+        if callable(lister):
+            return await self._call_lister(lister)
+        repos = getattr(client, "repositories", None)
+        method = getattr(repos, "list", None) if repos is not None else None
+        if callable(method):
+            return await self._call_lister(method)
+        return _LISTING_UNSUPPORTED
+
+    async def _call_lister(self, method: Any) -> Any:
+        try:
+            result = method(api_key=self.api_key) if self.api_key else method()
+        except TypeError:
+            result = method()
+        if asyncio.iscoroutine(result):
+            return await result
+        return result
 
     # --- following ---
 
@@ -444,6 +571,8 @@ class CursorCloudFactory:
         retryable = bool(getattr(exc, "is_retryable", False))
         retry_after = getattr(exc, "retry_after", None)
         message = getattr(exc, "message", None) or str(exc)
+        if _BRANCH_VERIFY in str(message).lower():
+            message = f"{message}. {_BRANCH_VERIFY_HINT}"
         return AgentStartupError(
             f"{context}: {message}",
             retryable=retryable,

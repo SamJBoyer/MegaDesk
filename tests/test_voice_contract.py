@@ -237,8 +237,12 @@ def test_cloudorder_requires_instructions_and_a_repo_url() -> None:
         )
 
 
-def test_only_a_startup_failure_may_report_no_agent_id() -> None:
-    """A run that executed always has an id; one that never started cannot."""
+def test_only_a_run_that_executed_must_report_an_agent_id() -> None:
+    """A run that executed always has an id; one that never started cannot.
+
+    ``cancelled`` is the other empty-id case: the order was rejected before
+    Cursor minted a ``bc-`` id.
+    """
     with pytest.raises(ValueError):
         cloud.cloudfinished_fields(
             order_id="order-1", agent_id="", status=cloud.STATUS_ERROR
@@ -247,6 +251,11 @@ def test_only_a_startup_failure_may_report_no_agent_id() -> None:
         order_id="order-1", agent_id="", status=cloud.STATUS_STARTUP_ERROR
     )
     assert fields["agent_id"] == ""
+    rejected = cloud.cloudfinished_fields(
+        order_id="order-1", agent_id="", status=cloud.STATUS_CANCELLED
+    )
+    assert rejected["agent_id"] == ""
+    assert rejected["status"] == cloud.STATUS_CANCELLED
 
 
 def test_cloudfinished_rejects_a_non_terminal_status() -> None:

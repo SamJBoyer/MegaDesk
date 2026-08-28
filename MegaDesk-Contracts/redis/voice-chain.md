@@ -107,7 +107,7 @@ Stream, DB 0.
 
 | Field | Meaning |
 |---|---|
-| `agent_id` | Cursor's `bc-` id, empty **only** for `startup_error` |
+| `agent_id` | Cursor's `bc-` id; empty when no agent exists (`startup_error`, or `cancelled` before launch) |
 | `order_id` | The order this settles |
 | `status` | `finished`, `error`, `cancelled`, `startup_error` |
 | `pr_url` | The pull request, when there is one |

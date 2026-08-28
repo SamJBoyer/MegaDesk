@@ -291,6 +291,37 @@ def test_cancelling_a_run_stops_it_and_says_so(
     assert cloud_factory.poll_runs() == 0, "a cancelled run is already accounted for"
 
 
+def test_rejecting_an_unlaunched_order_cancels_it_without_starting_an_agent(
+    cloud_factory, fake_cloud_factory, redis_client, persistent_client, read_stream
+) -> None:
+    order_id = place_order(redis_client)
+
+    assert cloud_factory.reject(order_id) is True
+    assert cloud_factory.poll_orders() == 0
+
+    assert fake_cloud_factory.launches == []
+    assert runs_on(persistent_client) == {}
+    reports = finished(read_stream)
+    assert len(reports) == 1
+    assert reports[0]["status"] == wire.STATUS_CANCELLED
+    assert reports[0]["order_id"] == order_id
+    assert reports[0]["agent_id"] == ""
+    assert pending_orders(redis_client) == 0
+
+
+def test_rejecting_a_live_run_cancels_the_agent(
+    cloud_factory, fake_cloud_factory, redis_client, persistent_client, read_stream
+) -> None:
+    order_id = place_order(redis_client)
+    cloud_factory.poll_orders()
+    agent_id = fake_cloud_factory.launches[0]["agent_id"]
+
+    assert cloud_factory.reject(order_id) is True
+    assert fake_cloud_factory.cancelled == [agent_id]
+    assert runs_on(persistent_client)[agent_id]["status"] == wire.STATUS_CANCELLED
+    assert finished(read_stream)[-1]["status"] == wire.STATUS_CANCELLED
+
+
 # --- the real runtime's cloud options --------------------------------------
 
 
@@ -317,7 +348,7 @@ def test_the_cloud_runtime_asks_for_a_pr_and_never_runs_locally(
         def __init__(self, **kwargs) -> None:
             self.kwargs = kwargs
 
-    async def fake_launch(*, model, cloud, instructions, title):
+    async def fake_launch(*, model, cloud, instructions, title, **_kw):
         created["model"] = model
         created["cloud"] = cloud
         prompts.append(prompt_for(instructions=instructions, title=title))
@@ -509,6 +540,182 @@ def test_a_launch_failure_keeps_cursors_retry_advice() -> None:
     assert "rate limited" in str(error)
 
 
+def test_a_branch_verification_error_names_the_github_connection() -> None:
+    """Cursor blames the ref; the log has to say it is the GitHub app."""
+    from CloudFactoryManager.runtime import CursorCloudFactory
+
+    class Refusal(Exception):
+        message = "[validation_error] Failed to verify existence of branch 'dev'"
+
+    error = CursorCloudFactory._startup_error(Refusal(), "cloud agent could not be created")
+    assert isinstance(error, AgentStartupError)
+    assert "Failed to verify existence of branch" in str(error)
+    assert "GitHub app" in str(error)
+    assert "CURSOR_API_KEY" in str(error)
+
+
+def test_listed_repo_urls_read_the_shapes_the_sdk_actually_returns() -> None:
+    from types import SimpleNamespace
+
+    from CloudFactoryManager.runtime import listed_repo_urls, repo_is_connected
+
+    assert listed_repo_urls(
+        [SimpleNamespace(url="https://github.com/acme/widgets.git")]
+    ) == ["https://github.com/acme/widgets.git"]
+    assert listed_repo_urls(
+        SimpleNamespace(repositories=[{"url": "https://github.com/acme/widgets"}])
+    ) == ["https://github.com/acme/widgets"]
+    assert listed_repo_urls("https://github.com/acme/widgets") == [
+        "https://github.com/acme/widgets"
+    ]
+    assert repo_is_connected(
+        "https://github.com/acme/widgets",
+        ["https://github.com/acme/widgets.git"],
+    )
+    assert not repo_is_connected(
+        "https://github.com/acme/widgets",
+        ["https://github.com/acme/other"],
+    )
+
+
+def test_launch_refuses_when_cursor_cannot_see_the_repo(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Starting the VM first is what used to log a missing branch for 15s."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from CloudFactoryManager.runtime import CursorCloudFactory
+
+    created: list[object] = []
+
+    class _Agents:
+        async def create(self, **kwargs):
+            created.append(kwargs)
+            raise AssertionError("must not create an agent for an unconnected repo")
+
+    class _Client:
+        agents = _Agents()
+
+        async def list_repositories(self):
+            return []
+
+    runtime = CursorCloudFactory(api_key="key")
+
+    async def fake_client():
+        return _Client()
+
+    monkeypatch.setattr(runtime, "_ensure_client", fake_client)
+    monkeypatch.setattr(runtime, "_run", lambda coro: asyncio.run(coro))
+    monkeypatch.setattr(runtime, "_options_cls", lambda: SimpleNamespace)
+
+    with pytest.raises(AgentStartupError, match="empty repository list") as caught:
+        runtime.launch(
+            {
+                "repo_url": REPO_URL,
+                "instructions": INSTRUCTIONS,
+                "title": TITLE,
+            }
+        )
+    assert "GitHub app" in str(caught.value)
+    assert "missing-branch" in str(caught.value)
+    assert created == []
+
+
+def test_launch_refuses_when_the_repo_is_missing_from_cursors_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+    from types import SimpleNamespace
+
+    from CloudFactoryManager.runtime import CursorCloudFactory
+
+    created: list[object] = []
+
+    class _Agents:
+        async def create(self, **kwargs):
+            created.append(kwargs)
+            raise AssertionError("must not create an agent for an unconnected repo")
+
+    class _Repos:
+        async def list(self, api_key=None):
+            return [SimpleNamespace(url="https://github.com/acme/other")]
+
+    class _Client:
+        agents = _Agents()
+        repositories = _Repos()
+
+    runtime = CursorCloudFactory(api_key="key")
+
+    async def fake_client():
+        return _Client()
+
+    monkeypatch.setattr(runtime, "_ensure_client", fake_client)
+    monkeypatch.setattr(runtime, "_run", lambda coro: asyncio.run(coro))
+    monkeypatch.setattr(runtime, "_options_cls", lambda: SimpleNamespace)
+
+    with pytest.raises(AgentStartupError, match="not connected to Cursor") as caught:
+        runtime.launch(
+            {
+                "repo_url": REPO_URL,
+                "instructions": INSTRUCTIONS,
+                "title": TITLE,
+            }
+        )
+    assert "missing-branch" in str(caught.value)
+    assert created == []
+
+
+def test_launch_proceeds_when_the_repo_is_on_cursors_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+    from types import SimpleNamespace
+
+    from CloudFactoryManager.runtime import CursorCloudFactory
+    from megadesk_contracts import RunHandle
+
+    created: list[object] = []
+
+    class _Agent:
+        agent_id = "bc-listed01"
+
+        async def send(self, _prompt):
+            return SimpleNamespace(id="run-1")
+
+    class _Agents:
+        async def create(self, **kwargs):
+            created.append(kwargs)
+            return _Agent()
+
+    class _Repos:
+        async def list(self, api_key=None):
+            return [SimpleNamespace(url=REPO_URL)]
+
+    class _Client:
+        agents = _Agents()
+        repositories = _Repos()
+
+    runtime = CursorCloudFactory(api_key="key")
+
+    async def fake_client():
+        return _Client()
+
+    monkeypatch.setattr(runtime, "_ensure_client", fake_client)
+    monkeypatch.setattr(runtime, "_run", lambda coro: asyncio.run(coro))
+    monkeypatch.setattr(runtime, "_options_cls", lambda: SimpleNamespace)
+
+    handle = runtime.launch(
+        {
+            "repo_url": REPO_URL + ".git",
+            "instructions": INSTRUCTIONS,
+            "title": TITLE,
+        }
+    )
+    assert handle == RunHandle(run_key="bc-listed01", run_id="run-1")
+    assert len(created) == 1
+
+
 # --- the frontend ----------------------------------------------------------
 
 
@@ -558,6 +765,7 @@ def test_processed_orders_and_live_agents_share_the_machine_factory_layout(
     assert fe.exists("queue_list")
     assert fe.exists("live_list")
     assert fe.exists("error_lamp")
+    assert fe.exists("reject_btn")
     assert not fe.exists("draft_list")
     assert not fe.exists("docker_list")
     assert not fe.exists("send_btn")
@@ -657,3 +865,46 @@ def test_a_run_that_never_started_turns_the_lamp_red(
         lambda: fe.user_data("error_lamp") is True,
         message="the error lamp to turn red",
     )
+
+
+@pytest.mark.canvas
+def test_a_queued_order_blinks_the_lamp_while_no_agent_exists(
+    harness, redis_client
+) -> None:
+    place_order(redis_client)
+    fe = harness.drop("cloud_factory")
+
+    harness.wait_until(
+        lambda: any(TITLE in item for item in fe.items("queue_list")),
+        message="the queued order to appear",
+    )
+    harness.wait_until(
+        lambda: fe.user_data("error_lamp") == "starting",
+        message="the lamp to blink starting while the agent is still booting",
+    )
+    assert all("running" not in item for item in fe.items("live_list"))
+
+
+@pytest.mark.canvas
+def test_reject_refuses_a_queued_order_before_it_launches(
+    harness, redis_client, read_stream
+) -> None:
+    place_order(redis_client)
+    fe = harness.drop("cloud_factory")
+
+    harness.wait_until(
+        lambda: any(TITLE in item for item in fe.items("queue_list")),
+        message="the queued order to appear",
+    )
+    label = next(item for item in fe.items("queue_list") if TITLE in item)
+    fe.select("queue_list", label)
+    fe.click("reject_btn")
+
+    harness.wait_until(
+        lambda: any(wire.STATUS_CANCELLED in item for item in fe.items("queue_list")),
+        message="the rejected order to show cancelled",
+    )
+    reports = [fields for _id, fields in read_stream(wire.CLOUDFINISHED_STREAM)]
+    assert reports[-1]["status"] == wire.STATUS_CANCELLED
+    assert reports[-1]["agent_id"] == ""
+    assert fe.user_data("error_lamp") is False
