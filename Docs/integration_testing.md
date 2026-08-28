@@ -146,6 +146,7 @@ thread → `_ui_queue` → frame-pump drain, so a fixed frame count is a race.
 d = harness.drop("ticket_dispatcher")
 d.type_into("git_url", "https://github.com/acme/widgets")
 harness.wait_for_widget(d, f"ticket_btn_{issue_id}")
+d.select(f"ticket_factory_{issue_id}", "cloud")
 d.select(f"ticket_model_{issue_id}", "grok-4.5")
 d.click(f"ticket_btn_{issue_id}")
 ```
@@ -180,9 +181,9 @@ host DB lanes; if `REDIS_URL` already names a non-live pair, conftest honors it.
 
 | # | Scenario | Catches |
 |---|---|---|
-| T1 | Click a ticket row. Assert `WORKORDER` gained one entry with the six canonical fields (`repo`, `URL`, `ticket_name`, `instructions`, `model`, `auto_pr="true"`). | Field renames |
+| T1 | Click a ticket row (default factory `machine`). Assert `WORKORDER` gained one entry with the six canonical fields (`repo`, `URL`, `ticket_name`, `instructions`, `model`, `auto_pr="true"`) and `CLOUDORDER` stayed empty. | Field renames; dual-dispatch |
 | T1b | Empty issue body dispatches with `instructions` = title | Body/title fallback inverted |
-| T1c | Same click also writes a canonical `CLOUDORDER` | CloudFactory starved of tickets |
+| T1c | Row factory combo `cloud` writes a canonical `CLOUDORDER` and no `WORKORDER` | CloudFactory starved of tickets; dual-dispatch |
 | T2 | Row model combo `grok-4.5` → payload `model` | Per-row widget → payload |
 | T2b | `gh repo view` failing surfaces on `status_text` | Errors swallowed |
 | T3 | `FakeAgent` consumes; group has zero pending; `FINISHED:{repo}` has the four canonical fields (`ticket_name`, `ticket_id`, `status`, `pr_url`) | Consumer-group and ack |

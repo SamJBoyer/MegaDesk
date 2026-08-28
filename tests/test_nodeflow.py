@@ -39,9 +39,18 @@ def connect_dispatcher(harness, url: str = REPO_URL):
     return dispatcher
 
 
-def dispatch(harness, dispatcher, issue_id: int, *, model: str | None = None) -> None:
-    """Wait for the issue row to appear, optionally pick a model, then press it."""
+def dispatch(
+    harness,
+    dispatcher,
+    issue_id: int,
+    *,
+    model: str | None = None,
+    factory: str | None = None,
+) -> None:
+    """Wait for the issue row to appear, optionally pick factory/model, then press it."""
     harness.wait_for_widget(dispatcher, f"ticket_btn_{issue_id}")
+    if factory is not None:
+        dispatcher.select(f"ticket_factory_{issue_id}", factory)
     if model is not None:
         dispatcher.select(f"ticket_model_{issue_id}", model)
     dispatcher.click(f"ticket_btn_{issue_id}")
@@ -102,6 +111,8 @@ def test_t1_dispatch_writes_the_canonical_workorder(
     redis_client, fake_gh, harness, workorders
 ) -> None:
     """Catches field renames and extra or missing WORKORDER keys."""
+    from megadesk_contracts.wire import cloud as cloud_wire
+
     fake_gh.add_issue(41, "add-widget-tests", "Cover the widget module with tests.")
 
     dispatcher = connect_dispatcher(harness)
@@ -121,18 +132,19 @@ def test_t1_dispatch_writes_the_canonical_workorder(
     assert fields["ticket_name"] == "add-widget-tests"
     assert fields["instructions"] == "Cover the widget module with tests."
     assert fields["model"] == "auto"
+    assert redis_client.xlen(cloud_wire.CLOUDORDER_STREAM) == 0
 
 
-def test_t1c_dispatch_also_writes_a_canonical_cloudorder(
-    redis_client, fake_gh, harness, read_stream
+def test_t1c_dispatch_to_cloud_writes_a_canonical_cloudorder(
+    fake_gh, harness, workorders, read_stream
 ) -> None:
-    """Both factories take their orders from TicketDispatcher."""
+    """The per-row factory combo sends the ticket to one factory, not both."""
     from megadesk_contracts.wire import cloud as cloud_wire
 
     fake_gh.add_issue(41, "add-widget-tests", "Cover the widget module with tests.")
 
     dispatcher = connect_dispatcher(harness)
-    dispatch(harness, dispatcher, 41)
+    dispatch(harness, dispatcher, 41, factory="cloud")
 
     orders = read_stream(cloud_wire.CLOUDORDER_STREAM)
     assert len(orders) == 1, f"expected one CLOUDORDER, got {orders}"
@@ -143,6 +155,7 @@ def test_t1c_dispatch_also_writes_a_canonical_cloudorder(
     assert fields["instructions"] == "Cover the widget module with tests."
     assert fields["auto_pr"] == "true"
     assert fields["model"] == "auto"
+    assert workorders() == []
 
 
 def test_t1b_issue_without_a_body_falls_back_to_its_title(
@@ -170,8 +183,7 @@ def test_t2_per_row_model_combo_reaches_the_payload(
 
     _entry_id, fields = workorders()[0]
     assert fields["model"] == "grok-4.5"
-    orders = read_stream(cloud_wire.CLOUDORDER_STREAM)
-    assert orders[0][1]["model"] == "grok-4.5"
+    assert read_stream(cloud_wire.CLOUDORDER_STREAM) == []
 
 
 def test_t2b_gh_failure_surfaces_in_the_status_widget(

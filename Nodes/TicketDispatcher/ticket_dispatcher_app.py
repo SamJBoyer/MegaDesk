@@ -33,6 +33,8 @@ from megadesk_contracts.wire.machine import (
 
 POLL_INTERVAL_SEC = 3.0
 MODEL_OPTIONS = ("auto", "grok-4.6", "claude-opus-5")
+FACTORY_OPTIONS = ("machine", "cloud")
+DEFAULT_FACTORY = "machine"
 GH_TIMEOUT_SEC = 15
 
 # Graph parameter this node recognizes; declared in parameters.yaml.
@@ -371,6 +373,7 @@ class TicketDispatcher:
         row_tag = self._tag(f"ticket_row_{ticket.id}")
         scroll = self._tag("ticket_scroll")
 
+        factory_tag = self._tag(f"ticket_factory_{ticket.id}")
         model_tag = self._tag(f"ticket_model_{ticket.id}")
         with dpg.group(parent=scroll, horizontal=True, tag=row_tag):
             with dpg.drawlist(width=16, height=16):
@@ -383,13 +386,20 @@ class TicketDispatcher:
                 )
             btn = dpg.add_button(
                 label=ticket.name,
-                width=-150,
+                width=-250,
                 height=22,
                 tag=self._tag(f"ticket_btn_{ticket.id}"),
                 user_data=ticket.id,
                 callback=self._on_ticket_pressed,
             )
             dpg.bind_item_theme(btn, self._tag("ticket_theme"))
+            dpg.add_combo(
+                items=list(FACTORY_OPTIONS),
+                default_value=DEFAULT_FACTORY,
+                width=90,
+                height_mode=dpg.mvComboHeight_Small,
+                tag=factory_tag,
+            )
             dpg.add_combo(
                 items=list(MODEL_OPTIONS),
                 default_value=DEFAULT_MODEL,
@@ -428,25 +438,36 @@ class TicketDispatcher:
         if dpg.does_item_exist(model_tag):
             model = (dpg.get_value(model_tag) or "").strip() or DEFAULT_MODEL
 
+        factory = DEFAULT_FACTORY
+        factory_tag = self._tag(f"ticket_factory_{issue_id}")
+        if dpg.does_item_exist(factory_tag):
+            factory = (dpg.get_value(factory_tag) or "").strip() or DEFAULT_FACTORY
+
         status = self._tag("status_text")
         instructions = ticket.body or ticket.name
         try:
-            machine_fields = workorder_fields(
-                repo=repo_name,
-                url=repo_url,
-                ticket_name=ticket.name,
-                instructions=instructions,
-                model=model,
-                auto_pr=True,
-            )
-            cloud_fields = cloudorder_fields(
-                order_id=new_order_id(),
-                repo_url=repo_url,
-                title=ticket.name,
-                instructions=instructions,
-                model=model,
-                auto_pr=True,
-            )
+            if factory == "machine":
+                stream = WORKORDER_STREAM
+                fields = workorder_fields(
+                    repo=repo_name,
+                    url=repo_url,
+                    ticket_name=ticket.name,
+                    instructions=instructions,
+                    model=model,
+                    auto_pr=True,
+                )
+            elif factory == "cloud":
+                stream = CLOUDORDER_STREAM
+                fields = cloudorder_fields(
+                    order_id=new_order_id(),
+                    repo_url=repo_url,
+                    title=ticket.name,
+                    instructions=instructions,
+                    model=model,
+                    auto_pr=True,
+                )
+            else:
+                raise ValueError(f"unknown factory {factory!r}")
         except ValueError as exc:
             if dpg.does_item_exist(status):
                 dpg.set_value(status, f"Cannot dispatch #{issue_id}: {exc}")
@@ -463,14 +484,10 @@ class TicketDispatcher:
             return
 
         try:
-            self._redis.xadd(WORKORDER_STREAM, machine_fields)
-            self._redis.xadd(CLOUDORDER_STREAM, cloud_fields)
+            self._redis.xadd(stream, fields)
             self._dispatched.add(issue_id)
             if dpg.does_item_exist(status):
-                dpg.set_value(
-                    status,
-                    f"Dispatched #{issue_id} → {WORKORDER_STREAM} + {CLOUDORDER_STREAM}",
-                )
+                dpg.set_value(status, f"Dispatched #{issue_id} → {stream}")
                 dpg.configure_item(status, color=COLOR_BLUE)
         except redis.RedisError as exc:
             if dpg.does_item_exist(status):
