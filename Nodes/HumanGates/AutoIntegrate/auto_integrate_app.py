@@ -93,6 +93,9 @@ class AutoIntegrate:
         self._label = values.get(PARAM_ISSUE_LABEL, "").strip() or DEFAULT_LABEL
         self._labels_for = ""
         self._rows: dict[int, GateRow] = {}
+        # Branches already resolved, keyed by (repo, issue). Owned by the poll
+        # thread, so a row that needed GitHub to name its branch only asks once.
+        self._refs: dict[tuple[str, int], PullRequestRef] = {}
         self._redis: Optional[redis.Redis] = None
         self.redis_url = resolve_redis_url()
         self._root_tag = "primary"
@@ -311,15 +314,16 @@ class AutoIntegrate:
 
         rows: list[GateRow] = []
         for issue in issues:
-            known = self._rows.get(issue.number)
-            if known is not None and known.ref.branch:
-                ref = known.ref
-            else:
+            key = (f"{owner}/{repo}", issue.number)
+            ref = self._refs.get(key)
+            if ref is None:
                 ref = parse_pull_request_ref(issue.body, owner, repo)
                 if ref.number and not ref.branch:
                     # Issues filed before merge-check wrote the branch markers
                     # only carry a number; GitHub still knows the head branch.
                     ref = resolve_pull_request_ref(ref, owner, repo, gh=run_gh)
+                if ref.branch:
+                    self._refs[key] = ref
             rows.append(
                 GateRow(id=issue.number, name=issue.title, body=issue.body, ref=ref)
             )
