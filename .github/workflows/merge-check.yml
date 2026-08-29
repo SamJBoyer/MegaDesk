@@ -1,12 +1,17 @@
 name: Merge check
 
 on:
-  # GitHub skips `pull_request` when the PR cannot merge (no merge ref).
-  # `pull_request_target` still runs, from the base branch even then.
-  # This job must not execute PR code: checkout the base, fetch the PR
-  # head as a ref, and detect conflicts with merge-tree.
+  # Same-repo PRs into dev: GitHub runs workflows present on the base branch.
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: [dev]
+  # Conflicting PRs have no merge ref, so GitHub skips `pull_request`.
+  # `pull_request_target` still runs, but only if this file also exists on
+  # the repo default branch (main). Do not execute PR code: checkout the
+  # base, fetch the PR head as a ref, and detect conflicts with merge-tree.
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
+    branches: [dev]
   push:
     branches: [dev]
 
@@ -133,4 +138,9 @@ jobs:
               failed=1
             fi
           done
+          if [ "${EVENT}" = "push" ]; then
+            # MegaDesk reads MERGE_* issues, not branch status. A stale open
+            # PR must not paint dev red after an unrelated merge lands.
+            exit 0
+          fi
           exit "${failed}"
