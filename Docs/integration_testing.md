@@ -80,15 +80,16 @@ plus `test_first_node_on_an_empty_board_still_updates` in
 WorkDispatcher → MachineFactory → PRManager. Factory pipeline traffic is on
 the process **ephemeral** Redis DB (0 on the live pair; 14 when host pytest
 isolates). Supervisor keys live on the persistent half and are not involved.
-PRManager does not read Redis: it lists GitHub issues labeled `merge_success`.
+PRManager does not read Redis: it lists open PRs whose merge-check `mergeable`
+status succeeded.
 
 The middle of the chain is not testable in a fast loop: `MachineFactoryManager`
 shells out to `docker run` (clone-in-sandbox + Redis sidecar), and
 `AgentHandler` calls the real Cursor API. **Cut at the sandbox boundary.**
-`FakeAgent` consumes `WORKORDER` using the real `machine_factory` consumer
-group and `XADD`s `FINISHED:{repo}` with a canned `pr_url`. PRManager is fed
-`merge_success` issues through `FakeGh`, not that stream. Everything on both
-sides of that cut stays real.
+`FakeAgent` consumes the `WORKORDER` pub/sub signal, stores the payload on the
+reference stream the way MachineFactory does, and `XADD`s `FINISHED:{repo}`
+with a canned `pr_url`. PRManager is fed mergeable PRs through
+`FakeGh`, not that stream. Everything on both sides of that cut stays real.
 
 The real MachineFactory BE is never launched: with no Supervisor alive,
 `DisplayEngine._maybe_launch_backend` logs and skips.
@@ -98,8 +99,8 @@ Writers emit canonical field names only. Tests assert that set — see
 
 `WORKORDER` fields: `repo`, `URL`, `ref`, `ticket_name`, `instructions`,
 `model`, `auto_pr`. `FINISHED:<REPO>` fields: `ticket_name`, `ticket_id`,
-`status`, `pr_url`. PRManager shows and opens PRs from `merge_success` GitHub issues; it
-does not consume `FINISHED`.
+`status`, `pr_url`. PRManager shows and opens PRs whose merge-check `mergeable`
+status succeeded; it does not consume `FINISHED`.
 
 ---
 
@@ -117,7 +118,8 @@ tests/
   test_frame_pump.py
   test_canvas_harness.py
   test_nodeflow.py              # WorkDispatcher → PRManager seams
-  test_humangate_flow.py        # AutoIntegrate: issue → PR branch → order ref
+  test_humangate_flow.py        # AutoIntegrate: conflicting PR → order ref
+  test_merge_check.py           # mergeable status rollup (no canvas)
   test_vertical_slice.py
   test_node_runtime.py
   test_wire_contract.py
@@ -165,10 +167,10 @@ with as many of `(sender, app_data, user_data)` as their signature accepts.
 
 **`FakeGh`** — monkeypatches `run_gh` on both human gates and on
 `pr_manager_app` for `gh repo view`, `gh label list`, `gh issue list --label …`,
-`gh issue close`, and `gh pr view`. Lists are filtered by label (`agent-ready`
-vs `MERGE_SUCCESS` vs `MERGE_FAIL`). `add_merge_success` / `add_merge_fail` file
-the issue merge-check would, markers and all; pass `branch=""` for one filed
-before the branch markers existed.
+`gh issue close`, `gh pr list` and `gh pr view`. Issue lists are filtered by
+label (`agent-ready` vs whatever the WorkDispatcher dropdown targets).
+`add_merge_success` / `add_merge_fail` register open PRs with a `mergeable`
+check, the signal merge-check posts.
 
 **`GitFloor`** — a real git Floor in a temp dir. A successful merge test always
 pushes, so the fixture includes a pushable local `origin`.
@@ -199,13 +201,13 @@ host DB lanes; if `REDIS_URL` already names a non-live pair, conftest honors it.
 | T2b | `gh repo view` failing surfaces on `status_text` | Errors swallowed |
 | T3 | `FakeAgent` consumes; group has zero pending; `FINISHED:{repo}` has the four canonical fields (`ticket_name`, `ticket_id`, `status`, `pr_url`) | Consumer-group and ack |
 | T3b | A second pass returns nothing | Redelivery of acked entries |
-| T4 | Seed a `merge_success` issue, pump. Row widgets exist, open-PR / pull / vscode / cursor visible | GitHub list → GUI; frame-pump drain |
-| T4b | An `agent-ready` issue is never rendered on PRManager | Label filter inverted |
-| T5 | `merge_success` issue without a PR URL: open-PR / pull / vscode / cursor disabled | Empty-URL affordance |
-| T7 | Click dismiss. `gh issue close`, row gone | GitHub close vs GUI teardown |
+| T4 | Seed a mergeable PR, pump. Row widgets exist, open-PR / pull / vscode / cursor visible | GitHub list → GUI; frame-pump drain |
+| T4b | An `agent-ready` issue is never rendered on PRManager | Queue filter inverted |
+| T5 | An unchecked or conflicting PR is not listed on PRManager | Status filter inverted |
+| T7 | Click dismiss. Row gone, GitHub PR still open | Local hide vs GUI teardown |
 | T9 | Click pull. PR head lands under `PR_SCOPE_ROOT/<repo>/pr-<n>/` | Button → scoped checkout |
 | T9b | A second pull hard-resets the same checkout onto a newer PR head | Stale Scope |
-| T8 | Full chain in one canvas: dispatch → FakeAgent, merge_success PR row | Two FEs sharing the pump |
+| T8 | Full chain in one canvas: dispatch → FakeAgent, mergeable PR row | Two FEs sharing the pump |
 | V1 | WorkDispatcher on SMOKETESTREPO → FakeAgent → PRManager | The sandbox row T8 never hosted |
 
 [`tests/test_humangate_flow.py`](../tests/test_humangate_flow.py):
@@ -213,10 +215,10 @@ host DB lanes; if `REDIS_URL` already names a non-live pair, conftest honors it.
 | # | Scenario | Catches |
 |---|---|---|
 | H1 | The target-label dropdown offers the repo's own labels | A gate that can only ever watch its default |
-| H2 | AutoIntegrate reads the PR branch out of a `MERGE_FAIL` issue and dispatches a `WORKORDER` whose `ref` is that branch | An agent sent to fix a conflict starting from `dev` |
+| H2 | AutoIntegrate reads the PR branch off a failed `mergeable` status and dispatches a `WORKORDER` whose `ref` is that branch | An agent sent to fix a conflict starting from `dev` |
 | H2b | The same row on `cloud` puts the branch on `CLOUDORDER.ref` | One factory learning the branch and the other not |
-| H3 | An issue with no branch marker still resolves through `gh pr view` | Issues filed before merge-check wrote markers going dark |
-| H4 | A `MERGE_SUCCESS` issue is readable by the same parser | The two labels drifting apart |
+| H3 | A PR with no head branch is listed but not dispatchable | Empty-ref orders |
+| H4 | A mergeable PR is not on AutoIntegrate; `list_merge_prs` splits success vs failure | The two queues drifting apart |
 | H5 | WorkDispatcher leaves `ref` empty, so the factory falls back to `dev` | A default branch quietly becoming mandatory |
 
 Failure artifacts: `wait_until` writes a screenshot on timeout into

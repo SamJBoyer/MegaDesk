@@ -21,8 +21,8 @@ WORKORDER
     → DEL AGENTHANDLER + GRAPHRUN, exits
 ```
 
-WorkDispatcher publishes orders. PRManager lists `merge_success` GitHub
-issues on the same repo URL and shows/opens the tracked PR.
+WorkDispatcher publishes orders. PRManager lists open PRs whose merge-check
+`mergeable` check succeeded on the same repo URL and shows/opens the tracked PR.
 
 ## Halves
 
@@ -62,6 +62,16 @@ deleting the hash.
 
 ```powershell
 [System.Environment]::SetEnvironmentVariable("CURSOR_API_KEY", "cursor_...", "User")
+```
+
+- GitHub credentials for push + PR (`auto_pr` defaults on). The sandbox is
+  Linux Docker and cannot use Windows Git Credential Manager, so a public
+  clone can succeed and then die at teardown with `could not read Username`.
+  Set `GH_TOKEN` / `GITHUB_TOKEN` User-level, or `gh auth login` on the host
+  (MachineFactory reads `gh auth token` and injects it):
+
+```powershell
+[System.Environment]::SetEnvironmentVariable("GH_TOKEN", "ghp_...", "User")
 ```
 
 Restart MegaDesk (and the terminal that launched it) after setting a User env var.

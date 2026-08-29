@@ -100,7 +100,7 @@ def handle_dispatch_doc_agent(arguments: dict, host: Any) -> dict:
         instructions=instructions,
         auto_pr=True,
     )
-    host.ephemeral.xadd(cloud_wire.CLOUDORDER_STREAM, order)
+    cloud_wire.publish_cloudorder(host.ephemeral, order)
 
     host.publish(voice_wire.KIND_DISPATCH, f"{cloud_wire.STATUS_QUEUED}: {title}")
     return {

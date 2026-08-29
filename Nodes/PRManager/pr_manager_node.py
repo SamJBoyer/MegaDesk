@@ -29,7 +29,7 @@ def get_fe_spec(
 
     return FeSpec(
         name="pr_manager",
-        description="Show merge_success PRs, pull them locally, open in VS Code or Cursor.",
+        description="Show mergeable PRs, pull them locally, open in VS Code or Cursor.",
         icon=icon,
         default_width=560,
         default_height=160,

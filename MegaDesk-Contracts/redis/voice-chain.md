@@ -30,7 +30,8 @@ sequenceDiagram
     VD->>RT: conversation.item.create + response.create
     VD->>VDFE: VOICE:EVENT answer
     RT->>VD: tool call dispatch_doc_agent
-    VD->>CD: XADD CLOUDORDER
+    VD->>CD: PUBLISH CLOUDORDER
+    CD->>CD: XADD CLOUDORDER (reference)
     CD->>CD: HSET CLOUDRUN:bc-xxx status=running (DB 1)
     CD->>CD: HSET CLOUDRUN.pr_url, cancel VM (no success CLOUDFINISHED)
 ```
@@ -89,7 +90,10 @@ control plane, and 24kHz PCM would swamp it.
 
 ## CLOUDORDER
 
-Stream, DB 0. Consumer group `cloud_factory`.
+Pub/sub channel **and** reference stream, DB 0. A `PUBLISH` is the execution
+signal (WorkDispatcher, AutoIntegrate, VoiceDeck). The factory XADDs the stream
+after it receives the signal so AgentHandler / FEs can look the order up.
+Leftover stream entries do not start work.
 
 | Field | Meaning |
 |---|---|
@@ -105,8 +109,8 @@ Stream, DB 0. Consumer group `cloud_factory`.
 
 Stream, DB 0. Failures and operator cancel only. CloudFactory never XADD's
 `status=finished`: a PR URL is a handoff to GitHub (`CLOUDRUN.pr_url` set, VM
-cancelled, no success stream entry). Merge-check files `MERGE_SUCCESS` /
-`MERGE_FAIL`. `finished` remains a legal wire value for parsers.
+cancelled, no success stream entry). Merge-check posts a `mergeable` commit
+status on each PR head. `finished` remains a legal wire value for parsers.
 
 | Field | Meaning |
 |---|---|

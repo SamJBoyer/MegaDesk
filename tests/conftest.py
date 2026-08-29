@@ -465,7 +465,7 @@ def fake_machine_factory():
 
 @pytest.fixture
 def machine_factory(redis_client, fake_machine_factory):
-    """The real BE loop with a fake sandbox host: wire and acks are real.
+    """The real BE loop with a fake sandbox host: wire and signals are real.
 
     ``orphan_grace=0`` because the grace period exists to survive the moment
     between a sandbox exiting and its hash being deleted, and a test that waited
@@ -481,6 +481,7 @@ def machine_factory(redis_client, fake_machine_factory):
         run_poll_interval=0.0,
         orphan_grace=0.0,
     )
+    manager.ensure_listen()
     return manager
 
 
@@ -516,14 +517,46 @@ def voice_session(redis_client, persistent_client, fake_realtime):
 # --- helpers ---------------------------------------------------------------
 
 
-@pytest.fixture
-def workorders(redis_client):
-    """Read WORKORDER entries as (entry_id, fields) in stream order."""
+def _published_orders(redis_client, channel: str):
+    """Subscribe before the test body, then collect published field maps."""
+    import time
+
+    from megadesk_contracts.wire.signal import FieldInbox
+
+    inbox = FieldInbox(redis_client, channel)
+    inbox.listen()
+    collected: list[dict[str, str]] = []
 
     def _read() -> list[tuple[str, dict[str, str]]]:
-        return list(redis_client.xrange(WORKORDER_STREAM))
+        deadline = time.monotonic() + 0.5
+        collected.extend(inbox.drain(timeout=0.0))
+        while not collected and time.monotonic() < deadline:
+            collected.extend(inbox.drain(timeout=0.05))
+        return [(str(i), fields) for i, fields in enumerate(collected)]
 
-    return _read
+    return inbox, _read
+
+
+@pytest.fixture
+def workorders(redis_client, machine_wire):
+    """Collect published WORKORDER signals as (index, fields) in arrival order."""
+    inbox, _read = _published_orders(redis_client, machine_wire.WORKORDER_CHANNEL)
+    try:
+        yield _read
+    finally:
+        inbox.close()
+
+
+@pytest.fixture
+def cloudorders(redis_client):
+    """Collect published CLOUDORDER signals as (index, fields) in arrival order."""
+    from megadesk_contracts.wire.cloud import CLOUDORDER_CHANNEL
+
+    inbox, _read = _published_orders(redis_client, CLOUDORDER_CHANNEL)
+    try:
+        yield _read
+    finally:
+        inbox.close()
 
 
 @pytest.fixture

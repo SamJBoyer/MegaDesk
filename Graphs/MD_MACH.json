@@ -1,0 +1,73 @@
+{
+  "members": {
+    "48e5ab77-69b4-421a-a48e-ed464a7603f1": {
+      "member_id": "48e5ab77-69b4-421a-a48e-ed464a7603f1",
+      "type": "megadesk",
+      "nickname": "machine_factory",
+      "node_name": "machine_factory",
+      "position": [
+        927.0,
+        -188.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 520.0,
+        "height": 400.0,
+        "node_name": "machine_factory"
+      }
+    },
+    "2dcff599-6995-4179-bdd0-b7c2cbb391b0": {
+      "member_id": "2dcff599-6995-4179-bdd0-b7c2cbb391b0",
+      "type": "megadesk",
+      "nickname": "work_dispatcher",
+      "node_name": "work_dispatcher",
+      "position": [
+        414.0,
+        -185.0
+      ],
+      "parameters": {
+        "GIT_URL": "https://github.com/SamJBoyer/MegaDesk.git",
+        "ISSUE_LABEL": "agent-ready"
+      },
+      "data": {
+        "width": 480.0,
+        "height": 160.0,
+        "node_name": "work_dispatcher"
+      }
+    },
+    "332256e8-2699-4eab-b492-b0339bec1001": {
+      "member_id": "332256e8-2699-4eab-b492-b0339bec1001",
+      "type": "megadesk",
+      "nickname": "pr_manager",
+      "node_name": "pr_manager",
+      "position": [
+        932.0,
+        284.0
+      ],
+      "parameters": {
+        "GIT_URL": "https://github.com/SamJBoyer/MegaDesk.git"
+      },
+      "data": {
+        "width": 480.0,
+        "height": 160.0,
+        "node_name": "pr_manager"
+      }
+    },
+    "80aebfd7-99d2-479f-bc0b-0da1275c1fe3": {
+      "member_id": "80aebfd7-99d2-479f-bc0b-0da1275c1fe3",
+      "type": "megadesk",
+      "nickname": "graph_scope",
+      "node_name": "graph_scope",
+      "position": [
+        409.0,
+        53.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 480.0,
+        "height": 240.0,
+        "node_name": "graph_scope"
+      }
+    }
+  }
+}

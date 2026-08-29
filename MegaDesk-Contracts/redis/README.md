@@ -8,7 +8,7 @@ in the URL stays on the live pair.
 
 Three families share that pair:
 
-1. **MachineFactory pipeline** (streams + short-lived hashes on **ephemeral**) — WorkDispatcher, MachineFactory
+1. **MachineFactory pipeline** (pub/sub order signal, reference streams + short-lived hashes on **ephemeral**) — WorkDispatcher, MachineFactory
 2. **Supervisor** (streams on **ephemeral**; RUNNINGNODES / singleton / alive on **persistent**) — Canvas-owned Supervisor BE and launched BE nodes
 3. **Voice chain** (streams on **ephemeral**; session / run hashes on **persistent**) — CodeScope, VoiceDeck, CloudFactory
 
@@ -56,7 +56,7 @@ Default Redis has indexes 0–15. Live MegaDesk never leaves 0/1. MachineFactory
 
 | Package | Redis type | Key / pattern | Live DB | Doc |
 |---------|------------|---------------|----|-----|
-| `WORKORDER` | stream | `WORKORDER` | 0 | [machine-factory-pipeline.md](machine-factory-pipeline.md#workorder) |
+| `WORKORDER` | pub/sub + stream | `WORKORDER` | 0 | [machine-factory-pipeline.md](machine-factory-pipeline.md#workorder-channel) |
 | `AGENTHANDLER` | hash | `AGENTHANDLER:<GUID>` | 0 | [machine-factory-pipeline.md](machine-factory-pipeline.md#agenthandlerguid) |
 | `GRAPHRUN` | hash | `GRAPHRUN:<GUID>` | 0 | [work-graph.md](work-graph.md#graphrunguid) |
 | `GRAPHEVENT` | stream | `GRAPHEVENT` | 0 | [work-graph.md](work-graph.md#graphevent) |
@@ -71,7 +71,7 @@ Default Redis has indexes 0–15. Live MegaDesk never leaves 0/1. MachineFactory
 | `CODEQ:ANSWER` | stream | `CODEQ:ANSWER` | 0 | [voice-chain.md](voice-chain.md#codeqanswer) |
 | `VOICE:CONTROL` | stream | `VOICE:CONTROL` | 0 | [voice-chain.md](voice-chain.md#voicecontrol) |
 | `VOICE:EVENT` | stream | `VOICE:EVENT` | 0 | [voice-chain.md](voice-chain.md#voiceevent) |
-| `CLOUDORDER` | stream | `CLOUDORDER` | 0 | [voice-chain.md](voice-chain.md#cloudorder) |
+| `CLOUDORDER` | pub/sub + stream | `CLOUDORDER` | 0 | [voice-chain.md](voice-chain.md#cloudorder) |
 | `CLOUDFINISHED` | stream | `CLOUDFINISHED` | 0 | [voice-chain.md](voice-chain.md#cloudfinished) |
 | CodeScope session | hash | `CODESCOPE:SESSION:<id>` | 1 | [voice-chain.md](voice-chain.md#hashes-db-1) |
 | Cloud run | hash | `CLOUDRUN:<agent_id>` | 1 | [voice-chain.md](voice-chain.md#hashes-db-1) |

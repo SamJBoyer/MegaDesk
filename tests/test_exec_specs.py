@@ -38,7 +38,7 @@ def test_fe_only_nodes_do_not_launch_a_backend() -> None:
     assert wd_fe().read_parameters is not None
     assert wd_be() is None
     assert ai_fe().backends == ()
-    assert ai_fe().parameters == ("GIT_URL", "ISSUE_LABEL")
+    assert ai_fe().parameters == ("GIT_URL",)
     assert ai_fe().read_parameters is not None
     assert ai_be() is None
     assert pm_fe().backends == ()

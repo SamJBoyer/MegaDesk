@@ -22,6 +22,34 @@ REDIS_IMAGE = os.environ.get("MACHINE_FACTORY_REDIS_IMAGE", "redis:7-alpine")
 NETWORK_NAME = os.environ.get("MACHINE_FACTORY_NETWORK", "machine-factory-net")
 DEFAULT_FACTORY_REDIS_URL = "redis://host.docker.internal:6379/0"
 LOCAL_REDIS_URL = os.environ.get("REDIS_URL", DEFAULT_REDIS_URL)
+_GH_AUTH_TIMEOUT_SEC = 10
+
+
+def resolve_github_token() -> str:
+    """Host token the sandbox needs to push and open a PR.
+
+    Docker cannot use the host Git Credential Manager, so clone of a public
+    repo succeeds while ``git push`` fails with "could not read Username".
+    Prefer ``GH_TOKEN`` / ``GITHUB_TOKEN``, then the token from ``gh auth login``.
+    """
+    for name in ("GH_TOKEN", "GITHUB_TOKEN"):
+        token = (os.environ.get(name) or "").strip()
+        if token:
+            return token
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token"],
+            capture_output=True,
+            text=True,
+            timeout=_GH_AUTH_TIMEOUT_SEC,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    if result.returncode != 0:
+        return ""
+    return (result.stdout or "").strip()
+
 
 # Labelled with its run key so a restarted manager can still find, follow and
 # stop a sandbox it did not start. The alternative — remembering container names
@@ -278,6 +306,13 @@ def start_ticket_sandbox(
         print("CURSOR_API_KEY is required to start sandboxes", file=sys.stderr)
         raise SystemExit(1)
 
+    gh_token = resolve_github_token()
+    if auto_pr and not gh_token:
+        raise RuntimeError(
+            "GH_TOKEN, GITHUB_TOKEN, or `gh auth login` is required to push "
+            "and open a PR from the sandbox"
+        )
+
     ensure_network()
     redis_name = start_redis_sidecar(guid=guid)
 
@@ -289,11 +324,6 @@ def start_ticket_sandbox(
     starting_ref = (ref or "").strip() or DEFAULT_STARTING_REF
     subject_url = f"redis://{redis_name}:6379/0"
     factory_url = factory_redis_url_for_container()
-    gh_token = (
-        os.environ.get("GH_TOKEN")
-        or os.environ.get("GITHUB_TOKEN")
-        or ""
-    )
     args = [
         "run",
         "-d",
@@ -327,19 +357,22 @@ def start_ticket_sandbox(
         "WORKSPACE=/workspace",
         "-e",
         f"STARTING_REF={starting_ref}",
+        "-e",
+        "GIT_TERMINAL_PROMPT=0",
         *([f"-e", f"GH_TOKEN={gh_token}"] if gh_token else []),
         *([f"-e", f"GITHUB_TOKEN={gh_token}"] if gh_token else []),
         *agent_audit_bind_args(guid),
         IMAGE_NAME,
     ]
     log.info(
-        "Starting sandbox %s clone=%s ref=%s guid=%s ticket_id=%s redis=%s",
+        "Starting sandbox %s clone=%s ref=%s guid=%s ticket_id=%s redis=%s github_auth=%s",
         name,
         repo_url,
         starting_ref,
         guid,
         ticket_id,
         redis_name,
+        "present" if gh_token else "absent",
     )
     try:
         _docker(args)

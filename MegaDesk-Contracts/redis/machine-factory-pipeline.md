@@ -9,18 +9,21 @@ MachineFactory clones the named repo into a Docker sandbox, gives the agent a
 Redis **sidecar** as its `REDIS_URL`, and keeps factory IPC on
 `MEGADESK_FACTORY_REDIS_URL` (host pair). On done it hands back a PR URL as
 factory outcome on `FINISHED:<REPO>`. PRManager does not read that stream — it
-lists GitHub issues labeled `merge_success`.
+lists open PRs whose merge-check `mergeable` check succeeded.
 
 Flow:
 
 ```
 WorkDispatcher
-        │  XADD
+        │  PUBLISH
         ▼
-   WORKORDER (stream)
-        │  XREADGROUP group=machine_factory
+   WORKORDER (channel)
+        │  SUBSCRIBE
         ▼
    MachineFactoryManager
+        │  XADD (reference only; leftover entries do not start work)
+        ▼
+   WORKORDER (stream)
         │  HSET + Docker sandbox (+ Redis sidecar)
         ▼
    AGENTHANDLER:<GUID> (hash)
@@ -33,23 +36,34 @@ WorkDispatcher
         ▼
    FINISHED:<REPO> (stream, factory outcome)
 
-GitHub issues labeled merge_success
-        │  gh issue list
+GitHub `mergeable` check (success)
+        │  gh pr list
         ▼
    PRManager (show / open PR)
 ```
 
 ---
 
-## WORKORDER
+## WORKORDER (channel)
 
 | Property | Value |
 |----------|-------|
-| Type | Stream |
+| Type | Pub/sub channel |
+| Name | `WORKORDER` |
+| Subscriber | MachineFactoryManager |
+| Producers | WorkDispatcher, AutoIntegrate, manual `PUBLISH` |
+
+A `PUBLISH` is the only execution signal. If the factory is not subscribed, the
+order is dropped — leftover tickets cannot re-run after a restart.
+
+## WORKORDER (stream)
+
+| Property | Value |
+|----------|-------|
+| Type | Stream (reference store) |
 | Key | `WORKORDER` |
-| Consumer group | `machine_factory` |
-| Primary consumer | MachineFactoryManager |
-| Producers | WorkDispatcher, manual `XADD` |
+| Writer | MachineFactoryManager, after it receives the pub/sub signal |
+| Readers | AgentHandler (`XRANGE` by ticket_id), factory FEs |
 
 ### Fields
 
@@ -69,8 +83,12 @@ The Redis stream entry id returned by `XADD` (e.g. `1712345678901-0`) is the **t
 ### Example
 
 ```text
-XADD WORKORDER * repo Helmsman URL https://github.com/example/Helmsman.git ticket_name 1 instructions "Create harness-smoke.txt with the text ok" model auto auto_pr true
+PUBLISH WORKORDER {"repo":"Helmsman","URL":"https://github.com/example/Helmsman.git","ticket_name":"1","instructions":"Create harness-smoke.txt with the text ok","model":"auto","auto_pr":"true","ref":""}
 ```
+
+The factory then `XADD`s the same fields onto the `WORKORDER` stream. That stream
+id is the **ticket_id**. A leftover `XADD` with no matching `PUBLISH` does not
+start a sandbox.
 
 ---
 
@@ -105,7 +123,7 @@ Ticket payload (`ticket_name`, `instructions`, `model`, `URL`, `auto_pr`) is **n
 | Type | Stream (**not** a list) |
 | Key | `FINISHED:<REPO>` where `<REPO>` is the repo name (same as `WORKORDER.repo`) |
 | Consumer group | `merge_manager` (unused by any FE; kept as the historical group name) |
-| Primary consumer | none — PRManager reads GitHub `merge_success` issues instead |
+| Primary consumer | none — PRManager reads GitHub `mergeable` checks instead |
 | Producer | AgentHandler; MachineFactoryManager for launches that failed and for sandboxes reaped after dying without reporting |
 
 ### Fields
@@ -125,15 +143,13 @@ XRANGE FINISHED:Helmsman - +
 
 ---
 
-## Consumer groups & ack rules
+## Execution vs reference
 
-| Stream | Group | Ack when |
-|--------|-------|----------|
-| `WORKORDER` | `machine_factory` | After MachineFactoryManager finishes handling the entry (success or handled failure) |
+`WORKORDER` pub/sub starts work. The `WORKORDER` stream is a reference store
+written by the factory after it receives the signal. Stream consumer groups are
+not the execution path.
 
 `FINISHED:<REPO>` is factory outcome telemetry. No FE currently joins `merge_manager`.
-
-Groups are created with `XGROUP CREATE … MKSTREAM` if missing (`BUSYGROUP` is ignored).
 
 ---
 

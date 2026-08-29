@@ -30,6 +30,7 @@ def _run(
     env: Optional[dict[str, str]] = None,
 ) -> subprocess.CompletedProcess[str]:
     merged = os.environ.copy()
+    merged.setdefault("GIT_TERMINAL_PROMPT", "0")
     if env:
         merged.update(env)
     result = subprocess.run(
@@ -47,13 +48,17 @@ def _run(
     return result
 
 
-def _auth_url(url: str) -> str:
-    """Embed GH_TOKEN into an https URL when present so clone/push can auth."""
-    token = (
+def _github_token() -> str:
+    return (
         os.environ.get("GH_TOKEN")
         or os.environ.get("GITHUB_TOKEN")
         or ""
     ).strip()
+
+
+def _auth_url(url: str) -> str:
+    """Embed GH_TOKEN into an https URL when present so clone/push can auth."""
+    token = _github_token()
     if not token or not url.startswith("https://"):
         return url
     parsed = urlparse(url)
@@ -161,6 +166,10 @@ class SandboxRepo:
 
     def publish_branch(self) -> str:
         """Push the ticket branch and optionally open a PR. Returns pr_url."""
+        if not _github_token():
+            raise RuntimeError(
+                "GH_TOKEN is not set in the sandbox; cannot push or open a PR"
+            )
         remote = _auth_url(self.repo_url)
         _run(["git", "remote", "set-url", "origin", remote], cwd=self.workspace)
         _run(["git", "push", "-u", "origin", f"HEAD:{self.branch}"], cwd=self.workspace)

@@ -1,9 +1,9 @@
 """CloudFactory end to end, without spending money or opening a real PR.
 
 ``FakeCloudFactory`` stands in for Cursor's VM; everything either side of it is
-real — the CLOUDORDER consumer group, the run registry on db 1, failure
-CLOUDFINISHED payloads, and the canvas widgets that list queued orders and live
-agents.
+real — the CLOUDORDER pub/sub signal, the reference stream, the run registry on
+db 1, failure CLOUDFINISHED payloads, and the canvas widgets that list queued
+orders and live agents.
 
 The assertions cluster around one risk. Every other failure here is cosmetic, but
 launching twice for one order means two pull requests, so duplicate suppression
@@ -16,11 +16,11 @@ import pytest
 from conftest import (
     CLOUDFINISHED_CANONICAL_FIELDS,
     CLOUDORDER_CANONICAL_FIELDS,
-    CLOUDORDER_GROUP,
     CLOUDRUN_CANONICAL_FIELDS,
 )
 from megadesk_contracts import AgentStartupError
 from megadesk_contracts.wire import cloud as wire
+from megadesk_contracts.wire.signal import publish_fields
 
 pytestmark = pytest.mark.redis
 
@@ -41,6 +41,30 @@ def place_order(
     instructions: str = INSTRUCTIONS,
     auto_pr: bool = True,
 ) -> str:
+    order_id = order_id or wire.new_order_id()
+    wire.publish_cloudorder(
+        redis_client,
+        wire.cloudorder_fields(
+            order_id=order_id,
+            repo_url=repo_url,
+            title=title,
+            instructions=instructions,
+            auto_pr=auto_pr,
+        ),
+    )
+    return order_id
+
+
+def store_order(
+    redis_client,
+    *,
+    order_id: str = "",
+    repo_url: str = REPO_URL,
+    title: str = TITLE,
+    instructions: str = INSTRUCTIONS,
+    auto_pr: bool = True,
+) -> str:
+    """Seed the CLOUDORDER stream without signalling execution."""
     order_id = order_id or wire.new_order_id()
     redis_client.xadd(
         wire.CLOUDORDER_STREAM,
@@ -88,10 +112,8 @@ def finished(read_stream) -> list[dict[str, str]]:
     return [fields for _entry_id, fields in read_stream(wire.CLOUDFINISHED_STREAM)]
 
 
-def pending_orders(redis_client) -> int:
-    info = redis_client.xpending(wire.CLOUDORDER_STREAM, CLOUDORDER_GROUP)
-    count = info.get("pending") if isinstance(info, dict) else info[0]
-    return int(count or 0)
+def pending_orders(cloud_factory) -> int:
+    return cloud_factory.pending_count
 
 
 # --- launching -------------------------------------------------------------
@@ -118,7 +140,7 @@ def test_an_order_launches_one_agent_and_registers_it(
     assert fields["status"] == wire.STATUS_RUNNING
     assert fields["pr_url"] == ""
     assert finished(read_stream) == [], "a launched run has not finished"
-    assert pending_orders(redis_client) == 0, "a handled order must not stay pending"
+    assert pending_orders(cloud_factory) == 0, "a handled order must not stay pending"
 
 
 def test_the_same_order_twice_still_launches_once(
@@ -134,26 +156,40 @@ def test_the_same_order_twice_still_launches_once(
     assert len(runs_on(persistent_client)) == 1
 
 
-def test_an_unusable_order_is_acked_rather_than_retried_forever(
+def test_an_unusable_order_is_stored_rather_than_retried_forever(
     cloud_factory, fake_cloud_factory, redis_client
 ) -> None:
-    redis_client.xadd(wire.CLOUDORDER_STREAM, {"order_id": "", "repo_url": ""})
+    publish_fields(
+        redis_client, wire.CLOUDORDER_CHANNEL, {"order_id": "", "repo_url": ""}
+    )
 
     assert cloud_factory.poll_orders() == 0
     assert fake_cloud_factory.launches == []
-    assert pending_orders(redis_client) == 0
+    assert pending_orders(cloud_factory) == 0
+    assert redis_client.xlen(wire.CLOUDORDER_STREAM) == 1
 
 
-def test_a_flushed_consumer_group_is_recreated(
+def test_a_resubscribe_still_receives_new_orders(
     cloud_factory, fake_cloud_factory, redis_client
 ) -> None:
-    """A Redis flush after startup used to leave the BE logging NOGROUP forever."""
-    cloud_factory.ensure_group()
-    redis_client.delete(wire.CLOUDORDER_STREAM)
+    cloud_factory.ensure_listen()
+    assert cloud_factory._inbox is not None
+    cloud_factory._inbox.close()
+    cloud_factory._inbox = None
+    cloud_factory.ensure_listen()
     place_order(redis_client)
 
     assert cloud_factory.poll_orders() == 1
     assert len(fake_cloud_factory.launches) == 1
+
+
+def test_a_stale_stream_entry_does_not_launch_an_agent(
+    cloud_factory, fake_cloud_factory, redis_client
+) -> None:
+    store_order(redis_client)
+
+    assert cloud_factory.poll_orders() == 0
+    assert fake_cloud_factory.launches == []
 
 
 # --- the two failure modes -------------------------------------------------
@@ -175,7 +211,7 @@ def test_a_launch_that_never_started_is_reported_with_no_agent(
     assert reports[0]["order_id"] == order_id
     assert reports[0]["agent_id"] == ""
     assert runs_on(persistent_client) == {}
-    assert pending_orders(redis_client) == 0
+    assert pending_orders(cloud_factory) == 0
 
 
 def test_a_retryable_failure_is_retried_and_still_launches_only_once(
@@ -188,7 +224,7 @@ def test_a_retryable_failure_is_retried_and_still_launches_only_once(
 
     assert cloud_factory.poll_orders() == 0
     assert finished(read_stream) == [], "a retryable failure is not an outcome yet"
-    assert pending_orders(redis_client) == 1, "the order must stay claimed to be retried"
+    assert pending_orders(cloud_factory) == 1, "the order must stay claimed to be retried"
 
     fake_cloud_factory.startup_error = ""
     assert cloud_factory.poll_orders() == 1
@@ -210,7 +246,7 @@ def test_a_retryable_failure_gives_up_and_reports(
     reports = finished(read_stream)
     assert len(reports) == 1, "one order produces one outcome, however many attempts"
     assert reports[0]["status"] == wire.STATUS_STARTUP_ERROR
-    assert pending_orders(redis_client) == 0
+    assert pending_orders(cloud_factory) == 0
 
 
 def test_a_run_that_ran_and_failed_is_not_a_startup_error(
@@ -308,7 +344,7 @@ def test_rejecting_an_unlaunched_order_cancels_it_without_starting_an_agent(
     assert reports[0]["status"] == wire.STATUS_CANCELLED
     assert reports[0]["order_id"] == order_id
     assert reports[0]["agent_id"] == ""
-    assert pending_orders(redis_client) == 0
+    assert pending_orders(cloud_factory) == 0
 
 
 def test_rejecting_a_live_run_cancels_the_agent(
@@ -738,7 +774,7 @@ def test_launch_proceeds_when_the_repo_is_on_cursors_list(
 
 @pytest.mark.canvas
 def test_work_dispatcher_publishes_a_canonical_cloudorder(
-    harness, redis_client, fake_gh, read_stream
+    harness, redis_client, fake_gh, cloudorders, cloud_factory, fake_cloud_factory
 ) -> None:
     fake_gh.add_issue(41, TITLE, INSTRUCTIONS)
     dispatcher = harness.drop("work_dispatcher")
@@ -747,7 +783,7 @@ def test_work_dispatcher_publishes_a_canonical_cloudorder(
     dispatcher.select("ticket_factory_41", "cloud")
     dispatcher.click("ticket_btn_41")
 
-    orders = read_stream(wire.CLOUDORDER_STREAM)
+    orders = cloudorders()
     assert len(orders) == 1
     _entry_id, order = orders[0]
     assert set(order) == set(CLOUDORDER_CANONICAL_FIELDS)
@@ -756,6 +792,7 @@ def test_work_dispatcher_publishes_a_canonical_cloudorder(
     assert order["title"] == TITLE
     assert order["auto_pr"] == "true"
 
+    assert cloud_factory.poll_orders() == 1
     fe = harness.drop("cloud_factory")
     harness.wait_until(
         lambda: any(TITLE in item for item in fe.items("queue_list")),
@@ -767,7 +804,7 @@ def test_work_dispatcher_publishes_a_canonical_cloudorder(
 def test_processed_orders_and_live_agents_share_the_machine_factory_layout(
     harness, redis_client, persistent_client
 ) -> None:
-    place_order(redis_client)
+    store_order(redis_client)
     seed_run(persistent_client)
     fe = harness.drop("cloud_factory")
 
@@ -799,7 +836,7 @@ def test_processed_orders_and_live_agents_share_the_machine_factory_layout(
 def test_a_run_shows_its_status_in_the_queue(
     harness, redis_client, persistent_client
 ) -> None:
-    order_id = place_order(redis_client)
+    order_id = store_order(redis_client)
     agent_id = seed_run(persistent_client, order_id=order_id)
     fe = harness.drop("cloud_factory")
 
@@ -852,11 +889,11 @@ def test_a_spoken_order_reaches_a_cloud_agent(
     )
     voice_session.pump_events()
 
+    assert cloud_factory.poll_orders() == 1
     harness.wait_until(
         lambda: any(TITLE in item for item in fe.items("queue_list")),
         message="the spoken order to reach the CloudFactory queue",
     )
-    assert cloud_factory.poll_orders() == 1
 
     launch = fake_cloud_factory.launches[0]
     assert launch["title"] == TITLE
@@ -888,7 +925,7 @@ def test_a_run_that_never_started_turns_the_lamp_red(
 def test_a_queued_order_blinks_the_lamp_while_no_agent_exists(
     harness, redis_client
 ) -> None:
-    place_order(redis_client)
+    store_order(redis_client)
     fe = harness.drop("cloud_factory")
 
     harness.wait_until(
@@ -906,7 +943,7 @@ def test_a_queued_order_blinks_the_lamp_while_no_agent_exists(
 def test_reject_refuses_a_queued_order_before_it_launches(
     harness, redis_client, read_stream
 ) -> None:
-    place_order(redis_client)
+    store_order(redis_client)
     fe = harness.drop("cloud_factory")
 
     harness.wait_until(

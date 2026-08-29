@@ -7,11 +7,13 @@ the GUI, the stream contracts, the consumer-group semantics and `FakeGh` stay
 real.
 
 PRManager no longer reads `FINISHED:<repo>`. It connects to the same `git_url`
-WorkDispatcher uses and lists open issues labeled `merge_success`.
+WorkDispatcher uses and lists open PRs whose merge-check ``mergeable`` status
+succeeded.
 
 The real MachineFactory BE is never launched. Dropping a node only publishes a
 LAUNCHREQUEST when Supervisor is alive, and neither FE under test has a BE, so
-nothing here can spawn Docker.
+nothing here can spawn Docker. WorkDispatcher publishes a pub/sub signal;
+FakeAgent stores that onto the WORKORDER stream the way the real factory does.
 
 Scenario numbers match the table in `Docs/integration_testing.md`.
 """
@@ -99,17 +101,15 @@ def test_t1_dispatch_writes_the_canonical_workorder(
 
 
 def test_t1c_dispatch_to_cloud_writes_a_canonical_cloudorder(
-    fake_gh, harness, workorders, read_stream
+    fake_gh, harness, workorders, cloudorders
 ) -> None:
     """The per-row factory combo sends the ticket to one factory, not both."""
-    from megadesk_contracts.wire import cloud as cloud_wire
-
     fake_gh.add_issue(41, "add-widget-tests", "Cover the widget module with tests.")
 
     dispatcher = connect_dispatcher(harness)
     dispatch(harness, dispatcher, 41, factory="cloud")
 
-    orders = read_stream(cloud_wire.CLOUDORDER_STREAM)
+    orders = cloudorders()
     assert len(orders) == 1, f"expected one CLOUDORDER, got {orders}"
     _entry_id, fields = orders[0]
     assert set(fields) == set(CLOUDORDER_CANONICAL_FIELDS)
@@ -166,10 +166,10 @@ def test_t2b_gh_failure_surfaces_in_the_status_widget(
 # --- T3: WORKORDER → sandbox boundary → FINISHED ---------------------------
 
 
-def test_t3_agent_acks_the_group_and_publishes_finished(
+def test_t3_agent_handles_the_signal_and_publishes_finished(
     redis_client, fake_gh, harness, git_floor, fake_agent, machine_wire
 ) -> None:
-    """Catches consumer-group and ack semantics, and FINISHED field shape."""
+    """Catches pub/sub delivery, reference-stream storage, and FINISHED field shape."""
     fake_gh.add_issue(43, "t3-ticket", "Make a commit.")
 
     dispatcher = connect_dispatcher(harness)
@@ -179,7 +179,7 @@ def test_t3_agent_acks_the_group_and_publishes_finished(
     assert len(runs) == 1, "the machine_factory group delivered nothing"
     run = runs[0]
     assert run.repo == REPO
-    assert fake_agent.pending() == 0, "WORKORDER entries left unacked after handling"
+    assert fake_agent.pending() == 0, "WORKORDER signals left unhandled"
 
     finished = redis_client.xrange(machine_wire.finished_stream(REPO))
     assert len(finished) == 1
@@ -198,7 +198,7 @@ def test_t3_agent_acks_the_group_and_publishes_finished(
 def test_t3b_a_second_pass_delivers_nothing_new(
     redis_client, fake_gh, harness, fake_agent, machine_wire
 ) -> None:
-    """An acked entry must not be redelivered on the next poll."""
+    """A handled signal must not start a second run on the next poll."""
     fake_gh.add_issue(44, "t3b-ticket", "Once only.")
 
     dispatcher = connect_dispatcher(harness)
@@ -209,10 +209,10 @@ def test_t3b_a_second_pass_delivers_nothing_new(
     assert redis_client.xlen(machine_wire.finished_stream(REPO)) == 1
 
 
-# --- T4: merge_success issues → PRManager GUI --------------------------------
+# --- T4: mergeable PRs → PRManager GUI --------------------------------------
 
 
-def test_t4_merge_success_issue_populates_a_pr_row(fake_gh, harness) -> None:
+def test_t4_mergeable_pr_populates_a_pr_row(fake_gh, harness) -> None:
     """Catches GitHub list → GUI population, which depends on the frame-pump drain."""
     pr_url = "https://github.com/acme/widgets/pull/4"
     fake_gh.add_merge_success(4, "t4-ticket", pr_url)
@@ -239,42 +239,40 @@ def test_t4b_agent_ready_issue_is_not_shown(fake_gh, harness) -> None:
     manager = connect_manager(harness)
 
     harness.wait_until(
-        lambda: "merge_success" in manager.get("status_text"),
-        message="PRManager to connect and list merge_success issues",
+        lambda: "mergeable" in manager.get("status_text"),
+        message="PRManager to connect and list mergeable PRs",
     )
     assert manager.suffixes(r"^name::") == []
 
 
-# --- T5 / T7: open-PR affordance and dismiss cleanup ----------------------
+# --- T5 / T7: unchecked PRs stay off the board; dismiss is local ----------
 
 
-def test_t5_open_pr_disabled_without_url(fake_gh, harness) -> None:
-    """A merge_success issue with no PR link must keep the button disabled."""
-    fake_gh.add_issue(5, "t5-ticket", "no pull request yet", labels=("MERGE_SUCCESS",))
+def test_t5_a_pr_without_a_mergeable_status_is_not_listed(fake_gh, harness) -> None:
+    """Merge-check has to have spoken; an open PR is not enough."""
+    fake_gh.add_pull_request(5, title="t5-ticket")
+    fake_gh.add_merge_fail(6, "stuck", "https://github.com/acme/widgets/pull/6")
     manager = connect_manager(harness)
 
-    harness.wait_for_widget(manager, "name::5")
-    assert not manager.enabled("open_pr::5")
-    assert not manager.enabled("pull::5")
-    assert not manager.enabled("vscode::5")
-    assert not manager.enabled("cursor::5")
-    assert "t5-ticket" in manager.get("name::5")
-    assert manager.shown("dismiss::5")
+    harness.wait_until(
+        lambda: "mergeable" in manager.get("status_text"),
+        message="PRManager to connect and list mergeable PRs",
+    )
+    assert manager.suffixes(r"^name::") == []
 
 
-def test_t7_dismiss_closes_the_issue_and_removes_the_row(fake_gh, harness) -> None:
-    """Catches GitHub close drifting apart from GUI teardown."""
-    issue = fake_gh.add_merge_success(7, "t7-ticket", PR_URL)
+def test_t7_dismiss_hides_the_row(fake_gh, harness) -> None:
+    """Dismiss is local: the PR stays open, the row stays gone while it is mergeable."""
+    fake_gh.add_merge_success(7, "t7-ticket", "https://github.com/acme/widgets/pull/7")
     manager = connect_manager(harness)
     harness.wait_for_widget(manager, "name::7")
     assert manager.shown("dismiss::7")
 
     manager.click("dismiss::7")
-    harness.pump(2)
+    harness.pump(4)
 
-    assert fake_gh.issue_closes == 1, "dismiss must gh issue close"
-    assert issue.state == "closed"
-    assert not manager.exists("name::7"), "the row widget outlived its issue"
+    assert fake_gh.issue_closes == 0, "dismiss must not close GitHub issues"
+    assert not manager.exists("name::7"), "the row widget outlived its dismiss"
     assert not manager.exists("open_pr::7")
     assert not manager.exists("pull::7")
     assert not manager.exists("vscode::7")
@@ -284,10 +282,10 @@ def test_t7_dismiss_closes_the_issue_and_removes_the_row(fake_gh, harness) -> No
 # --- T8: the whole chain over one shared frame pump ------------------------
 
 
-def test_t8_full_chain_from_dispatch_to_merge_success_pr(
+def test_t8_full_chain_from_dispatch_to_mergeable_pr(
     redis_client, fake_gh, harness, fake_agent, machine_wire
 ) -> None:
-    """Dispatch → FakeAgent, and a merge_success row, with both FEs hosted.
+    """Dispatch → FakeAgent, and a mergeable PR row, with both FEs hosted.
 
     The only scenario where two FEs share pump state, which is the exact
     condition under which the frame-pump blockers manifest. PRManager reads
@@ -295,20 +293,19 @@ def test_t8_full_chain_from_dispatch_to_merge_success_pr(
     on one pump.
     """
     fake_gh.add_issue(88, "t8-ticket", "Do the thing.")
-    fake_gh.add_merge_success(89, "t8-pr", PR_URL)
+    fake_gh.add_merge_success(12, "t8-pr", "https://github.com/acme/widgets/pull/12")
 
     dispatcher = connect_dispatcher(harness)
     manager = connect_manager(harness)
 
     dispatch(harness, dispatcher, 88)
-    assert redis_client.xlen(WORKORDER_STREAM) == 1
-
     runs = fake_agent.run_once()
     assert len(runs) == 1
+    assert redis_client.xlen(WORKORDER_STREAM) == 1
     run = runs[0]
     assert redis_client.xlen(machine_wire.finished_stream(REPO)) == 1
 
-    harness.wait_for_widget(manager, "name::89")
+    harness.wait_for_widget(manager, "name::12")
 
     # WorkDispatcher must still be draining while PRManager works: both
     # depend on the same shared pump, and its status is written by its own
@@ -319,14 +316,14 @@ def test_t8_full_chain_from_dispatch_to_merge_success_pr(
     )
     assert dispatcher.exists("ticket_btn_88")
 
-    label = manager.get("name::89")
+    label = manager.get("name::12")
     assert "t8-pr" in label
     assert run.pr_url
-    assert manager.enabled("open_pr::89")
-    assert manager.enabled("pull::89")
-    assert manager.enabled("vscode::89")
-    assert manager.enabled("cursor::89")
-    assert manager.shown("dismiss::89")
+    assert manager.enabled("open_pr::12")
+    assert manager.enabled("pull::12")
+    assert manager.enabled("vscode::12")
+    assert manager.enabled("cursor::12")
+    assert manager.shown("dismiss::12")
     harness.screenshot("t8-merge-success-pr")
 
 
