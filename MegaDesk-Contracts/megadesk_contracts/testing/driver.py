@@ -55,10 +55,18 @@ def invoke_callback(
 class NodeDriver:
     """Read, write and click widgets of a single hosted node by tag suffix."""
 
-    def __init__(self, harness: Any, member_id: str, node_name: str) -> None:
+    def __init__(
+        self,
+        harness: Any,
+        member_id: str,
+        node_name: str,
+        *,
+        tag_prefix: Optional[str] = None,
+    ) -> None:
         self.harness = harness
         self.member_id = member_id
         self.node_name = node_name
+        self._tag_prefix = tag_prefix
 
     def __repr__(self) -> str:
         return f"NodeDriver({self.node_name!r}, member_id={self.member_id!r})"
@@ -67,7 +75,9 @@ class NodeDriver:
 
     @property
     def tag_prefix(self) -> str:
-        """The prefix the canvas passes to ``FeSpec.build``."""
+        """The prefix the canvas passes to ``FeSpec.build``, or a chrome panel tag."""
+        if self._tag_prefix:
+            return self._tag_prefix
         return f"megadesk::{self.member_id}"
 
     @property

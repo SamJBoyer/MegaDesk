@@ -19,4 +19,4 @@ megadesk-supervisor = "supervisor.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["engine*", "supervisor*"]
+include = ["engine*", "supervisor*", "voice_deck*"]

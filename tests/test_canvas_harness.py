@@ -24,6 +24,7 @@ def test_boot_builds_the_engine_chrome(harness) -> None:
         GRAPH_WINDOW,
         NODE_EDITOR,
         SIDEBAR_TAG,
+        VOICE_DECK_PANEL_TAG,
     )
     from engine.graph_bar import GRAPH_BAR_TAG, SELECT_TAG, CAPTURE_TAG
 
@@ -34,6 +35,7 @@ def test_boot_builds_the_engine_chrome(harness) -> None:
     assert dpg.does_item_exist(GRAPH_BAR_TAG)
     assert dpg.does_item_exist(SELECT_TAG)
     assert dpg.does_item_exist(CAPTURE_TAG)
+    assert dpg.does_item_exist(VOICE_DECK_PANEL_TAG)
 
 
 def test_catalog_offers_the_installed_frontends(harness) -> None:

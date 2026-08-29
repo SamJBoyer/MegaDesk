@@ -87,6 +87,7 @@ class CanvasHarness:
         height: int = 800,
         viewport_pos: Optional[tuple[int, int]] = OFFSCREEN_VIEWPORT_POS,
         supervisor_panel: bool = False,
+        voice_deck_panel: bool = True,
         graph_bar: bool = True,
         artifacts_dir: Optional[Path] = None,
         warmup_frames: int = 5,
@@ -96,6 +97,7 @@ class CanvasHarness:
         self.height = height
         self.viewport_pos = viewport_pos
         self.supervisor_panel = supervisor_panel
+        self.voice_deck_panel = voice_deck_panel
         self.graph_bar = graph_bar
         self.artifacts_dir = Path(artifacts_dir) if artifacts_dir else None
         self.warmup_frames = warmup_frames
@@ -129,6 +131,7 @@ class CanvasHarness:
             height=self.height,
             viewport_pos=self.viewport_pos,
             supervisor_panel=self.supervisor_panel,
+            voice_deck_panel=self.voice_deck_panel,
             graph_bar=self.graph_bar,
         )
         self._booted = True
@@ -148,6 +151,12 @@ class CanvasHarness:
         try:
             self.clear_board()
         finally:
+            try:
+                from voice_deck.panel import shutdown_voice_deck_panel
+
+                shutdown_voice_deck_panel()
+            except Exception:
+                pass
             self._drivers.clear()
             frame_pump.reset()
             try:
@@ -308,6 +317,17 @@ class CanvasHarness:
             for member_id, d in self._drivers.items()
             if member_id in (self.model.members or {})
         ]
+
+    def voice_deck(self) -> NodeDriver:
+        """Driver for the always-on VoiceDeck chrome panel."""
+        if not self.voice_deck_panel:
+            raise AssertionError("VoiceDeck panel was not built for this harness")
+        return NodeDriver(
+            self,
+            member_id="voice_deck",
+            node_name="voice_deck",
+            tag_prefix="voice_deck_panel_window",
+        )
 
     def driver_for(self, node_name: str) -> NodeDriver:
         for driver in self.drivers():

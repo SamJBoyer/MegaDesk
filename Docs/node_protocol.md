@@ -13,6 +13,8 @@ Shared contract lives in the installable `megadesk-contracts` package (`MegaDesk
 
 **Supervisor** is Canvas infrastructure (`MegaDesk-Canvas/supervisor/`), not a Catalog / `MegaDesk.nodes` entry. The BE starts on canvas launch via `megadesk_contracts.ensure_supervisor_running()` (`python -m supervisor`). The operator UI is a right-hand collapsible pane with Nodes and Logs tabs (`supervisor.panel.build_supervisor_panel`), matching the left Catalog — not a droppable FE.
 
+**VoiceDeck** is the same shape: the FE is canvas chrome (`voice_deck.panel.build_voice_deck_panel`), a collapsible strip that always boots on launch — not a Catalog entry. The BE keeps its `voice_deck` identity (`get_be_spec()` / `VoiceDeckManager`) and is started once via `ensure_voice_deck_running()` after Supervisor is up, skipped if that endpoint is already in RUNNINGNODES.
+
 ---
 
 ## Project layout convention
@@ -59,7 +61,7 @@ Examples in-repo:
 | WorkDispatcher (`Nodes/HumanGates/WorkDispatcher`) | `work_dispatcher` | FE only |
 | AutoIntegrate (`Nodes/HumanGates/AutoIntegrate`) | `auto_integrate` | FE only |
 | CodeScope | `code_scope` | FE + BE |
-| VoiceDeck | `voice_deck` | FE + BE |
+| VoiceDeck | `voice_deck` | BE only (FE is canvas chrome) |
 | GraphScope | `graph_scope` | FE only |
 | VisionBoard | `vision_board` | FE only |
 
@@ -202,7 +204,7 @@ Related public helpers (same package): `SupervisorClient`, `ensure_supervisor_ru
 
 ## How the FE uses nodes (MegaDesk graph)
 
-1. On startup, MegaDesk-Canvas calls `ensure_supervisor_running()` so the Supervisor BE (`python -m supervisor`) is up before UI drop can request BE launches. Then it calls `discover_frontends()` (via `engine.megadesk_registry.discover_megadesk_frontends`) and fills the Catalog palette (`megadesk:<name>`). Icons come from `FeSpec.icon`. A **graph bar** sits above the Catalog so the operator can pick, save, save-as, Capture, or delete a graph. The Supervisor operator UI is a right-hand collapsible pane (Nodes / Logs tabs) via `build_supervisor_panel` — it is not a Catalog entry. Selecting a hosted node on the board shows that node's session log in the Logs tab.
+1. On startup, MegaDesk-Canvas calls `ensure_supervisor_running()` so the Supervisor BE (`python -m supervisor`) is up before UI drop can request BE launches, then `ensure_voice_deck_running()` so the VoiceDeck BE (`voice_deck`) is launched once (skipped if already in RUNNINGNODES). Then it calls `discover_frontends()` (via `engine.megadesk_registry.discover_megadesk_frontends`) and fills the Catalog palette (`megadesk:<name>`). Icons come from `FeSpec.icon`. A **graph bar** sits above the Catalog so the operator can pick, save, save-as, Capture, or delete a graph. The Supervisor operator UI is a right-hand collapsible pane (Nodes / Logs tabs) via `build_supervisor_panel` — it is not a Catalog entry. Selecting a hosted node on the board shows that node's session log in the Logs tab. The VoiceDeck operator UI is a collapsible strip under the canvas row via `build_voice_deck_panel` — also not a Catalog entry.
 2. Dropping a node places a graph member (`type: "megadesk"`, `node_name` in the open `.json`) and hosts the FE as a native `dpg.node` inside the graph `node_editor` via `FeSpec.build`. Graph parameters for that member are passed into `get_fe_spec(parameters=…)`.
 3. Nodes on the board are always the live FE (no placard / closed state). Middle-mouse pans the editor; there is no graph zoom. Delete removes the selected node(s).
 4. After drop **and** when a saved graph is opened, the host reads `FeSpec.backends` and `XADD`s one `SUPERVISOR:LAUNCHREQUEST` per endpoint with `parameters` set to `FeSpec.backend_parameters` (skipped if that BE is already alive, Redis is down, or Supervisor is not up).

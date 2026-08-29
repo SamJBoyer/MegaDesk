@@ -1,5 +1,7 @@
 """VoiceDeck FE — press to talk, watch what was heard and said.
 
+Hosted as canvas chrome (`voice_deck.panel`), not a Catalog node.
+
 Nothing here touches audio. The BE owns the microphone, the speaker and the
 realtime socket; this half sends control messages and renders text, which is why
 a stalled canvas can never stutter the conversation and a stalled conversation can
@@ -382,7 +384,7 @@ def build_ui(
 
 
 def main() -> None:
-    raise SystemExit("VoiceDeck FE is canvas-only. Drop it from the MegaDesk Catalog.")
+    raise SystemExit("VoiceDeck FE is canvas chrome, not a standalone window.")
 
 
 if __name__ == "__main__":

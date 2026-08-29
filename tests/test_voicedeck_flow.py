@@ -597,7 +597,7 @@ def test_a_pause_is_not_treated_as_a_hangup() -> None:
 def test_pressing_listen_publishes_start_and_pressing_it_again_stops(
     harness, redis_client, read_stream
 ) -> None:
-    deck = harness.drop("voice_deck")
+    deck = harness.voice_deck()
     assert deck.get("state_text") == wire.STATE_OFF
 
     deck.click("talk_btn")
@@ -615,7 +615,7 @@ def test_pressing_listen_publishes_start_and_pressing_it_again_stops(
 def test_every_control_the_frontend_sends_is_canonical(
     harness, redis_client, read_stream
 ) -> None:
-    deck = harness.drop("voice_deck")
+    deck = harness.voice_deck()
     deck.click("talk_btn")
     deck.click("mute_btn")
 
@@ -632,7 +632,7 @@ def test_every_control_the_frontend_sends_is_canonical(
 def test_the_frontend_renders_the_conversation_as_it_happens(
     harness, redis_client, read_stream
 ) -> None:
-    deck = harness.drop("voice_deck")
+    deck = harness.voice_deck()
 
     for kind, text in (
         (wire.KIND_STATE, wire.STATE_LISTENING),
@@ -660,7 +660,7 @@ def test_the_repo_combo_offers_what_codescope_has_loaded(
     harness, redis_client, persistent_client, read_stream, tmp_path
 ) -> None:
     seed_scope_session(persistent_client, repo="widgets", clone_path=tmp_path)
-    deck = harness.drop("voice_deck")
+    deck = harness.voice_deck()
 
     harness.wait_until(
         lambda: deck.items("repo_target") == ["widgets"],
@@ -674,14 +674,16 @@ def test_the_repo_combo_offers_what_codescope_has_loaded(
 
 
 @pytest.mark.canvas
-def test_closing_the_panel_stops_the_conversation(
+def test_shutting_down_the_panel_stops_the_conversation(
     harness, redis_client, read_stream
 ) -> None:
     """A hot microphone with no window attached to it is the failure worth fearing."""
-    deck = harness.drop("voice_deck")
+    from voice_deck.panel import shutdown_voice_deck_panel
+
+    deck = harness.voice_deck()
     deck.click("talk_btn")
 
-    deck.close()
+    shutdown_voice_deck_panel()
     harness.pump(2)
 
     assert controls(read_stream)[-1] == (wire.ACTION_STOP, "")

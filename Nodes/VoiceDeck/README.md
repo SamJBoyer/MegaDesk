@@ -9,8 +9,8 @@ CloudFactory for documentation agents.
 
 | Half | What it does |
 |------|--------------|
-| FE (`voice_deck_frontend/app.py`) | Push-to-talk, mute, repo target, state dot, rolling transcript |
-| BE (`VoiceDeckManager/`) | Microphone and speaker, realtime websocket, tool router, answer relay |
+| FE (`MegaDesk-Canvas/voice_deck/panel.py` + `voice_deck_frontend/app.py`) | Canvas chrome strip: push-to-talk, mute, repo target, state dot, rolling transcript. Always boots; not a Catalog node. |
+| BE (`VoiceDeckManager/`) | Microphone and speaker, realtime websocket, tool router, answer relay. Still the `voice_deck` BeSpec; canvas launches it once. |
 
 **Audio never crosses Redis.** Only control messages (`VOICE:CONTROL`) and text
 (`VOICE:EVENT`: partial transcript, final transcript, answer, state, dispatch,

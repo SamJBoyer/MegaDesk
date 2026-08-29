@@ -15,7 +15,7 @@ the persistent half of that pair, because they have to outlive the stream traffi
 
 ```mermaid
 sequenceDiagram
-    participant VDFE as voice_deck FE
+    participant VDFE as voice_deck canvas panel
     participant VD as voice_deck BE
     participant RT as OpenAI Realtime
     participant CS as code_scope BE
@@ -137,5 +137,5 @@ runs that never started, ran and failed, or the operator cancelled.
 
 - `MegaDesk-Contracts/megadesk_contracts/wire/{code_scope,voice,cloud,factory}.py` — the definitions
 - `Nodes/CodeScope/CodeScopeManager/manager.py`, `Nodes/CodeScope/code_scope_frontend/app.py`
-- `Nodes/VoiceDeck/VoiceDeckManager/session.py`, `Nodes/VoiceDeck/voice_deck_frontend/app.py`
+- `Nodes/VoiceDeck/VoiceDeckManager/session.py`, `Nodes/VoiceDeck/voice_deck_frontend/app.py`, `MegaDesk-Canvas/voice_deck/panel.py`
 - `Nodes/Factory/CloudFactory/CloudFactoryManager/{manager,runtime}.py`, `Nodes/Factory/CloudFactory/cloud_factory_frontend/app.py`
