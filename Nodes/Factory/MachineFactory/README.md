@@ -64,6 +64,16 @@ deleting the hash.
 [System.Environment]::SetEnvironmentVariable("CURSOR_API_KEY", "cursor_...", "User")
 ```
 
+- GitHub credentials for push + PR (`auto_pr` defaults on). The sandbox is
+  Linux Docker and cannot use Windows Git Credential Manager, so a public
+  clone can succeed and then die at teardown with `could not read Username`.
+  Set `GH_TOKEN` / `GITHUB_TOKEN` User-level, or `gh auth login` on the host
+  (MachineFactory reads `gh auth token` and injects it):
+
+```powershell
+[System.Environment]::SetEnvironmentVariable("GH_TOKEN", "ghp_...", "User")
+```
+
 Restart MegaDesk (and the terminal that launched it) after setting a User env var.
 
 ## Build the sandbox image

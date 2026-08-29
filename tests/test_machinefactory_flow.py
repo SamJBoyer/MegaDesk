@@ -281,11 +281,16 @@ def test_the_order_decides_which_branch_the_sandbox_starts_from(
     )
 
 
-def test_the_sandbox_environment_carries_the_ref_and_defaults_to_dev() -> None:
+def test_the_sandbox_environment_carries_the_ref_and_defaults_to_dev(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """``STARTING_REF`` is what AgentHandler clones and bases its PR on."""
     from unittest.mock import patch
 
     from MachineFactoryManager import pool
+
+    monkeypatch.setenv("GH_TOKEN", "test-token")
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
 
     def env_of(ref: str) -> dict[str, str]:
         with patch.object(pool, "_docker") as docker, patch.object(
@@ -310,8 +315,82 @@ def test_the_sandbox_environment_carries_the_ref_and_defaults_to_dev() -> None:
             if index and args[index - 1] == "-e"
         )
 
-    assert env_of("cursor/stuck-branch")["STARTING_REF"] == "cursor/stuck-branch"
+    env = env_of("cursor/stuck-branch")
+    assert env["STARTING_REF"] == "cursor/stuck-branch"
+    assert env["GH_TOKEN"] == "test-token"
+    assert env["GITHUB_TOKEN"] == "test-token"
+    assert env["GIT_TERMINAL_PROMPT"] == "0"
     assert env_of("")["STARTING_REF"] == wire.DEFAULT_STARTING_REF
+
+
+def test_auto_pr_sandbox_refuses_to_start_without_github_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from unittest.mock import patch
+
+    from MachineFactoryManager import pool
+
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(pool, "resolve_github_token", lambda: "")
+
+    with patch.object(pool, "start_redis_sidecar") as sidecar:
+        with pytest.raises(RuntimeError, match="GH_TOKEN"):
+            pool.start_ticket_sandbox(
+                repo="widgets",
+                ticket=TICKET,
+                repo_url="https://github.com/acme/widgets",
+                guid="guid-01",
+                ticket_id="1-0",
+                api_key="key",
+            )
+    sidecar.assert_not_called()
+
+
+def test_resolve_github_token_falls_back_to_gh_auth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from MachineFactoryManager import pool
+
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    class Result:
+        returncode = 0
+        stdout = "gho_from_cli\n"
+        stderr = ""
+
+    monkeypatch.setattr(
+        pool.subprocess,
+        "run",
+        lambda *args, **kwargs: Result(),
+    )
+    assert pool.resolve_github_token() == "gho_from_cli"
+
+
+def test_publish_branch_fails_clearly_without_a_token(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from AgentHandler.repo_clone import SandboxRepo, _auth_url
+
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    assert _auth_url("https://github.com/acme/widgets") == "https://github.com/acme/widgets"
+
+    monkeypatch.setenv("GH_TOKEN", "secret")
+    assert (
+        _auth_url("https://github.com/acme/widgets")
+        == "https://x-access-token:secret@github.com/acme/widgets"
+    )
+
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    repo = SandboxRepo(
+        tmp_path,
+        repo_url="https://github.com/acme/widgets",
+        ticket="smoke",
+    )
+    with pytest.raises(RuntimeError, match="GH_TOKEN is not set"):
+        repo.publish_branch()
 
 
 def test_a_repo_only_needs_a_dev_branch(git_floor) -> None:
