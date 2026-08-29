@@ -1,12 +1,13 @@
-"""Consume WORKORDER, start a clone-in-sandbox agent with a Redis sidecar.
+"""Consume WORKORDER signals, start a clone-in-sandbox agent with a Redis sidecar.
 
 Two loops, the same two CloudFactory runs, for the same reason: orders arrive in
 bursts and start in under a second, while the runs they start take minutes and
 outlive any particular manager process. So the AGENTHANDLER hashes on Redis are
 the source of truth rather than anything held in memory.
 
-* ``poll_orders`` reads the consumer group, writes ``AGENTHANDLER:<guid>`` and
-  only then starts the sandbox (agent container + Redis sidecar).
+* ``poll_orders`` reads the WORKORDER pub/sub channel, XADDs the stream as a
+  reference, writes ``AGENTHANDLER:<guid>`` and only then starts the sandbox
+  (agent container + Redis sidecar). Leftover stream entries do not start work.
 * ``poll_runs`` walks that registry looking for runs whose sandbox is gone.
 
 The order of the first loop is what makes the handshake work: the container finds
@@ -28,19 +29,18 @@ from typing import Any, Optional
 
 from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
-from redis.exceptions import ResponseError
 from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from megadesk_contracts import redis_connect, resolve_ephemeral_db, resolve_redis_url
 from megadesk_contracts.repo import safe_repo_name
 from megadesk_contracts.wire import machine as wire
+from megadesk_contracts.wire.signal import FieldInbox
 
 from MachineFactoryManager.pool import LOCAL_REDIS_URL
 
 log = logging.getLogger("manager")
 
 POLL_INTERVAL_SEC = 1.0
-WORKORDER_BATCH = 32
 RUN_POLL_INTERVAL_SEC = 10.0
 ORPHAN_GRACE_SEC = 30.0
 
@@ -61,25 +61,6 @@ def connect_redis(redis_url: str | None = None) -> Redis:
             "Start a local Redis server and retry."
         ) from exc
     return client
-
-
-def ensure_workorder_group(redis: Redis) -> None:
-    """Create the WORKORDER consumer group if it does not already exist."""
-    try:
-        redis.xgroup_create(
-            wire.WORKORDER_STREAM,
-            wire.WORKORDER_GROUP,
-            id="0",
-            mkstream=True,
-        )
-        log.info(
-            "Created consumer group %s on stream %s",
-            wire.WORKORDER_GROUP,
-            wire.WORKORDER_STREAM,
-        )
-    except ResponseError as exc:
-        if "BUSYGROUP" not in str(exc):
-            raise
 
 
 class MachineFactoryManager:
@@ -108,6 +89,7 @@ class MachineFactoryManager:
         self._runtime = runtime
         self._next_run_poll = 0.0
         self._missing_since: dict[str, float] = {}
+        self._inbox: FieldInbox | None = None
 
     def stop(self, *_args: object) -> None:
         log.info("Shutdown signal received")
@@ -257,24 +239,6 @@ class MachineFactoryManager:
         )
         return True
 
-    def _read_workorders(
-        self, redis: Redis, *, pending: bool
-    ) -> list[tuple[str, dict[str, Any]]]:
-        stream_id = "0" if pending else ">"
-        results = redis.xreadgroup(
-            groupname=self.group,
-            consumername=self.consumer,
-            streams={wire.WORKORDER_STREAM: stream_id},
-            count=WORKORDER_BATCH,
-        )
-        entries: list[tuple[str, dict[str, Any]]] = []
-        if not results:
-            return entries
-        for _stream, messages in results:
-            for message_id, fields in messages:
-                entries.append((message_id, fields))
-        return entries
-
     def _process_workorder_entry(
         self, redis: Redis, message_id: str, fields: dict[str, Any]
     ) -> bool:
@@ -287,21 +251,27 @@ class MachineFactoryManager:
             raise
         except Exception:  # noqa: BLE001
             log.exception("Unhandled error processing WORKORDER %s", message_id)
-
-        redis.xack(wire.WORKORDER_STREAM, self.group, message_id)
         return started
 
+    def ensure_listen(self) -> None:
+        if self._inbox is None:
+            self._inbox = FieldInbox(self.redis, wire.WORKORDER_CHANNEL)
+        self._inbox.listen()
+
     def ensure_group(self) -> None:
-        ensure_workorder_group(self.redis)
+        """Subscribe for execution signals. Name kept for existing callers."""
+        self.ensure_listen()
 
     def poll_orders(self) -> int:
-        """Start a sandbox per order. Returns how many sandboxes started."""
+        """Start a sandbox per published signal. Returns how many sandboxes started."""
+        self.ensure_listen()
+        assert self._inbox is not None
         redis = self.redis
         started = 0
-        for pending in (True, False):
-            for message_id, fields in self._read_workorders(redis, pending=pending):
-                if self._process_workorder_entry(redis, message_id, fields):
-                    started += 1
+        for fields in self._inbox.drain():
+            ticket_id = str(redis.xadd(wire.WORKORDER_STREAM, fields))
+            if self._process_workorder_entry(redis, ticket_id, fields):
+                started += 1
         return started
 
     def live_runs(self) -> list[tuple[str, dict[str, str]]]:
@@ -400,13 +370,11 @@ class MachineFactoryManager:
         signal.signal(signal.SIGINT, self.stop)
         signal.signal(signal.SIGTERM, self.stop)
 
-        redis = self.redis
-        ensure_workorder_group(redis)
+        self.ensure_listen()
         log.info(
-            "MachineFactoryManager polling stream %s (group=%s consumer=%s) redis=%s",
+            "MachineFactoryManager listening on %s (stream %s is reference only) redis=%s",
+            wire.WORKORDER_CHANNEL,
             wire.WORKORDER_STREAM,
-            self.group,
-            self.consumer,
             self.redis_url,
         )
 

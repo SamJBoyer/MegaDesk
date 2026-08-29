@@ -42,7 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="CloudFactoryManager",
         description=(
-            "CloudFactoryManager: consume the CLOUDORDER stream, run Cursor "
+            "CloudFactoryManager: listen for CLOUDORDER signals, run Cursor "
             "cloud agents, and hand a GitHub PR off without publishing success "
             "CLOUDFINISHED."
         ),

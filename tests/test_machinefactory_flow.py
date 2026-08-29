@@ -1,9 +1,9 @@
 """MachineFactory's order loop and its reaper, without a Docker daemon.
 
 ``FakeMachineFactory`` stands in for the sandbox; everything either side of it is
-real — the WORKORDER consumer group, the AGENTHANDLER registry and the FINISHED
-payloads the factory publishes. MachineFactory clones into the sandbox (no Floor
-worktrees) and hands back a pull-request URL.
+real — the WORKORDER pub/sub signal, the reference stream, the AGENTHANDLER
+registry and the FINISHED payloads the factory publishes. MachineFactory clones
+into the sandbox (no Floor worktrees) and hands back a pull-request URL.
 
 The cloud suite's risk is launching twice and opening two pull requests. Here the
 risk is the opposite: a sandbox that dies quietly leaves a hash claiming a run
@@ -17,8 +17,9 @@ factory, and the pair is deliberately readable side by side.
 from __future__ import annotations
 
 import pytest
-from conftest import FINISHED_CANONICAL_FIELDS, WORKORDER_GROUP, WORKORDER_STREAM
+from conftest import FINISHED_CANONICAL_FIELDS, WORKORDER_STREAM
 from megadesk_contracts.wire import machine as wire
+from megadesk_contracts.wire.signal import publish_fields
 
 pytestmark = [pytest.mark.redis, pytest.mark.git]
 
@@ -34,17 +35,22 @@ def place_order(
     git_floor,
     *,
     ticket_name: str = TICKET,
-) -> str:
-    entry = redis_client.xadd(
-        WORKORDER_STREAM,
+    ref: str = "",
+) -> None:
+    wire.publish_workorder(
+        redis_client,
         wire.workorder_fields(
             repo=git_floor.repo,
             url=str(git_floor.origin),
             ticket_name=ticket_name,
             instructions=INSTRUCTIONS,
+            ref=ref,
         ),
     )
-    return entry
+
+
+def stored_ticket_id(redis_client, index: int = 0) -> str:
+    return redis_client.xrange(WORKORDER_STREAM)[index][0]
 
 
 def runs_on(redis_client) -> dict[str, dict[str, str]]:
@@ -60,22 +66,17 @@ def finished(read_stream, git_floor) -> list[dict[str, str]]:
     ]
 
 
-def pending_orders(redis_client) -> int:
-    groups = redis_client.xinfo_groups(WORKORDER_STREAM)
-    return sum(g["pending"] for g in groups if g["name"] == WORKORDER_GROUP)
-
-
 # --- launching -------------------------------------------------------------
 
 
 def test_an_order_starts_one_sandbox(
     machine_factory, fake_machine_factory, redis_client, git_floor, read_stream
 ) -> None:
-    machine_factory.ensure_group()
-    ticket_id = place_order(redis_client, git_floor)
+    place_order(redis_client, git_floor)
 
     assert machine_factory.poll_orders() == 1
 
+    ticket_id = stored_ticket_id(redis_client)
     assert len(fake_machine_factory.launches) == 1
     launch = fake_machine_factory.launches[0]
     assert launch["repo"] == git_floor.repo
@@ -92,7 +93,6 @@ def test_an_order_starts_one_sandbox(
     assert fields["ticket_id"] == ticket_id
     assert fields["status"] == wire.STATUS_RUNNING
     assert finished(read_stream, git_floor) == [], "a started run has not finished"
-    assert pending_orders(redis_client) == 0, "a handled order must not stay pending"
 
 
 def test_the_registry_entry_exists_before_the_sandbox_starts(
@@ -104,7 +104,6 @@ def test_the_registry_entry_exists_before_the_sandbox_starts(
     still look correct afterwards while the container had already failed to find
     it.
     """
-    machine_factory.ensure_group()
     seen: list[dict[str, str]] = []
     original = fake_machine_factory.launch
 
@@ -121,15 +120,33 @@ def test_the_registry_entry_exists_before_the_sandbox_starts(
     assert seen[0]["ticket_id"]
 
 
-def test_an_unusable_order_is_acked_rather_than_retried_forever(
+def test_an_unusable_order_is_stored_rather_than_retried_forever(
     machine_factory, fake_machine_factory, redis_client
 ) -> None:
-    machine_factory.ensure_group()
-    redis_client.xadd(WORKORDER_STREAM, {"repo": "", "ticket_name": ""})
+    publish_fields(
+        redis_client, wire.WORKORDER_CHANNEL, {"repo": "", "ticket_name": ""}
+    )
 
     assert machine_factory.poll_orders() == 0
     assert fake_machine_factory.launches == []
-    assert pending_orders(redis_client) == 0
+    assert redis_client.xlen(WORKORDER_STREAM) == 1
+
+
+def test_a_stale_stream_entry_does_not_start_a_sandbox(
+    machine_factory, fake_machine_factory, redis_client, git_floor
+) -> None:
+    redis_client.xadd(
+        WORKORDER_STREAM,
+        wire.workorder_fields(
+            repo=git_floor.repo,
+            url=str(git_floor.origin),
+            ticket_name=TICKET,
+            instructions=INSTRUCTIONS,
+        ),
+    )
+
+    assert machine_factory.poll_orders() == 0
+    assert fake_machine_factory.launches == []
 
 
 def test_a_sandbox_that_never_started_is_reported_not_left_hanging(
@@ -137,10 +154,10 @@ def test_a_sandbox_that_never_started_is_reported_not_left_hanging(
 ) -> None:
     """Silence would leave a FINISHED stream with no outcome for a run that died."""
     fake_machine_factory.startup_error = "docker daemon is not running"
-    ticket_id = place_order(redis_client, git_floor)
+    place_order(redis_client, git_floor)
 
-    machine_factory.ensure_group()
     assert machine_factory.poll_orders() == 0
+    ticket_id = stored_ticket_id(redis_client)
 
     reports = finished(read_stream, git_floor)
     assert len(reports) == 1
@@ -150,7 +167,6 @@ def test_a_sandbox_that_never_started_is_reported_not_left_hanging(
     assert reports[0]["status"] == wire.STATUS_ERROR
     assert reports[0]["pr_url"] == ""
     assert runs_on(redis_client) == {}, "a failed launch leaves no live run"
-    assert pending_orders(redis_client) == 0
     assert fake_machine_factory.released, "failed launch must release the sidecar"
 
 
@@ -160,7 +176,6 @@ def test_a_sandbox_that_never_started_is_reported_not_left_hanging(
 def test_a_live_sandbox_is_left_alone(
     machine_factory, redis_client, git_floor
 ) -> None:
-    machine_factory.ensure_group()
     place_order(redis_client, git_floor)
     machine_factory.poll_orders()
 
@@ -172,9 +187,9 @@ def test_a_sandbox_that_vanished_is_reaped_and_reported(
     machine_factory, fake_machine_factory, redis_client, git_floor, read_stream
 ) -> None:
     """A container is not a managed service: nothing else notices it stopped."""
-    machine_factory.ensure_group()
-    ticket_id = place_order(redis_client, git_floor)
+    place_order(redis_client, git_floor)
     machine_factory.poll_orders()
+    ticket_id = stored_ticket_id(redis_client)
     run_key = fake_machine_factory.launches[0]["run_key"]
 
     fake_machine_factory.stop(run_key)
@@ -193,9 +208,9 @@ def test_a_healthy_sandbox_reporting_for_itself_is_not_reaped_twice(
     machine_factory, fake_machine_factory, redis_client, git_floor, read_stream
 ) -> None:
     """The sandbox publishes from inside, where the exit code is. Then it is gone."""
-    machine_factory.ensure_group()
-    ticket_id = place_order(redis_client, git_floor)
+    place_order(redis_client, git_floor)
     machine_factory.poll_orders()
+    ticket_id = stored_ticket_id(redis_client)
     run_key = fake_machine_factory.launches[0]["run_key"]
 
     redis_client.xadd(
@@ -218,9 +233,9 @@ def test_a_run_whose_order_is_gone_is_dropped_rather_than_rechecked(
     machine_factory, fake_machine_factory, redis_client, git_floor, read_stream
 ) -> None:
     """With no order there is no ticket name, so nothing coherent to publish."""
-    machine_factory.ensure_group()
-    ticket_id = place_order(redis_client, git_floor)
+    place_order(redis_client, git_floor)
     machine_factory.poll_orders()
+    ticket_id = stored_ticket_id(redis_client)
     run_key = fake_machine_factory.launches[0]["run_key"]
 
     redis_client.xdel(WORKORDER_STREAM, ticket_id)
@@ -237,7 +252,6 @@ def test_a_run_whose_order_is_gone_is_dropped_rather_than_rechecked(
 def test_cancelling_stops_the_sandbox_and_marks_the_run(
     machine_factory, fake_machine_factory, redis_client, git_floor
 ) -> None:
-    machine_factory.ensure_group()
     place_order(redis_client, git_floor)
     machine_factory.poll_orders()
     run_key = fake_machine_factory.launches[0]["run_key"]
@@ -259,16 +273,8 @@ def test_the_order_decides_which_branch_the_sandbox_starts_from(
     machine_factory, fake_machine_factory, redis_client, git_floor
 ) -> None:
     """AutoIntegrate's fix has to be built on the pull request's own branch."""
-    machine_factory.ensure_group()
-    redis_client.xadd(
-        WORKORDER_STREAM,
-        wire.workorder_fields(
-            repo=git_floor.repo,
-            url=str(git_floor.origin),
-            ref="cursor/stuck-branch",
-            ticket_name=TICKET,
-            instructions=INSTRUCTIONS,
-        ),
+    place_order(
+        redis_client, git_floor, ticket_name=TICKET, ref="cursor/stuck-branch"
     )
     place_order(redis_client, git_floor, ticket_name="ordinary-ticket")
 

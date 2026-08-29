@@ -36,14 +36,16 @@ from megadesk_contracts.human_gate import (
     run_gh,
 )
 from megadesk_contracts.wire.cloud import (
-    CLOUDORDER_STREAM,
+    CLOUDORDER_CHANNEL,
     cloudorder_fields,
     new_order_id,
+    publish_cloudorder,
 )
 from megadesk_contracts.wire.factory import DEFAULT_STARTING_REF
 from megadesk_contracts.wire.machine import (
     DEFAULT_MODEL,
-    WORKORDER_STREAM,
+    WORKORDER_CHANNEL,
+    publish_workorder,
     workorder_fields,
 )
 
@@ -485,7 +487,7 @@ class AutoIntegrate:
 
         try:
             if factory == "machine":
-                stream = WORKORDER_STREAM
+                channel = WORKORDER_CHANNEL
                 fields = workorder_fields(
                     repo=repo,
                     url=repo_url,
@@ -495,8 +497,9 @@ class AutoIntegrate:
                     model=model,
                     auto_pr=True,
                 )
+                publish = publish_workorder
             elif factory == "cloud":
-                stream = CLOUDORDER_STREAM
+                channel = CLOUDORDER_CHANNEL
                 fields = cloudorder_fields(
                     order_id=new_order_id(),
                     repo_url=repo_url,
@@ -506,6 +509,7 @@ class AutoIntegrate:
                     model=model,
                     auto_pr=True,
                 )
+                publish = publish_cloudorder
             else:
                 raise ValueError(f"unknown factory {factory!r}")
         except ValueError as exc:
@@ -519,16 +523,16 @@ class AutoIntegrate:
             return
 
         try:
-            self._redis.xadd(stream, fields)
+            publish(self._redis, fields)
         except redis.RedisError as exc:
-            self._set_status(f"Redis xadd failed: {exc}", COLOR_RED)
+            self._set_status(f"Redis publish failed: {exc}", COLOR_RED)
             self._redis = None
             return
 
         light = self._tag(f"issue_light_{issue_id}")
         if dpg.does_item_exist(light):
             dpg.configure_item(light, fill=COLOR_BLUE, color=COLOR_BLUE)
-        self._set_status(f"Dispatched {branch} → {stream}", COLOR_BLUE)
+        self._set_status(f"Dispatched {branch} → {channel}", COLOR_BLUE)
 
 
 def build_ui(

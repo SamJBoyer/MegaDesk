@@ -52,10 +52,19 @@ def test_every_writer_shares_one_definition() -> None:
     import work_dispatcher_app
     from megadesk_contracts.wire import cloud, machine
 
-    assert work_dispatcher_app.WORKORDER_STREAM == machine.WORKORDER_STREAM
+    assert work_dispatcher_app.WORKORDER_CHANNEL == machine.WORKORDER_CHANNEL
     assert work_dispatcher_app.workorder_fields is machine.workorder_fields
-    assert work_dispatcher_app.CLOUDORDER_STREAM == cloud.CLOUDORDER_STREAM
+    assert work_dispatcher_app.publish_workorder is machine.publish_workorder
+    assert work_dispatcher_app.CLOUDORDER_CHANNEL == cloud.CLOUDORDER_CHANNEL
     assert work_dispatcher_app.cloudorder_fields is cloud.cloudorder_fields
+    assert work_dispatcher_app.publish_cloudorder is cloud.publish_cloudorder
+
+
+def test_workorder_signal_round_trips_through_json(machine_wire) -> None:
+    from megadesk_contracts.wire.signal import decode_fields, encode_fields
+
+    fields = machine_wire.workorder_fields(**WORKORDER_SAMPLE)
+    assert decode_fields(encode_fields(fields)) == fields
 
 
 def test_workorder_round_trips_through_the_parser(machine_wire) -> None:

@@ -461,7 +461,7 @@ def fake_machine_factory():
 
 @pytest.fixture
 def machine_factory(redis_client, fake_machine_factory):
-    """The real BE loop with a fake sandbox host: wire and acks are real.
+    """The real BE loop with a fake sandbox host: wire and signals are real.
 
     ``orphan_grace=0`` because the grace period exists to survive the moment
     between a sandbox exiting and its hash being deleted, and a test that waited
@@ -477,6 +477,7 @@ def machine_factory(redis_client, fake_machine_factory):
         run_poll_interval=0.0,
         orphan_grace=0.0,
     )
+    manager.ensure_listen()
     return manager
 
 
@@ -513,13 +514,42 @@ def voice_session(redis_client, persistent_client, fake_realtime):
 
 
 @pytest.fixture
-def workorders(redis_client):
-    """Read WORKORDER entries as (entry_id, fields) in stream order."""
+def workorders(redis_client, machine_wire):
+    """Collect published WORKORDER signals as (index, fields) in arrival order."""
+    from megadesk_contracts.wire.signal import FieldInbox
+
+    inbox = FieldInbox(redis_client, machine_wire.WORKORDER_CHANNEL)
+    inbox.listen()
+    collected: list[dict[str, str]] = []
 
     def _read() -> list[tuple[str, dict[str, str]]]:
-        return list(redis_client.xrange(WORKORDER_STREAM))
+        collected.extend(inbox.drain())
+        return [(str(i), fields) for i, fields in enumerate(collected)]
 
-    return _read
+    try:
+        yield _read
+    finally:
+        inbox.close()
+
+
+@pytest.fixture
+def cloudorders(redis_client):
+    """Collect published CLOUDORDER signals as (index, fields) in arrival order."""
+    from megadesk_contracts.wire.cloud import CLOUDORDER_CHANNEL
+    from megadesk_contracts.wire.signal import FieldInbox
+
+    inbox = FieldInbox(redis_client, CLOUDORDER_CHANNEL)
+    inbox.listen()
+    collected: list[dict[str, str]] = []
+
+    def _read() -> list[tuple[str, dict[str, str]]]:
+        collected.extend(inbox.drain())
+        return [(str(i), fields) for i, fields in enumerate(collected)]
+
+    try:
+        yield _read
+    finally:
+        inbox.close()
 
 
 @pytest.fixture

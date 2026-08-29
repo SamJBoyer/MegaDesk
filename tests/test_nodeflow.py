@@ -11,7 +11,8 @@ WorkDispatcher uses and lists open issues labeled `merge_success`.
 
 The real MachineFactory BE is never launched. Dropping a node only publishes a
 LAUNCHREQUEST when Supervisor is alive, and neither FE under test has a BE, so
-nothing here can spawn Docker.
+nothing here can spawn Docker. WorkDispatcher publishes a pub/sub signal;
+FakeAgent stores that onto the WORKORDER stream the way the real factory does.
 
 Scenario numbers match the table in `Docs/integration_testing.md`.
 """
@@ -99,17 +100,15 @@ def test_t1_dispatch_writes_the_canonical_workorder(
 
 
 def test_t1c_dispatch_to_cloud_writes_a_canonical_cloudorder(
-    fake_gh, harness, workorders, read_stream
+    fake_gh, harness, workorders, cloudorders
 ) -> None:
     """The per-row factory combo sends the ticket to one factory, not both."""
-    from megadesk_contracts.wire import cloud as cloud_wire
-
     fake_gh.add_issue(41, "add-widget-tests", "Cover the widget module with tests.")
 
     dispatcher = connect_dispatcher(harness)
     dispatch(harness, dispatcher, 41, factory="cloud")
 
-    orders = read_stream(cloud_wire.CLOUDORDER_STREAM)
+    orders = cloudorders()
     assert len(orders) == 1, f"expected one CLOUDORDER, got {orders}"
     _entry_id, fields = orders[0]
     assert set(fields) == set(CLOUDORDER_CANONICAL_FIELDS)
@@ -166,10 +165,10 @@ def test_t2b_gh_failure_surfaces_in_the_status_widget(
 # --- T3: WORKORDER → sandbox boundary → FINISHED ---------------------------
 
 
-def test_t3_agent_acks_the_group_and_publishes_finished(
+def test_t3_agent_handles_the_signal_and_publishes_finished(
     redis_client, fake_gh, harness, git_floor, fake_agent, machine_wire
 ) -> None:
-    """Catches consumer-group and ack semantics, and FINISHED field shape."""
+    """Catches pub/sub delivery, reference-stream storage, and FINISHED field shape."""
     fake_gh.add_issue(43, "t3-ticket", "Make a commit.")
 
     dispatcher = connect_dispatcher(harness)
@@ -179,7 +178,7 @@ def test_t3_agent_acks_the_group_and_publishes_finished(
     assert len(runs) == 1, "the machine_factory group delivered nothing"
     run = runs[0]
     assert run.repo == REPO
-    assert fake_agent.pending() == 0, "WORKORDER entries left unacked after handling"
+    assert fake_agent.pending() == 0, "WORKORDER signals left unhandled"
 
     finished = redis_client.xrange(machine_wire.finished_stream(REPO))
     assert len(finished) == 1
@@ -198,7 +197,7 @@ def test_t3_agent_acks_the_group_and_publishes_finished(
 def test_t3b_a_second_pass_delivers_nothing_new(
     redis_client, fake_gh, harness, fake_agent, machine_wire
 ) -> None:
-    """An acked entry must not be redelivered on the next poll."""
+    """A handled signal must not start a second run on the next poll."""
     fake_gh.add_issue(44, "t3b-ticket", "Once only.")
 
     dispatcher = connect_dispatcher(harness)
@@ -301,10 +300,9 @@ def test_t8_full_chain_from_dispatch_to_merge_success_pr(
     manager = connect_manager(harness)
 
     dispatch(harness, dispatcher, 88)
-    assert redis_client.xlen(WORKORDER_STREAM) == 1
-
     runs = fake_agent.run_once()
     assert len(runs) == 1
+    assert redis_client.xlen(WORKORDER_STREAM) == 1
     run = runs[0]
     assert redis_client.xlen(machine_wire.finished_stream(REPO)) == 1
 

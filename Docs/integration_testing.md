@@ -85,10 +85,10 @@ PRManager does not read Redis: it lists GitHub issues labeled `merge_success`.
 The middle of the chain is not testable in a fast loop: `MachineFactoryManager`
 shells out to `docker run` (clone-in-sandbox + Redis sidecar), and
 `AgentHandler` calls the real Cursor API. **Cut at the sandbox boundary.**
-`FakeAgent` consumes `WORKORDER` using the real `machine_factory` consumer
-group and `XADD`s `FINISHED:{repo}` with a canned `pr_url`. PRManager is fed
-`merge_success` issues through `FakeGh`, not that stream. Everything on both
-sides of that cut stays real.
+`FakeAgent` consumes the `WORKORDER` pub/sub signal, stores the payload on the
+reference stream the way MachineFactory does, and `XADD`s `FINISHED:{repo}`
+with a canned `pr_url`. PRManager is fed `merge_success` issues through
+`FakeGh`, not that stream. Everything on both sides of that cut stays real.
 
 The real MachineFactory BE is never launched: with no Supervisor alive,
 `DisplayEngine._maybe_launch_backend` logs and skips.
