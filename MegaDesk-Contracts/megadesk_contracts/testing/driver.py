@@ -161,6 +161,16 @@ class NodeDriver:
             )
         return invoke_callback(callback, tag, app_data, dpg.get_item_user_data(tag))
 
+    def drop(self, suffix: str, app_data: Any = None) -> Any:
+        """Complete a drag-and-drop onto a widget: invoke its drop_callback."""
+        tag = self.require(suffix)
+        callback = dpg.get_item_drop_callback(tag)
+        if callback is None:
+            raise CallbackMissing(
+                f"{self.node_name}: widget {suffix!r} has no drop_callback bound"
+            )
+        return invoke_callback(callback, tag, app_data, dpg.get_item_user_data(tag))
+
     def click(self, suffix: str) -> Any:
         """Press a button: its callback receives ``app_data=None``, as DPG does."""
         return self.fire(suffix, app_data=None)
