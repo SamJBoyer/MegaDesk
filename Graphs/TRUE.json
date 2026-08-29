@@ -70,14 +70,30 @@
       "nickname": "pr_manager",
       "node_name": "pr_manager",
       "position": [
-        1618.0,
-        431.0
+        1672.0,
+        -137.0
       ],
       "parameters": {},
       "data": {
         "width": 560.0,
         "height": 160.0,
         "node_name": "pr_manager"
+      }
+    },
+    "dc401889-a5f1-47cd-9980-bd31b5b8dc52": {
+      "member_id": "dc401889-a5f1-47cd-9980-bd31b5b8dc52",
+      "type": "megadesk",
+      "nickname": "promptimprover",
+      "node_name": "promptimprover",
+      "position": [
+        1142.0,
+        423.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 560.0,
+        "height": 280.0,
+        "node_name": "promptimprover"
       }
     }
   }
