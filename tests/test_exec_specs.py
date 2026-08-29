@@ -10,6 +10,8 @@ def test_be_nodes_declare_their_launch_endpoints() -> None:
     from code_scope_node import get_fe_spec as scope_fe
     from machine_factory_node import get_be_spec as mc_be
     from machine_factory_node import get_fe_spec as mc_fe
+    from sargent_node import get_be_spec as sargent_be
+    from sargent_node import get_fe_spec as sargent_fe
     from voice_deck_node import get_be_spec as voice_be
     from voice_deck_node import get_fe_spec as voice_fe
 
@@ -21,6 +23,8 @@ def test_be_nodes_declare_their_launch_endpoints() -> None:
     assert voice_be().name == "voice_deck"
     assert cloud_fe().backends == ("cloud_factory",)
     assert cloud_be().name == "cloud_factory"
+    assert sargent_fe().backends == ("sargent",)
+    assert sargent_be().name == "sargent"
 
 
 def test_fe_only_nodes_do_not_launch_a_backend() -> None:
