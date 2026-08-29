@@ -45,7 +45,12 @@ __all__ = [
     "tool_schemas",
 ]
 
-_IN_TREE_NODES = ("voice_deck_node", "code_scope_node", "work_dispatcher_node")
+_IN_TREE_NODES = (
+    "voice_deck_node",
+    "code_scope_node",
+    "work_dispatcher_node",
+    "notepad_node",
+)
 
 
 def collected_specs() -> list[ToolSpec]:

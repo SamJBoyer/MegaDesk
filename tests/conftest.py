@@ -33,6 +33,7 @@ sys.path[:0] = [
         "Nodes/Factory/CloudFactory",
         "Nodes/GraphScope",
         "Nodes/VisionBoard",
+        "Nodes/Notepad",
         "Nodes/Sargent",
     )
 ]
@@ -72,6 +73,8 @@ def _isolate_megadesk_logs(tmp_path, monkeypatch):
     """Keep Supervisor session transcripts out of the worktree ``Logs/``."""
     monkeypatch.setenv("MEGADESK_LOGS_ROOT", str(tmp_path / "Logs"))
     monkeypatch.delenv("MEGADESK_LOGS_DIR", raising=False)
+    monkeypatch.setenv("NOTEPAD_ROOT", str(tmp_path / "notepad-notes"))
+    monkeypatch.setenv("NOTEPAD_SCOPE", str(tmp_path / "notepad-scope"))
 
 # Canonical wire format. Every writer emits these names; parsers require them.
 WORKORDER_CANONICAL_FIELDS = frozenset(
@@ -122,6 +125,7 @@ GRAPHRUN_CANONICAL_FIELDS = frozenset(
 GRAPHEVENT_CANONICAL_FIELDS = frozenset(
     {"guid", "graph", "node", "status", "detail", "ts"}
 )
+NOTEPAD_CMD_CANONICAL_FIELDS = frozenset({"action", "title", "text"})
 SARGENT_ASK_CANONICAL_FIELDS = frozenset({"session_id", "prompt_id", "prompt"})
 SARGENT_ANSWER_CANONICAL_FIELDS = frozenset(
     {"session_id", "prompt_id", "rewrite", "status"}

@@ -131,6 +131,7 @@ tests/
   test_voice_contract.py
   test_workgraph_flow.py
   test_vision_board.py
+  test_notepad.py
   test_sargent_flow.py
 ```
 

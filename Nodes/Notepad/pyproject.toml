@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "notepad"
+version = "0.1.0"
+description = "MegaDesk FE node: a tabbed notepad of git-backed text files"
+requires-python = ">=3.10"
+dependencies = [
+    "dearpygui>=1.11.1",
+    "redis>=5.0.0",
+    "megadesk-contracts",
+]
+
+[project.entry-points."MegaDesk.nodes"]
+notepad = "notepad_node"
+
+[tool.setuptools]
+py-modules = ["notepad_node"]
+
+[tool.setuptools.packages.find]
+include = ["notepad_frontend*", "notepad_tools*"]

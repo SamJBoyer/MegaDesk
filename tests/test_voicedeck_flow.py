@@ -27,6 +27,7 @@ from megadesk_contracts.wire import cloud as cloud_wire
 from megadesk_contracts.wire import code_scope as scope_wire
 from megadesk_contracts.wire import machine as machine_wire
 from megadesk_contracts.wire import voice as wire
+from notepad_tools import TOOL_ADD_NOTE_TEXT, TOOL_CREATE_NOTE, TOOL_SWITCH_NOTE
 from VoiceDeckManager.tools import (
     ANSWER_PREFIX,
     INSTRUCTIONS,
@@ -669,6 +670,9 @@ def test_the_session_hands_turn_taking_to_the_server() -> None:
         TOOL_ASK_CODEBASE,
         TOOL_DISPATCH_DOC_AGENT,
         TOOL_SET_REPO,
+        TOOL_CREATE_NOTE,
+        TOOL_ADD_NOTE_TEXT,
+        TOOL_SWITCH_NOTE,
         TOOL_END_SESSION,
         TOOL_LIST_TICKETS,
         TOOL_CHOOSE_TICKET,

@@ -16,6 +16,7 @@ legitimately define the same names (``DEFAULT_MODEL``, ``parse_*``)::
     wire.sargent.ask_fields(...)
     wire.voice.event_fields(...)
     wire.graph.graph_run_fields(...)
+    wire.notepad.command_fields(...)
 
 ``wire.factory`` holds what the two Factory families share — the run statuses —
 so ``wire.machine`` and ``wire.cloud`` can stay separate without inventing two
@@ -29,6 +30,7 @@ from megadesk_contracts.wire import (
     factory,
     graph,
     machine,
+    notepad,
     sargent,
     signal,
     voice,
@@ -45,6 +47,7 @@ __all__ = [
     "graph",
     "is_true",
     "machine",
+    "notepad",
     "sargent",
     "signal",
     "voice",

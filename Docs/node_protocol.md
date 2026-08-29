@@ -66,6 +66,7 @@ Examples in-repo:
 | VoiceDeck | `voice_deck` | BE + tools (FE is canvas chrome) |
 | GraphScope | `graph_scope` | FE only |
 | VisionBoard | `vision_board` | FE only |
+| Notepad | `notepad` | FE + tools |
 | Sargent | `sargent` | FE + BE |
 
 Nodes may be nested. Related ones are grouped by folder — `Nodes/Factory/` holds
