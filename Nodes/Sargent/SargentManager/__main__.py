@@ -18,7 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="SargentManager",
         description=(
             "SargentManager: consume the SARGENT:ASK stream and rewrite each "
-            "prompt with one OpenAI chat-completions call."
+            "prompt with one OpenAI Chat Completions call."
         ),
     )
     sub = parser.add_subparsers(dest="command")

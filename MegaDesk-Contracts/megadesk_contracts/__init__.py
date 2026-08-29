@@ -1,4 +1,4 @@
-"""Shared MegaDesk node contract: FeSpec / BeSpec and entry-point discovery."""
+"""Shared MegaDesk node contract: FeSpec / BeSpec / ToolSpec and entry-point discovery."""
 
 from megadesk_contracts.agent_errors import (
     AgentError,
@@ -10,11 +10,13 @@ from megadesk_contracts.discovery import (
     ENTRY_POINT_GROUP,
     discover_backends,
     discover_frontends,
+    discover_tools,
     get_backend,
     load_be_spec,
     load_fe_spec,
+    load_tool_spec,
 )
-from megadesk_contracts.exec_spec import BeSpec, FeSpec
+from megadesk_contracts.exec_spec import BeSpec, FeSpec, ToolHost, ToolSpec, compose_tool_specs
 from megadesk_contracts import frame_pump, wire
 from megadesk_contracts.node_logging import configure_node_logging
 from megadesk_contracts.node_runtime import (
@@ -105,6 +107,8 @@ __all__ = [
     "RealtimeTransport",
     "RunHandle",
     "RunStatus",
+    "ToolHost",
+    "ToolSpec",
     "DEFAULT_REDIS_URL",
     "ENV_DEV_FLUSH_MODE",
     "ENV_FACTORY_REDIS_URL",
@@ -123,10 +127,12 @@ __all__ = [
     "clone_path",
     "coerce_parameters",
     "configure_node_logging",
+    "compose_tool_specs",
     "default_scope_root",
     "dev_flush_mode_enabled",
     "discover_backends",
     "discover_frontends",
+    "discover_tools",
     "ensure_agent_audit_file",
     "ensure_clone",
     "ensure_supervisor_running",
@@ -138,6 +144,7 @@ __all__ = [
     "is_reported_node_alive",
     "load_be_spec",
     "load_fe_spec",
+    "load_tool_spec",
     "load_parameter_names",
     "node_should_stop",
     "normalize_parameters",

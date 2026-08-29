@@ -75,8 +75,8 @@ Default Redis has indexes 0–15. Live MegaDesk never leaves 0/1. MachineFactory
 | `CLOUDFINISHED` | stream | `CLOUDFINISHED` | 0 | [voice-chain.md](voice-chain.md#cloudfinished) |
 | CodeScope session | hash | `CODESCOPE:SESSION:<id>` | 1 | [voice-chain.md](voice-chain.md#hashes-db-1) |
 | Cloud run | hash | `CLOUDRUN:<agent_id>` | 1 | [voice-chain.md](voice-chain.md#hashes-db-1) |
-| `SARGENT:ASK` | stream | `SARGENT:ASK` | 0 | [sargent.md](sargent.md) |
-| `SARGENT:ANSWER` | stream | `SARGENT:ANSWER` | 0 | [sargent.md](sargent.md) |
+| `SARGENT:ASK` | stream | `SARGENT:ASK` | 0 | `megadesk_contracts.wire.sargent` |
+| `SARGENT:ANSWER` | stream | `SARGENT:ANSWER` | 0 | `megadesk_contracts.wire.sargent` |
 
 ## Code references
 

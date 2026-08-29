@@ -1,1 +1,1 @@
-"""Sargent FE: a compact prompt-rewrite chat on the MegaDesk canvas."""
+"""Sargent FE: a compact chat window that publishes prompts and shows rewrites."""

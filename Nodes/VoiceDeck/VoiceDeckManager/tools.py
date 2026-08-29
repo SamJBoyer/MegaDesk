@@ -1,159 +1,90 @@
-"""What the voice model is allowed to do, and how it is told to behave.
+"""Assemble the voice catalog from discovered node ToolSpecs.
 
-The instructions carry more weight than usual here because of one timing fact:
-``ask_codebase`` cannot return an answer. A Cursor agent takes seconds to a
-minute, and a realtime tool result is expected in well under a second, so the
-tool returns ``searching`` and the real answer arrives later as a separate
-message. The model has to be told that, or it will either invent an answer or go
-silent — both of which read as broken.
-
-``end_session`` is the other trap. Server VAD already treats a pause as the end
-of a turn, and the model will happily map that onto hanging up unless it is told
-— and the backend enforces — that only an explicit goodbye closes the socket.
+The schemas and instructions live in each node's tool folder. This module is
+the one place the realtime session asks what the model may do: it discovers
+``get_tool_spec()`` the same way the canvas discovers ``get_fe_spec()``, and
+falls back to importing in-tree node modules so tests against this worktree
+still see tools when an editable install is stale.
 """
 
 from __future__ import annotations
 
-import re
+import importlib
+from typing import Callable
 
-TOOL_ASK_CODEBASE = "ask_codebase"
-TOOL_DISPATCH_DOC_AGENT = "dispatch_doc_agent"
-TOOL_SET_REPO = "set_repo"
-TOOL_END_SESSION = "end_session"
+from megadesk_contracts import ToolSpec, compose_tool_specs, discover_tools
 
-# Prefix on the injected conversation item, so the model can tell a retrieved
-# answer apart from something the user said.
-ANSWER_PREFIX = "[codebase]"
-
-_FAREWELL_RE = re.compile(
-    r"\b("
-    r"good\s*bye|bye(?:-bye)?"
-    r"|that['’]s\s+all|thats\s+all|that\s+is\s+all"
-    r"|that['’]s\s+it|thats\s+it"
-    r"|hang\s*up"
-    r"|end(?:\s+the)?\s+session"
-    r"|stop\s+listening"
-    r"|i(?:['’]m|\s+am)\s+done"
-    r"|we(?:['’]re|\s+are)\s+done"
-    r"|i(?:['’]m|\s+am)\s+finished"
-    r"|we(?:['’]re|\s+are)\s+finished"
-    r")\b",
-    re.IGNORECASE,
+from code_scope_tools import (
+    ANSWER_PREFIX,
+    TOOL_ASK_CODEBASE,
+    TOOL_DISPATCH_DOC_AGENT,
+    TOOL_SET_REPO,
+)
+from voice_deck_tools import TOOL_END_SESSION, is_farewell
+from work_dispatcher_tools import (
+    TOOL_CHOOSE_TICKET,
+    TOOL_LIST_TICKETS,
+    TOOL_SEND_TICKET,
+    TOOL_SET_DISPATCH,
 )
 
-INSTRUCTIONS = f"""You are a voice assistant for a software developer, talking about \
-their code out loud.
+__all__ = [
+    "ANSWER_PREFIX",
+    "TOOL_ASK_CODEBASE",
+    "TOOL_CHOOSE_TICKET",
+    "TOOL_DISPATCH_DOC_AGENT",
+    "TOOL_END_SESSION",
+    "TOOL_LIST_TICKETS",
+    "TOOL_SEND_TICKET",
+    "TOOL_SET_DISPATCH",
+    "TOOL_SET_REPO",
+    "collected_specs",
+    "is_farewell",
+    "session_instructions",
+    "tool_handlers",
+    "tool_schemas",
+]
 
-Ground every claim about the code in a tool call. You cannot see the repository \
-yourself, so never guess at file names, function names, or behaviour: call \
-{TOOL_ASK_CODEBASE} and wait.
-
-{TOOL_ASK_CODEBASE} returns immediately with status "searching". That is not the \
-answer. When it does, say one short thing to hold the floor — "let me look" — and \
-then wait silently. Do not call {TOOL_END_SESSION}. The session stays open. The \
-answer arrives moments later as a message starting with "{ANSWER_PREFIX}". Relay \
-that message in your own words, briefly, as if you had just read it. Never repeat \
-the "{ANSWER_PREFIX}" marker out loud. After relaying it, keep listening for a \
-follow-up.
-
-A pause after the user speaks is the start of your turn, not the end of the \
-session. Call {TOOL_END_SESSION} only after the user explicitly says they are \
-finished — goodbye, that's all, hang up. Never call it after a question, after \
-another tool, or while waiting for a codebase answer.
-
-Before calling {TOOL_DISPATCH_DOC_AGENT}, say the title and the gist of the \
-instructions back to the user and wait for them to agree. Dispatching sends an \
-agent to write code and open a pull request, so it is not something to do on a \
-guess.
-
-Keep every reply to one or two spoken sentences. No markdown, no lists, no code \
-read aloud character by character. If you do not know, say so."""
+_IN_TREE_NODES = ("voice_deck_node", "code_scope_node", "work_dispatcher_node")
 
 
-def is_farewell(text: str) -> bool:
-    """True when the user asked to hang up, not merely finished a turn."""
-    return bool(_FAREWELL_RE.search((text or "").strip()))
+def collected_specs() -> list[ToolSpec]:
+    """Every ToolSpec VoiceDeck should hand the model."""
+    by_name = dict(discover_tools())
+    for mod_name in _IN_TREE_NODES:
+        try:
+            mod = importlib.import_module(mod_name)
+        except ImportError:
+            continue
+        fn = getattr(mod, "get_tool_spec", None)
+        if not callable(fn):
+            continue
+        spec = fn()
+        if isinstance(spec, ToolSpec):
+            by_name.setdefault(spec.name, spec)
+    return list(by_name.values())
+
+
+def _catalog() -> tuple[str, list[dict], dict[str, Callable[..., dict]]]:
+    return compose_tool_specs(collected_specs())
+
+
+def session_instructions() -> str:
+    """Combined prompt: VoiceDeck hang-up rules, then each node's tools."""
+    return _catalog()[0]
 
 
 def tool_schemas() -> list[dict]:
-    """Realtime ``session.tools`` entries."""
-    return [
-        {
-            "type": "function",
-            "name": TOOL_ASK_CODEBASE,
-            "description": (
-                "Ask a question about the repository that is currently loaded. "
-                "Returns immediately with status 'searching'; the answer follows "
-                f"as a separate message beginning with '{ANSWER_PREFIX}'."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "question": {
-                        "type": "string",
-                        "description": (
-                            "The question, self-contained. Include the context "
-                            "from earlier in the conversation, since the code "
-                            "agent cannot hear it."
-                        ),
-                    }
-                },
-                "required": ["question"],
-            },
-        },
-        {
-            "type": "function",
-            "name": TOOL_DISPATCH_DOC_AGENT,
-            "description": (
-                "Send a cloud agent to make a small documentation or comment "
-                "change and open a pull request. Confirm with the user first."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "Under ten words, used as the PR title.",
-                    },
-                    "instructions": {
-                        "type": "string",
-                        "description": (
-                            "What to change and what the result should look "
-                            "like, naming specific files. The agent has no "
-                            "memory of this conversation."
-                        ),
-                    },
-                    "target": {
-                        "type": "string",
-                        "description": (
-                            "Repository name. Defaults to the loaded one."
-                        ),
-                    },
-                },
-                "required": ["title", "instructions"],
-            },
-        },
-        {
-            "type": "function",
-            "name": TOOL_SET_REPO,
-            "description": "Switch which loaded repository questions are about.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "repo": {"type": "string", "description": "Repository name."}
-                },
-                "required": ["repo"],
-            },
-        },
-        {
-            "type": "function",
-            "name": TOOL_END_SESSION,
-            "description": (
-                "Hang up only after the user explicitly says they are finished "
-                "(goodbye, that's all, hang up). A pause is not a goodbye. "
-                "Never call this after a question or while waiting for a "
-                "codebase answer."
-            ),
-            "parameters": {"type": "object", "properties": {}},
-        },
-    ]
+    """Realtime ``session.tools`` entries from every discovered ToolSpec."""
+    return _catalog()[1]
+
+
+def tool_handlers() -> dict[str, Callable[..., dict]]:
+    """Tool name → ``(arguments, host) -> dict``."""
+    return _catalog()[2]
+
+
+def __getattr__(name: str):
+    if name == "INSTRUCTIONS":
+        return session_instructions()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

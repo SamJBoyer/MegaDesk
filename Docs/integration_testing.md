@@ -111,7 +111,7 @@ MegaDesk-Contracts/megadesk_contracts/testing/
   __init__.py           # public surface
   harness.py            # CanvasHarness
   driver.py             # NodeDriver
-  fakes.py              # FakeGh, FakeAgent, FakeCodeAgent, FakeRealtime, FakeSargent, factory fakes
+  fakes.py              # FakeGh, FakeAgent, FakeCodeAgent, FakeRealtime, factory fakes
   gitfloor.py           # real local git Floor fixture
 tests/
   conftest.py
@@ -131,7 +131,6 @@ tests/
   test_voice_contract.py
   test_workgraph_flow.py
   test_vision_board.py
-  test_sargent_contract.py
   test_sargent_flow.py
 ```
 
@@ -243,7 +242,6 @@ live in `megadesk_contracts.wire`.
 | `FakeRealtime` | OpenAI Realtime socket and both audio devices | Tool router, Redis events, out-of-band answer injection |
 | `FakeCloudFactory` | Cursor's VM, branch, pull request | `CLOUDORDER` group, run registry, `CLOUDFINISHED`, retry rules |
 | `FakeMachineFactory` | Docker daemon, container, and Redis sidecar | `WORKORDER` group, `AGENTHANDLER`, `FINISHED:<repo>` |
-| `FakeSargent` | OpenAI chat-completions HTTP | `SARGENT:ASK` group, `SARGENT:ANSWER` |
 
 `FakeCodeAgent` has two faces: `run_once()` as a stand-in BE for FE tests, and
 `runner_factory` feeding canned chunks to the real `CodeScopeManager`.

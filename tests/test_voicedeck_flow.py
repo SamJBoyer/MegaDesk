@@ -20,17 +20,23 @@ from conftest import (
     CODEQ_ASK_CANONICAL_FIELDS,
     VOICE_CONTROL_CANONICAL_FIELDS,
     VOICE_EVENT_CANONICAL_FIELDS,
+    WORKORDER_CANONICAL_FIELDS,
 )
 from megadesk_contracts.testing import RealtimeEvent
 from megadesk_contracts.wire import cloud as cloud_wire
 from megadesk_contracts.wire import code_scope as scope_wire
+from megadesk_contracts.wire import machine as machine_wire
 from megadesk_contracts.wire import voice as wire
 from VoiceDeckManager.tools import (
     ANSWER_PREFIX,
     INSTRUCTIONS,
     TOOL_ASK_CODEBASE,
+    TOOL_CHOOSE_TICKET,
     TOOL_DISPATCH_DOC_AGENT,
     TOOL_END_SESSION,
+    TOOL_LIST_TICKETS,
+    TOOL_SEND_TICKET,
+    TOOL_SET_DISPATCH,
     TOOL_SET_REPO,
     is_farewell,
     tool_schemas,
@@ -302,6 +308,95 @@ def test_dispatching_without_a_loaded_repo_is_refused(
     assert read_stream(cloud_wire.CLOUDORDER_STREAM) == []
 
 
+# --- work dispatcher tickets -----------------------------------------------
+
+
+TICKET_REPO = "https://github.com/acme/widgets"
+
+
+def _list_and_choose(voice_session, fake_realtime, ticket: str = "41") -> None:
+    fake_realtime.call_tool(TOOL_LIST_TICKETS, {"repo": TICKET_REPO})
+    voice_session.pump_events()
+    fake_realtime.call_tool(TOOL_CHOOSE_TICKET, {"ticket": ticket})
+    voice_session.pump_events()
+
+
+def test_list_tickets_reports_how_many_are_waiting(
+    voice_session, fake_realtime, fake_gh, redis_client
+) -> None:
+    fake_gh.add_issue(41, "add-widget-tests", "Cover the widget module.")
+    fake_gh.add_issue(42, "docs-pass", "Explain the pump.")
+    voice_session.start()
+
+    call_id = fake_realtime.call_tool(TOOL_LIST_TICKETS, {"repo": TICKET_REPO})
+    voice_session.pump_events()
+
+    result = fake_realtime.result_for(call_id)
+    assert result["status"] == "ok"
+    assert result["count"] == 2
+    assert {row["id"] for row in result["tickets"]} == {41, 42}
+
+
+def test_choose_set_and_send_writes_a_workorder(
+    voice_session, fake_realtime, fake_gh, redis_client, read_stream
+) -> None:
+    fake_gh.add_issue(41, "add-widget-tests", "Cover the widget module with tests.")
+    voice_session.start()
+    _list_and_choose(voice_session, fake_realtime)
+
+    set_id = fake_realtime.call_tool(
+        TOOL_SET_DISPATCH, {"factory": "machine", "model": "grok-4.6"}
+    )
+    voice_session.pump_events()
+    assert fake_realtime.result_for(set_id) == {
+        "status": "ok",
+        "factory": "machine",
+        "model": "grok-4.6",
+    }
+
+    send_id = fake_realtime.call_tool(TOOL_SEND_TICKET, {})
+    voice_session.pump_events()
+    result = fake_realtime.result_for(send_id)
+    assert result["status"] == "queued"
+    assert result["factory"] == "machine"
+
+    orders = read_stream(machine_wire.WORKORDER_STREAM)
+    assert len(orders) == 1
+    assert set(orders[0][1]) == set(WORKORDER_CANONICAL_FIELDS)
+    assert orders[0][1]["ticket_name"] == "add-widget-tests"
+    assert orders[0][1]["model"] == "grok-4.6"
+    assert orders[0][1]["URL"] == TICKET_REPO
+    assert read_stream(cloud_wire.CLOUDORDER_STREAM) == []
+
+
+def test_send_to_cloud_writes_a_cloudorder(
+    voice_session, fake_realtime, fake_gh, redis_client, read_stream
+) -> None:
+    fake_gh.add_issue(41, "add-widget-tests", "Cover the widget module.")
+    voice_session.start()
+    _list_and_choose(voice_session, fake_realtime)
+    fake_realtime.call_tool(TOOL_SET_DISPATCH, {"factory": "cloud"})
+    voice_session.pump_events()
+    fake_realtime.call_tool(TOOL_SEND_TICKET, {})
+    voice_session.pump_events()
+
+    orders = read_stream(cloud_wire.CLOUDORDER_STREAM)
+    assert len(orders) == 1
+    assert set(orders[0][1]) == set(CLOUDORDER_CANONICAL_FIELDS)
+    assert orders[0][1]["title"] == "add-widget-tests"
+    assert read_stream(machine_wire.WORKORDER_STREAM) == []
+
+
+def test_send_without_choosing_is_refused(
+    voice_session, fake_realtime, fake_gh, redis_client, read_stream
+) -> None:
+    voice_session.start()
+    call_id = fake_realtime.call_tool(TOOL_SEND_TICKET, {})
+    voice_session.pump_events()
+    assert fake_realtime.result_for(call_id)["status"] == "error"
+    assert read_stream(machine_wire.WORKORDER_STREAM) == []
+
+
 # --- the rest of the router ------------------------------------------------
 
 
@@ -569,12 +664,17 @@ def test_the_session_hands_turn_taking_to_the_server() -> None:
 
     assert detection["type"] == "server_vad"
     assert detection["interrupt_response"] is True
-    assert {tool["name"] for tool in session["tools"]} == {
+    names = {tool["name"] for tool in session["tools"]}
+    assert {
         TOOL_ASK_CODEBASE,
         TOOL_DISPATCH_DOC_AGENT,
         TOOL_SET_REPO,
         TOOL_END_SESSION,
-    }
+        TOOL_LIST_TICKETS,
+        TOOL_CHOOSE_TICKET,
+        TOOL_SET_DISPATCH,
+        TOOL_SEND_TICKET,
+    } <= names
 
 
 def test_a_pause_is_not_treated_as_a_hangup() -> None:

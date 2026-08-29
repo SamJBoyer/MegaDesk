@@ -1,1 +1,1 @@
-"""Sargent BE: rewrite a rough prompt with one OpenAI chat completion."""
+"""Sargent BE: rewrite rough prompts with one OpenAI Chat Completions call."""

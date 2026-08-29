@@ -39,7 +39,7 @@ from megadesk_contracts.realtime import (
 )
 from megadesk_contracts.wire import voice as voice_wire
 
-from VoiceDeckManager.tools import INSTRUCTIONS, tool_schemas
+from VoiceDeckManager.tools import session_instructions, tool_schemas
 
 log = logging.getLogger("voice_deck.realtime")
 
@@ -82,7 +82,8 @@ class OpenAIRealtime:
         model: str = "",
         voice: str = "",
         transcription_model: str = "",
-        instructions: str = INSTRUCTIONS,
+        instructions: str = "",
+        tools: Optional[list[dict]] = None,
         audio: bool = True,
     ) -> None:
         self.api_key = api_key if api_key is not None else os.environ.get("OPENAI_API_KEY")
@@ -93,7 +94,8 @@ class OpenAIRealtime:
             or os.environ.get("VOICE_TRANSCRIBE_MODEL")
             or DEFAULT_TRANSCRIPTION_MODEL
         ).strip()
-        self.instructions = instructions
+        self.instructions = instructions or session_instructions()
+        self.tools = list(tools) if tools is not None else tool_schemas()
         self.audio_enabled = bool(audio)
 
         self._socket: Any = None
@@ -166,7 +168,7 @@ class OpenAIRealtime:
                 "type": "realtime",
                 "output_modalities": ["audio"],
                 "instructions": self.instructions,
-                "tools": tool_schemas(),
+                "tools": self.tools,
                 "audio": {
                     "input": {
                         "format": {"type": "audio/pcm", "rate": SAMPLE_RATE},

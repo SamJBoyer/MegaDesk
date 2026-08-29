@@ -1,8 +1,8 @@
-"""Consume SARGENT:ASK, rewrite with one OpenAI call, publish SARGENT:ANSWER.
+"""Consume SARGENT:ASK and publish one SARGENT:ANSWER per prompt.
 
-One consumer group on SARGENT:ASK. Every ask is acked, and every ask that
-cannot be rewritten gets an error answer first — a person waiting on the FE
-should never be left with only a log line on the BE.
+One consumer group, one OpenAI call per ask. Every ask is acked, and every ask
+that cannot be rewritten gets an error answer first — a person waiting on the
+chat should never be left with only a log line on the BE.
 """
 
 from __future__ import annotations
@@ -13,15 +13,10 @@ import socket
 import time
 from typing import Any, Callable, Optional
 
-from megadesk_contracts import (
-    node_should_stop,
-    redis_connect,
-    resolve_ephemeral_db,
-    resolve_redis_url,
-)
+from megadesk_contracts import redis_connect, resolve_ephemeral_db, resolve_redis_url
 from megadesk_contracts.wire import sargent as wire
 
-from SargentManager.completer import OpenAICompleter, RewriteError
+from SargentManager.openai_client import OpenAIError, rewrite_prompt
 
 log = logging.getLogger("sargent.manager")
 
@@ -29,7 +24,7 @@ POLL_INTERVAL_SEC = 1.0
 ASK_BATCH = 16
 RECONNECT_WAIT_SEC = 3.0
 
-Completer = Callable[[str], str]
+RewriteFn = Callable[[str], str]
 
 
 class SargentManager:
@@ -40,7 +35,7 @@ class SargentManager:
         *,
         redis_url: Optional[str] = None,
         ephemeral: Any = None,
-        completer: Optional[Completer] = None,
+        rewrite: Optional[RewriteFn] = None,
         group: str = wire.ASK_GROUP,
         consumer: Optional[str] = None,
         poll_interval: float = POLL_INTERVAL_SEC,
@@ -49,7 +44,7 @@ class SargentManager:
         self.group = group
         self.consumer = consumer or f"{socket.gethostname()}-{os.getpid()}"
         self.poll_interval = float(poll_interval)
-        self.completer: Completer = completer or OpenAICompleter()
+        self.rewrite: RewriteFn = rewrite or rewrite_prompt
         self._ephemeral = ephemeral
         self._group_ready = False
 
@@ -99,6 +94,8 @@ class SargentManager:
             self.group,
             self.consumer,
         )
+        from megadesk_contracts import node_should_stop
+
         while not node_should_stop():
             try:
                 self.poll_once()
@@ -126,38 +123,46 @@ class SargentManager:
             log.error("Unusable SARGENT:ASK %s: %s", entry_id, exc)
             return
 
-        log.info("Rewrite prompt_id=%s", ask["prompt_id"])
+        log.info("Rewrite session=%s prompt=%s", ask["session_id"], ask["prompt_id"])
         try:
-            rewrite = self.completer(ask["prompt"])
-        except RewriteError as exc:
-            log.error("Rewrite failed for %s: %s", ask["prompt_id"], exc)
+            rewritten = self.rewrite(ask["prompt"])
+        except OpenAIError as exc:
+            log.error("Rewrite failed: %s", exc)
             self._publish_error(ask, str(exc))
             return
         except Exception as exc:  # noqa: BLE001
-            log.exception("Completer crashed for %s", ask["prompt_id"])
-            self._publish_error(ask, f"The rewrite failed: {exc}")
+            log.exception("Rewrite raised")
+            self._publish_error(ask, f"Rewrite failed: {exc}")
             return
 
-        text = str(rewrite or "").strip()
+        text = str(rewritten or "").strip()
         if not text:
-            self._publish_error(ask, "The rewrite was empty")
+            self._publish_error(ask, "Rewrite returned no text")
             return
-        self._publish(ask, text, status=wire.STATUS_OK)
-
-    def _publish(self, ask: dict[str, str], text: str, *, status: str) -> None:
         self.ephemeral.xadd(
             wire.ANSWER_STREAM,
             wire.answer_fields(
+                session_id=ask["session_id"],
                 prompt_id=ask["prompt_id"],
                 rewrite=text,
-                status=status,
             ),
         )
 
     def _publish_error(self, ask: dict[str, str], message: str) -> None:
-        self._publish(ask, message, status=wire.STATUS_ERROR)
+        self.ephemeral.xadd(
+            wire.ANSWER_STREAM,
+            wire.answer_fields(
+                session_id=ask["session_id"],
+                prompt_id=ask["prompt_id"],
+                rewrite=message,
+                status=wire.STATUS_ERROR,
+            ),
+        )
 
 
 def main() -> None:
-    manager = SargentManager()
-    manager.run_forever()
+    SargentManager().run_forever()
+
+
+if __name__ == "__main__":
+    main()

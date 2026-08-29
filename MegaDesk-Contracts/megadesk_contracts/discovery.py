@@ -1,8 +1,9 @@
-"""Discover MegaDesk.nodes entry points and resolve FE/BE specs.
+"""Discover MegaDesk.nodes entry points and resolve FE/BE/tool specs.
 
 Each entry point names the node module. Discovery loads that module and calls
-``get_fe_spec`` / ``get_be_spec``. One entry point serves both halves: return
-``None`` from the function for a mode the node does not implement.
+``get_fe_spec`` / ``get_be_spec`` / ``get_tool_spec``. One entry point serves
+all three: return ``None`` from the function for a mode the node does not
+implement.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ from importlib.metadata import entry_points
 from types import ModuleType
 from typing import Any, Callable, Mapping, Optional
 
-from megadesk_contracts.exec_spec import BeSpec, FeSpec
+from megadesk_contracts.exec_spec import BeSpec, FeSpec, ToolSpec
 
 log = logging.getLogger("megadesk_contracts.discovery")
 
@@ -87,7 +88,14 @@ def _call_be(mod: Optional[ModuleType]) -> BeSpec | None:
     return spec if isinstance(spec, BeSpec) else None
 
 
-def _scan(name: str, call) -> FeSpec | BeSpec | None:
+def _call_tool(mod: Optional[ModuleType]) -> ToolSpec | None:
+    if mod is None or not callable(getattr(mod, "get_tool_spec", None)):
+        return None
+    spec = mod.get_tool_spec()
+    return spec if isinstance(spec, ToolSpec) else None
+
+
+def _scan(name: str, call) -> FeSpec | BeSpec | ToolSpec | None:
     """Load every entry and return the first spec whose name matches ``name``."""
     entry_list = list(_iter_entry_points())
     ordered = [ep for ep in entry_list if ep.name == name]
@@ -127,6 +135,12 @@ def load_be_spec(name: str) -> BeSpec | None:
     return spec if isinstance(spec, BeSpec) else None
 
 
+def load_tool_spec(name: str) -> ToolSpec | None:
+    """Resolve one tool spec by entry-point name or ``ToolSpec.name``."""
+    spec = _scan(name, _call_tool)
+    return spec if isinstance(spec, ToolSpec) else None
+
+
 def discover_frontends() -> dict[str, FeSpec]:
     """Return name → FeSpec for every installed node that exposes an FE."""
     out: dict[str, FeSpec] = {}
@@ -151,6 +165,20 @@ def discover_backends() -> dict[str, BeSpec]:
             log.exception("BE discovery failed for %s", ep.name)
             continue
         if isinstance(spec, BeSpec):
+            out[spec.name or ep.name] = spec
+    return out
+
+
+def discover_tools() -> dict[str, ToolSpec]:
+    """Return name → ToolSpec for every installed node that exposes voice tools."""
+    out: dict[str, ToolSpec] = {}
+    for ep in _iter_entry_points():
+        try:
+            spec = _call_tool(_load_module(ep))
+        except Exception:
+            log.exception("tool discovery failed for %s", ep.name)
+            continue
+        if isinstance(spec, ToolSpec):
             out[spec.name or ep.name] = spec
     return out
 

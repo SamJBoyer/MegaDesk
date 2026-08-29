@@ -1,7 +1,7 @@
 # Sargent
 
-Type a rough prompt. Get a cleaner, better-structured version back. One OpenAI
-chat-completions call — not a Cursor agent.
+A chat window that takes a rough human prompt and returns a clearer, better-structured
+version of the same request. One OpenAI Chat Completions call — not a Cursor agent.
 
 ## Halves
 
@@ -19,7 +19,7 @@ Canonical definitions live in `megadesk_contracts.wire.sargent`.
 | `SARGENT:ASK` | stream | `SARGENT:ASK` (group `sargent`) | ephemeral (`REDIS_URL`) |
 | `SARGENT:ANSWER` | stream | `SARGENT:ANSWER` (no group) | same |
 
-`prompt_id` is the join key. One ask produces one answer.
+`SARGENT:ANSWER` has no consumer group so any reader can see every rewrite.
 
 ## Requirements
 

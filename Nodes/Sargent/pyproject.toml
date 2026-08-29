@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "sargent"
 version = "0.1.0"
-description = "MegaDesk node: rewrite a rough prompt into a clearer one via one OpenAI call"
+description = "MegaDesk node: rewrite a rough prompt via one OpenAI Chat Completions call"
 requires-python = ">=3.10"
 dependencies = [
     "redis>=5.0.0",
