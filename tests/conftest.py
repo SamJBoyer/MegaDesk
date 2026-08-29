@@ -33,6 +33,7 @@ sys.path[:0] = [
         "Nodes/Factory/CloudFactory",
         "Nodes/GraphScope",
         "Nodes/VisionBoard",
+        "Nodes/Sargent",
     )
 ]
 
@@ -121,6 +122,11 @@ GRAPHRUN_CANONICAL_FIELDS = frozenset(
 GRAPHEVENT_CANONICAL_FIELDS = frozenset(
     {"guid", "graph", "node", "status", "detail", "ts"}
 )
+SARGENT_ASK_CANONICAL_FIELDS = frozenset({"session_id", "prompt_id", "prompt"})
+SARGENT_ANSWER_CANONICAL_FIELDS = frozenset(
+    {"session_id", "prompt_id", "rewrite", "status"}
+)
+SARGENT_ASK_GROUP = "sargent"
 
 WORKORDER_STREAM = "WORKORDER"
 WORKORDER_GROUP = "machine_factory"
@@ -282,6 +288,7 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
     from code_scope_frontend import app as code_scope_app
     from graph_scope_frontend import app as graph_scope_app
     from machine_factory_frontend import app as machine_factory_app
+    from sargent_frontend import app as sargent_app
     from voice_deck_frontend import app as voice_deck_app
 
     for module in (
@@ -293,6 +300,7 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
         cloud_factory_app,
         machine_factory_app,
         graph_scope_app,
+        sargent_app,
     ):
         monkeypatch.setattr(module, "POLL_INTERVAL_SEC", FAST_POLL_SEC)
 
