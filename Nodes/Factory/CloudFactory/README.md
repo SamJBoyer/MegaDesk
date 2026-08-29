@@ -38,7 +38,7 @@ matters:
   not owning the machine: less control over the loop, and minutes rather than
   milliseconds to get going.
 
-TicketDispatcher publishes `CLOUDORDER` the same way it publishes `WORKORDER`:
+WorkDispatcher publishes `CLOUDORDER` the same way it publishes `WORKORDER`:
 each ticket row picks machine or cloud, and one click feeds that factory.
 VoiceDeck can also publish `CLOUDORDER`. This node does not take a GitHub URL
 or issue text of its own.

@@ -48,7 +48,7 @@ wait for the user to speak again.
 | `set_repo(repo)` | Switch which loaded repo questions are about |
 | `end_session()` | Close the socket |
 
-`dispatch_doc_agent` publishes a `CLOUDORDER` the same way TicketDispatcher does.
+`dispatch_doc_agent` publishes a `CLOUDORDER` the same way WorkDispatcher does.
 The repo URL is read off the loaded CodeScope clone, not spoken.
 
 ## Turn-taking

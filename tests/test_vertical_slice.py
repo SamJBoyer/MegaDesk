@@ -1,4 +1,4 @@
-"""Vertical slice: TicketDispatcher → MachineFactory → PRManager.
+"""Vertical slice: WorkDispatcher → MachineFactory → PRManager.
 
 Uses the public smoke-test repo URL and one agent-ready issue. The sandbox
 boundary is still FakeAgent (no Docker, no Cursor API), but MachineFactory's
@@ -63,7 +63,7 @@ def test_ticket_factory_merge_vertical_slice(
         "https://github.com/SamJBoyer/SMOKETESTREPO/pull/1",
     )
 
-    dispatcher = harness.drop("ticket_dispatcher")
+    dispatcher = harness.drop("work_dispatcher")
     factory = harness.drop("machine_factory")
     manager = harness.drop("pr_manager")
 

@@ -60,6 +60,7 @@ class DockerSandboxFactory:
                 repo=order["repo"],
                 ticket=order["ticket_name"],
                 repo_url=str(order.get("URL") or order.get("repo_url") or ""),
+                ref=str(order.get("ref") or ""),
                 guid=run_key,
                 ticket_id=order["ticket_id"],
                 auto_pr=bool(order.get("auto_pr", True)),

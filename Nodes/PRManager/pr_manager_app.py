@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import queue
 import re
@@ -13,16 +12,23 @@ import webbrowser
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Optional
-from urllib.parse import urlparse
 
 import dearpygui.dearpygui as dpg
 from megadesk_contracts import coerce_parameters, frame_pump
+from megadesk_contracts.human_gate import (
+    LABEL_MERGE_SUCCESS,
+    check_repo,
+    list_labeled_issues,
+    normalize_repo_url,
+    parse_github_repo,
+    parse_pull_request_ref,
+    run_gh,
+)
 from megadesk_contracts.repo import CloneError, is_clone, safe_repo_name
 
 POLL_INTERVAL_SEC = 3.0
-GH_TIMEOUT_SEC = 15
 GIT_TIMEOUT_SEC = 300
-MERGE_SUCCESS_LABEL = "MERGE_SUCCESS"
+MERGE_SUCCESS_LABEL = LABEL_MERGE_SUCCESS
 PARAM_GIT_URL = "GIT_URL"
 ENV_SCOPE_ROOT = "PR_SCOPE_ROOT"
 
@@ -30,12 +36,6 @@ COLOR_OK = (80, 200, 80, 255)
 COLOR_ERR = (220, 70, 70, 255)
 COLOR_DIM = (140, 140, 140, 255)
 COLOR_INFO = (70, 140, 230, 255)
-
-_PR_URL_RE = re.compile(
-    r"https://github\.com/[^/\s]+/[^/\s]+/pull/\d+",
-    re.IGNORECASE,
-)
-_MARKER_RE = re.compile(r"megadesk:(?:merge-check|merge_success):pr-(\d+)")
 
 # Keep live instances alive while their embed windows exist.
 _LIVE: dict[str, "PRManager"] = {}
@@ -51,71 +51,13 @@ class MergeIssue:
     clone_path: Optional[Path] = None
 
 
-def parse_github_repo(git_url: str) -> Optional[tuple[str, str]]:
-    """Extract (owner, repo) from common GitHub URL forms."""
-    url = git_url.strip()
-    if not url:
-        return None
-
-    ssh = re.match(r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?/?$", url)
-    if ssh:
-        return ssh.group(1), ssh.group(2)
-
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
-
-    parsed = urlparse(url)
-    if parsed.hostname not in ("github.com", "www.github.com"):
-        return None
-
-    parts = [p for p in parsed.path.strip("/").split("/") if p]
-    if len(parts) < 2:
-        return None
-
-    owner, repo = parts[0], parts[1]
-    if repo.endswith(".git"):
-        repo = repo[:-4]
-    return owner, repo
-
-
-def normalize_repo_url(git_url: str, owner: str, repo: str) -> str:
-    return f"https://github.com/{owner}/{repo}"
-
-
 def pr_url_from_issue(body: str, owner: str, repo: str) -> str:
-    """Pull the tracked PR URL out of a merge_success issue body.
+    """Pull the tracked PR URL out of a merge-check issue body.
 
     merge-check writes the PR link into the body, plus a
     ``<!-- megadesk:merge-check:pr-N -->`` marker as a fallback.
     """
-    text = body or ""
-    match = _PR_URL_RE.search(text)
-    if match:
-        return match.group(0)
-    marker = _MARKER_RE.search(text)
-    if marker:
-        return f"https://github.com/{owner}/{repo}/pull/{marker.group(1)}"
-    return ""
-
-
-def run_gh(*args: str) -> tuple[bool, str, str]:
-    try:
-        result = subprocess.run(
-            ["gh", *args],
-            capture_output=True,
-            text=True,
-            timeout=GH_TIMEOUT_SEC,
-            check=False,
-        )
-    except FileNotFoundError:
-        return False, "", "gh CLI not found — install and authenticate GitHub CLI"
-    except subprocess.TimeoutExpired:
-        return False, "", "gh command timed out"
-
-    if result.returncode != 0:
-        err = (result.stderr or result.stdout or "gh command failed").strip()
-        return False, result.stdout, err
-    return True, result.stdout, ""
+    return parse_pull_request_ref(body, owner, repo).url
 
 
 def short_pr_url(url: str) -> str:
@@ -344,48 +286,25 @@ class PRManager:
     def _fetch_merge_success(
         self, owner: str, repo: str
     ) -> tuple[bool, list[MergeIssue], Optional[str]]:
-        repo_slug = f"{owner}/{repo}"
-
-        ok, _, err = run_gh("repo", "view", repo_slug, "--json", "nameWithOwner")
+        ok, err = check_repo(owner, repo, gh=run_gh)
         if not ok:
-            return False, [], err or "Connection failed"
+            return False, [], err
 
-        ok, stdout, err = run_gh(
-            "issue",
-            "list",
-            "--repo",
-            repo_slug,
-            "--label",
-            MERGE_SUCCESS_LABEL,
-            "--state",
-            "open",
-            "--limit",
-            "100",
-            "--json",
-            "number,title,body",
+        ok, listed, err = list_labeled_issues(
+            owner, repo, MERGE_SUCCESS_LABEL, gh=run_gh
         )
         if not ok:
-            return False, [], err or "Failed to list issues"
+            return False, [], err
 
-        try:
-            payload = json.loads(stdout or "[]")
-        except json.JSONDecodeError as exc:
-            return False, [], f"Invalid gh JSON: {exc}"
-
-        issues: list[MergeIssue] = []
-        for item in payload:
-            number = item.get("number")
-            if number is None:
-                continue
-            body = item.get("body") or ""
-            issues.append(
-                MergeIssue(
-                    id=int(number),
-                    name=item.get("title") or f"Issue #{number}",
-                    body=body,
-                    pr_url=pr_url_from_issue(body, owner, repo),
-                )
+        issues = [
+            MergeIssue(
+                id=issue.number,
+                name=issue.title,
+                body=issue.body,
+                pr_url=pr_url_from_issue(issue.body, owner, repo),
             )
+            for issue in listed
+        ]
         return True, issues, None
 
     def _drain_ui_queue(self) -> None:

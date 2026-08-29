@@ -21,7 +21,7 @@ WORKORDER
     → DEL AGENTHANDLER + GRAPHRUN, exits
 ```
 
-TicketDispatcher publishes orders. PRManager lists `merge_success` GitHub
+WorkDispatcher publishes orders. PRManager lists `merge_success` GitHub
 issues on the same repo URL and shows/opens the tracked PR.
 
 ## Halves
@@ -92,7 +92,7 @@ python -m MachineFactoryManager        # same as: run
 ## Wire
 
 Defined once in `megadesk_contracts.wire.machine` and imported by every writer —
-this node, TicketDispatcher and the factory FEs. Consumer group `machine_factory`.
+this node, WorkDispatcher and the factory FEs. Consumer group `machine_factory`.
 Per-node progress is a second family, `megadesk_contracts.wire.graph`
 (`GRAPHRUN` / `GRAPHEVENT`); see
 [`work-graph.md`](../../../MegaDesk-Contracts/redis/work-graph.md).

@@ -61,7 +61,7 @@ agents**, plus a corner lamp that turns red if an error has been thrown.
 MachineFactory also shows active sandboxes. Node logs are in the Supervisor Logs
 tab, not on the factory.
 
-Both take their orders from TicketDispatcher (and VoiceDeck can also publish
+Both take their orders from WorkDispatcher (and VoiceDeck can also publish
 `CLOUDORDER`). Each ticket row picks machine or cloud the same way it picks a
 model, so one click writes either `WORKORDER` or `CLOUDORDER`. Neither factory
 has its own GitHub URL or issue-text input.
@@ -101,5 +101,5 @@ Nodes/Factory/
 Each is its own installable node with its own `MegaDesk.nodes` entry point
 (`machine_factory`, `cloud_factory`); the nesting groups them, it does not merge
 them. Their wire formats are defined once in `megadesk_contracts.wire.machine` and
-`megadesk_contracts.wire.cloud`, and every consumer — TicketDispatcher,
+`megadesk_contracts.wire.cloud`, and every consumer — WorkDispatcher,
 VoiceDeck — imports from there.
