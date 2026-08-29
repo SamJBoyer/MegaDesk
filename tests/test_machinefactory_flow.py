@@ -229,6 +229,45 @@ def test_a_healthy_sandbox_reporting_for_itself_is_not_reaped_twice(
     assert len(finished(read_stream, git_floor)) == 1, "one run, one FINISHED"
 
 
+def test_a_sandbox_that_finished_cleanly_releases_its_sidecar(
+    machine_factory, fake_machine_factory, redis_client, git_floor, read_stream
+) -> None:
+    """Happy path deletes the hash first, so sidecar cleanup cannot walk the registry."""
+    place_order(redis_client, git_floor)
+    machine_factory.poll_orders()
+    ticket_id = stored_ticket_id(redis_client)
+    run_key = fake_machine_factory.launches[0]["run_key"]
+
+    redis_client.xadd(
+        wire.finished_stream(git_floor.repo),
+        wire.finished_fields(
+            ticket_name=TICKET,
+            ticket_id=ticket_id,
+            status=wire.STATUS_FINISHED,
+            pr_url="https://github.com/acme/widgets/pull/1",
+        ),
+    )
+    redis_client.delete(wire.agent_handler_key(run_key))
+    fake_machine_factory.stop(run_key)
+
+    assert machine_factory.poll_sidecars() == 1
+    assert fake_machine_factory.released == [run_key]
+    assert machine_factory.poll_sidecars() == 0, "sidecar released once"
+    assert machine_factory.poll_runs(force=True) == 0
+    assert len(finished(read_stream, git_floor)) == 1, "one run, one FINISHED"
+
+
+def test_a_live_sandbox_leaves_its_sidecar_alone(
+    machine_factory, fake_machine_factory, redis_client, git_floor
+) -> None:
+    place_order(redis_client, git_floor)
+    machine_factory.poll_orders()
+
+    assert machine_factory.poll_sidecars() == 0
+    assert fake_machine_factory.released == []
+    assert len(runs_on(redis_client)) == 1
+
+
 def test_a_run_whose_order_is_gone_is_dropped_rather_than_rechecked(
     machine_factory, fake_machine_factory, redis_client, git_floor, read_stream
 ) -> None:

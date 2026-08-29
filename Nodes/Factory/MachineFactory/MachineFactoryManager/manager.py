@@ -9,6 +9,8 @@ the source of truth rather than anything held in memory.
   reference, writes ``AGENTHANDLER:<guid>`` and only then starts the sandbox
   (agent container + Redis sidecar). Leftover stream entries do not start work.
 * ``poll_runs`` walks that registry looking for runs whose sandbox is gone.
+* ``poll_sidecars`` stops Redis sidecars whose agent sandbox is gone, including
+  after a successful run that already deleted its hash.
 
 The order of the first loop is what makes the handshake work: the container finds
 its own work by reading the hash, so the hash must exist before it starts.
@@ -16,6 +18,8 @@ its own work by reading the hash, so the hash must exist before it starts.
 The second loop exists because a container is not a managed service. A healthy
 sandbox reports its own outcome onto ``FINISHED:<REPO>`` and deletes its hash on
 the way out. ``poll_runs`` only covers the case where it never got the chance.
+Sidecar cleanup cannot wait on those hashes: they are already gone on the happy
+path, so ``poll_sidecars`` walks Docker labels instead.
 """
 
 from __future__ import annotations
@@ -36,7 +40,7 @@ from megadesk_contracts.repo import safe_repo_name
 from megadesk_contracts.wire import machine as wire
 from megadesk_contracts.wire.signal import FieldInbox
 
-from MachineFactoryManager.pool import LOCAL_REDIS_URL
+from MachineFactoryManager.pool import LOCAL_REDIS_URL, list_redis_sidecars
 
 log = logging.getLogger("manager")
 
@@ -363,8 +367,43 @@ class MachineFactoryManager:
         log.info("Cancelled run %s (ticket_id=%s)", guid, run["ticket_id"])
         return True
 
+    def _sidecar_guids(self) -> list[str]:
+        """Guids of Redis sidecars still running. Prefers the runtime's list."""
+        lister = getattr(self.runtime, "list_sidecars", None)
+        if callable(lister):
+            return [str(guid) for guid in lister() if str(guid).strip()]
+        return list_redis_sidecars()
+
+    def poll_sidecars(self) -> int:
+        """Stop Redis sidecars whose agent sandbox is gone. Returns how many."""
+        released = 0
+        try:
+            guids = self._sidecar_guids()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not list Redis sidecars: %s", exc)
+            return 0
+        for guid in guids:
+            try:
+                state = self.runtime.poll(guid)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Could not read sandbox for sidecar %s: %s", guid, exc)
+                continue
+            if str(getattr(state, "status", "")) == wire.STATUS_RUNNING:
+                continue
+            releaser = getattr(self.runtime, "release", None)
+            if not callable(releaser):
+                continue
+            log.info("Releasing Redis sidecar for run %s; agent sandbox is gone", guid)
+            try:
+                releaser(guid)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Could not release Redis sidecar for run %s: %s", guid, exc)
+                continue
+            released += 1
+        return released
+
     def poll_once(self) -> int:
-        return self.poll_orders() + self.poll_runs()
+        return self.poll_orders() + self.poll_runs() + self.poll_sidecars()
 
     def run_forever(self) -> None:
         signal.signal(signal.SIGINT, self.stop)

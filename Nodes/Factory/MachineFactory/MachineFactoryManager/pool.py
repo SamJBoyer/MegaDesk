@@ -225,6 +225,23 @@ def redis_for_run(run_key: str) -> str:
     return result.stdout.strip().splitlines()[0].strip() if result.stdout.strip() else ""
 
 
+def list_redis_sidecars() -> list[str]:
+    """Guids of running Redis sidecars, from the ``megadesk.redis_for`` label."""
+    result = _docker(
+        [
+            "ps",
+            "--filter",
+            f"label={REDIS_RUN_LABEL}",
+            "--format",
+            f'{{{{.Label "{REDIS_RUN_LABEL}"}}}}',
+        ],
+        check=False,
+    )
+    if result.returncode != 0:
+        return []
+    return [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
+
+
 def container_is_running(name: str) -> bool:
     result = _docker(["inspect", "-f", "{{.State.Running}}", name], check=False)
     return result.returncode == 0 and result.stdout.strip() == "true"
