@@ -28,7 +28,8 @@
         -198.0
       ],
       "parameters": {
-        "GIT_URL": "https://github.com/SamJBoyer/MegaDesk.git"
+        "GIT_URL": "https://github.com/SamJBoyer/MegaDesk.git",
+        "ISSUE_LABEL": "agent-ready"
       },
       "data": {
         "width": 480.0,
@@ -50,6 +51,24 @@
         "width": 420.0,
         "height": 160.0,
         "node_name": "cloud_factory"
+      }
+    },
+    "baede6be-7a03-483c-96fc-dea0247af0e7": {
+      "member_id": "baede6be-7a03-483c-96fc-dea0247af0e7",
+      "type": "megadesk",
+      "nickname": "auto_integrate",
+      "node_name": "auto_integrate",
+      "position": [
+        781.0,
+        40.0
+      ],
+      "parameters": {
+        "GIT_URL": "https://github.com/SamJBoyer/MegaDesk.git"
+      },
+      "data": {
+        "width": 520.0,
+        "height": 160.0,
+        "node_name": "auto_integrate"
       }
     }
   }
