@@ -27,4 +27,4 @@ code_scope = "code_scope_node"
 py-modules = ["code_scope_node"]
 
 [tool.setuptools.packages.find]
-include = ["CodeScopeManager*", "code_scope_frontend*"]
+include = ["CodeScopeManager*", "code_scope_frontend*", "code_scope_tools*"]

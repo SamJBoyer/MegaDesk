@@ -1,9 +1,9 @@
-"""Thin FE/BE launch specs for MegaDesk nodes."""
+"""Thin FE/BE launch specs for MegaDesk nodes, plus voice ToolSpec."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Callable, Mapping
+from typing import Any, Callable, Iterable, Mapping, Optional, Protocol, runtime_checkable
 
 
 @dataclass(frozen=True)
@@ -51,3 +51,88 @@ class BeSpec:
     name: str
     argv: list[str]
     cwd: str | None = None
+
+
+@runtime_checkable
+class ToolHost(Protocol):
+    """What VoiceDeck gives a node tool handler when the model calls it.
+
+    Handlers live in the node. The voice session is the host: Redis, the
+    loaded CodeScope target, and the pending-question map the answer pump
+    already watches.
+    """
+
+    target_repo: str
+    session_id: str
+    last_user_text: str
+    current_call_id: str
+
+    @property
+    def ephemeral(self) -> Any: ...
+
+    @property
+    def persistent(self) -> Any: ...
+
+    @property
+    def pending(self) -> dict[str, str]: ...
+
+    def publish(self, kind: str, text: str) -> None: ...
+
+    def set_state(self, state: str) -> None: ...
+
+    def stop(self) -> None: ...
+
+    def resolve_scope_session(self, repo: str = "") -> Optional[tuple[str, str]]: ...
+
+    def loaded_repos(self) -> list[str]: ...
+
+    def repo_url(self, scope_session_id: str) -> str: ...
+
+    def remember_question(self, question_id: str, call_id: str) -> None: ...
+
+
+@dataclass(frozen=True)
+class ToolSpec:
+    """Voice tools a node offers to VoiceDeck, discovered like FeSpec / BeSpec.
+
+    ``get_tool_spec()`` on the MegaDesk.nodes entry module returns this, or
+    ``None`` when the node has nothing to say out loud. ``schemas`` are OpenAI
+    realtime ``session.tools`` entries. ``instructions`` are folded into the
+    voice session prompt. ``handlers`` map each schema's ``name`` to
+    ``(arguments, host) -> dict``.
+    """
+
+    name: str
+    instructions: str
+    schemas: tuple[dict, ...]
+    handlers: Mapping[str, Callable[..., dict]] = field(default_factory=dict)
+
+
+def compose_tool_specs(
+    specs: Iterable[ToolSpec],
+) -> tuple[str, list[dict], dict[str, Callable[..., dict]]]:
+    """Merge node tool catalogs into one prompt, schema list, and handler map.
+
+    VoiceDeck's own spec is first so hang-up rules wrap everything else.
+    Duplicate tool names keep the first schema and the last handler.
+    """
+    ordered = sorted(
+        specs,
+        key=lambda spec: (0 if spec.name == "voice_deck" else 1, spec.name),
+    )
+    instruction_parts: list[str] = []
+    schemas: list[dict] = []
+    handlers: dict[str, Callable[..., dict]] = {}
+    seen: set[str] = set()
+    for spec in ordered:
+        text = (spec.instructions or "").strip()
+        if text:
+            instruction_parts.append(text)
+        for schema in spec.schemas:
+            name = str(schema.get("name") or "")
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            schemas.append(schema)
+        handlers.update(spec.handlers)
+    return "\n\n".join(instruction_parts), schemas, handlers

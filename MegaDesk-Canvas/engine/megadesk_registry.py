@@ -5,26 +5,38 @@ from __future__ import annotations
 import logging
 from typing import Mapping, Optional
 
-from megadesk_contracts import FeSpec, discover_frontends, load_fe_spec
+from megadesk_contracts import FeSpec, ToolSpec, discover_frontends, discover_tools, load_fe_spec
 
 logger = logging.getLogger(__name__)
 
 _FRONTENDS: dict[str, FeSpec] = {}
+_TOOLS: dict[str, ToolSpec] = {}
 
 
 def discover_megadesk_frontends() -> None:
     """Refresh the in-memory FE catalog from installed MegaDesk.nodes."""
-    global _FRONTENDS
+    global _FRONTENDS, _TOOLS
     _FRONTENDS = discover_frontends()
+    _TOOLS = discover_tools()
     logger.info(
         "Discovered %d MegaDesk FE node(s): %s",
         len(_FRONTENDS),
         ", ".join(sorted(_FRONTENDS)) or "(none)",
     )
+    logger.info(
+        "Discovered %d MegaDesk tool node(s): %s",
+        len(_TOOLS),
+        ", ".join(sorted(_TOOLS)) or "(none)",
+    )
 
 
 def all_fe_specs() -> list[FeSpec]:
     return list(_FRONTENDS.values())
+
+
+def all_tool_specs() -> list[ToolSpec]:
+    """Voice tools discovered for the canvas VoiceDeck catalog."""
+    return list(_TOOLS.values())
 
 
 def get_fe_spec(
