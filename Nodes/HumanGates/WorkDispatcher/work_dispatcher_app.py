@@ -53,6 +53,11 @@ COLOR_RED = (220, 70, 70, 255)
 COLOR_BLUE = (70, 140, 230, 255)
 COLOR_DIM = (90, 90, 90, 255)
 
+# Dear PyGui payload_type must be < 32 characters.
+TICKET_PAYLOAD = "WD_TICKET"
+DEFAULT_WIDTH = 960
+DEFAULT_HEIGHT = 160
+
 # Keep live instances alive while their embed windows exist.
 _LIVE: dict[str, "WorkDispatcher"] = {}
 
@@ -77,6 +82,7 @@ class WorkDispatcher:
         self._label = values.get(PARAM_ISSUE_LABEL, "").strip() or DEFAULT_LABEL
         self._labels_for = ""
         self._tickets: dict[int, IssueTicket] = {}
+        self._sequence: list[int] = []
         self._dispatched: set[int] = set()
         self._redis: Optional[redis.Redis] = None
         self.redis_url = resolve_redis_url()
@@ -103,15 +109,17 @@ class WorkDispatcher:
         parent: str,
         *,
         tag_prefix: str,
-        width: int = 480,
-        height: int = 160,
+        width: int = DEFAULT_WIDTH,
+        height: int = DEFAULT_HEIGHT,
     ) -> None:
         """Fill the host content parent with Work Dispatcher widgets."""
         self._root_tag = tag_prefix
-        _ = width
-        # Compact chrome: URL + label/status ≈ 48px; list starts at ~2 rows and grows.
+        # Compact chrome: URL + label/status ≈ 48px; two columns start at ~2 rows.
         self._row_h = 26
         self._scroll_max = max(self._row_h * 2, height - 48) if height else None
+        panel_w = max(int(width), 480)
+        self._left_w = max(280, min(500, panel_w // 2))
+        self._right_w = max(240, panel_w - self._left_w - 8)
 
         theme_tag = self._tag("ticket_theme")
         if not dpg.does_item_exist(theme_tag):
@@ -155,12 +163,22 @@ class WorkDispatcher:
                 dpg.add_text(
                     "Idle", tag=self._tag("status_text"), color=(160, 160, 160)
                 )
-            dpg.add_child_window(
-                tag=self._tag("ticket_scroll"),
-                width=-1,
-                height=self._row_h * 2,
-                border=True,
-            )
+            with dpg.group(horizontal=True):
+                dpg.add_child_window(
+                    tag=self._tag("ticket_scroll"),
+                    width=self._left_w,
+                    height=self._row_h * 2,
+                    border=True,
+                )
+                dpg.add_child_window(
+                    tag=self._tag("sequence_scroll"),
+                    width=self._right_w,
+                    height=self._row_h * 2,
+                    border=True,
+                    payload_type=TICKET_PAYLOAD,
+                    drop_callback=self._on_sequence_drop,
+                )
+            self._rebuild_sequence_rows()
 
         dpg.set_item_user_data(parent, self.shutdown)
         self._start_services()
@@ -216,12 +234,36 @@ class WorkDispatcher:
         self._clear_rows()
         self._ui_queue.put(("status", f"Tracking {chosen}…", (180, 180, 100)))
 
+    def sequence_ids(self) -> list[int]:
+        """Ticket ids in sequencer order. Not wired to dispatch yet."""
+        return list(self._sequence)
+
+    def place_in_sequence(
+        self, ticket_id: int, *, before: Optional[int] = None
+    ) -> list[int]:
+        """Put ``ticket_id`` in the sequencer, optionally before another id."""
+        self._place_in_sequence(ticket_id, before_id=before)
+        self._rebuild_sequence_rows()
+        return self.sequence_ids()
+
+    def _place_in_sequence(
+        self, ticket_id: int, before_id: Optional[int] = None
+    ) -> None:
+        if ticket_id in self._sequence:
+            self._sequence.remove(ticket_id)
+        if before_id is not None and before_id in self._sequence:
+            self._sequence.insert(self._sequence.index(before_id), ticket_id)
+        else:
+            self._sequence.append(ticket_id)
+
     def _clear_rows(self) -> None:
         for ticket_id in list(self._tickets):
             row = self._tag(f"ticket_row_{ticket_id}")
             if dpg.does_item_exist(row):
                 dpg.delete_item(row)
         self._tickets.clear()
+        self._sequence.clear()
+        self._rebuild_sequence_rows()
         self._resize_ticket_scroll()
 
     def _poll_loop(self) -> None:
@@ -338,14 +380,14 @@ class WorkDispatcher:
         dpg.set_value(tag, self._label)
 
     def _resize_ticket_scroll(self) -> None:
-        scroll = self._tag("ticket_scroll")
-        if not dpg.does_item_exist(scroll):
-            return
-        n = max(2, len(self._tickets))
+        n = max(2, len(self._tickets), len(self._sequence))
         h = n * self._row_h
         if self._scroll_max is not None:
             h = min(h, self._scroll_max)
-        dpg.configure_item(scroll, height=h)
+        for suffix in ("ticket_scroll", "sequence_scroll"):
+            tag = self._tag(suffix)
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, height=h)
 
     def _ensure_ticket_row(self, ticket: IssueTicket) -> None:
         if ticket.id in self._tickets:
@@ -377,6 +419,13 @@ class WorkDispatcher:
                 callback=self._on_ticket_pressed,
             )
             dpg.bind_item_theme(btn, self._tag("ticket_theme"))
+            with dpg.drag_payload(
+                parent=btn,
+                drag_data=ticket.id,
+                payload_type=TICKET_PAYLOAD,
+                tag=self._tag(f"ticket_drag_{ticket.id}"),
+            ):
+                dpg.add_text(ticket.name)
             dpg.add_combo(
                 items=list(FACTORY_OPTIONS),
                 default_value=DEFAULT_FACTORY,
@@ -393,6 +442,79 @@ class WorkDispatcher:
             )
 
         self._resize_ticket_scroll()
+
+    def _on_sequence_drop(self, sender, app_data, user_data=None) -> None:
+        try:
+            ticket_id = int(app_data)
+        except (TypeError, ValueError):
+            return
+        if ticket_id not in self._tickets:
+            return
+        sender_alias = str(dpg.get_item_alias(sender) or sender)
+        if sender_alias == self._tag("sequence_scroll"):
+            before_id = None
+        elif isinstance(user_data, int) and user_data == ticket_id:
+            return
+        elif isinstance(user_data, int):
+            before_id = user_data
+        else:
+            before_id = None
+        self.place_in_sequence(ticket_id, before=before_id)
+
+    def _rebuild_sequence_rows(self) -> None:
+        scroll = self._tag("sequence_scroll")
+        if not dpg.does_item_exist(scroll):
+            return
+        children = list(dpg.get_item_children(scroll, slot=1) or [])
+        for child in children:
+            if dpg.does_item_exist(child):
+                dpg.delete_item(child)
+        if not self._sequence:
+            dpg.add_text(
+                "Drag tickets here",
+                parent=scroll,
+                tag=self._tag("sequence_hint"),
+                color=COLOR_DIM,
+                payload_type=TICKET_PAYLOAD,
+                drop_callback=self._on_sequence_drop,
+            )
+        else:
+            for ticket_id in self._sequence:
+                ticket = self._tickets.get(ticket_id)
+                if ticket is not None:
+                    self._add_sequence_row(ticket)
+        dpg.set_item_user_data(scroll, list(self._sequence))
+        self._resize_ticket_scroll()
+
+    def _add_sequence_row(self, ticket: IssueTicket) -> None:
+        scroll = self._tag("sequence_scroll")
+        row_tag = self._tag(f"seq_row_{ticket.id}")
+        btn_tag = self._tag(f"seq_btn_{ticket.id}")
+        with dpg.group(
+            parent=scroll,
+            horizontal=True,
+            tag=row_tag,
+            user_data=ticket.id,
+            payload_type=TICKET_PAYLOAD,
+            drop_callback=self._on_sequence_drop,
+        ):
+            btn = dpg.add_button(
+                label=ticket.name,
+                width=-1,
+                height=22,
+                tag=btn_tag,
+                user_data=ticket.id,
+                payload_type=TICKET_PAYLOAD,
+                drop_callback=self._on_sequence_drop,
+            )
+            dpg.bind_item_theme(btn, self._tag("ticket_theme"))
+            with dpg.drag_payload(
+                parent=btn,
+                drag_data=ticket.id,
+                payload_type=TICKET_PAYLOAD,
+                tag=self._tag(f"seq_drag_{ticket.id}"),
+            ):
+                dpg.add_text(ticket.name)
 
     def _on_ticket_pressed(self, sender, app_data, user_data: int) -> None:
         issue_id = user_data
@@ -486,8 +608,8 @@ def build_ui(
     parent: str,
     *,
     tag_prefix: str,
-    width: int = 480,
-    height: int = 160,
+    width: int = DEFAULT_WIDTH,
+    height: int = DEFAULT_HEIGHT,
     parameters: Optional[Mapping[str, str]] = None,
 ) -> None:
     """Module-level builder for FeSpec / MegaDesk graph hosting."""
@@ -518,6 +640,24 @@ def read_parameters(tag_prefix: str) -> dict[str, str]:
         PARAM_GIT_URL: (dpg.get_value(url_tag) or "").strip(),
         PARAM_ISSUE_LABEL: label or DEFAULT_LABEL,
     }
+
+
+def read_sequence(tag_prefix: str) -> list[int]:
+    """Current sequencer order as ticket ids, top to bottom.
+
+    Walks the sequence column widgets so callers see what the operator sees.
+    The order is not wired to dispatch yet.
+    """
+    scroll = f"{tag_prefix}::sequence_scroll"
+    if not dpg.does_item_exist(scroll):
+        return []
+    children = dpg.get_item_children(scroll, slot=1) or []
+    order: list[int] = []
+    for child in children:
+        data = dpg.get_item_user_data(child)
+        if isinstance(data, int):
+            order.append(data)
+    return order
 
 
 def main() -> None:

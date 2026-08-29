@@ -51,7 +51,7 @@ def test_drop_hosts_the_fe_and_persists_the_member(harness, tmp_path) -> None:
     assert driver.member_id in harness.model.members
     assert driver.is_hosted()
     # Tags the FE derives from the tag_prefix the host handed to FeSpec.build.
-    for suffix in ("git_url", "status_text", "ticket_scroll"):
+    for suffix in ("git_url", "status_text", "ticket_scroll", "sequence_scroll"):
         assert driver.exists(suffix), f"missing {suffix}: {driver.suffixes()}"
 
     saved = json.loads((tmp_path / "graph.json").read_text(encoding="utf-8"))

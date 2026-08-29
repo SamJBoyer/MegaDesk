@@ -40,10 +40,13 @@ def test_fe_only_nodes_do_not_launch_a_backend() -> None:
     from pr_manager_node import get_fe_spec as pm_fe
     from work_dispatcher_node import get_be_spec as wd_be
     from work_dispatcher_node import get_fe_spec as wd_fe
+    from work_dispatcher_node import read_sequence
 
     assert wd_fe().backends == ()
     assert wd_fe().parameters == ("GIT_URL", "ISSUE_LABEL")
     assert wd_fe().read_parameters is not None
+    assert wd_fe().default_width >= 900
+    assert callable(read_sequence)
     assert wd_be() is None
     assert ai_fe().backends == ()
     assert ai_fe().parameters == ("GIT_URL",)
