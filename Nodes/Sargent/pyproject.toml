@@ -3,12 +3,11 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "code-scope"
+name = "sargent"
 version = "0.1.0"
-description = "MegaDesk node: ask questions about a cloned repository (FE) via a warm local Cursor agent (BE)"
+description = "MegaDesk node: rewrite a rough prompt via one OpenAI Chat Completions call"
 requires-python = ">=3.10"
 dependencies = [
-    "cursor-sdk>=0.1.0",
     "redis>=5.0.0",
     "megadesk-contracts",
 ]
@@ -21,10 +20,10 @@ canvas = [
 ]
 
 [project.entry-points."MegaDesk.nodes"]
-code_scope = "code_scope_node"
+sargent = "sargent_node"
 
 [tool.setuptools]
-py-modules = ["code_scope_node"]
+py-modules = ["sargent_node"]
 
 [tool.setuptools.packages.find]
-include = ["CodeScopeManager*", "code_scope_frontend*", "code_scope_tools*"]
+include = ["SargentManager*", "sargent_frontend*"]

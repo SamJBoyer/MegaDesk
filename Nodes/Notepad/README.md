@@ -5,7 +5,8 @@ it at a GitHub repo and the files land under `notes/` in that clone, where
 `git` stages them so they can be committed with the rest of the tree.
 
 VoiceDeck writes the same documents the tabs show. The FE consumes
-`NOTEPAD:CMD`; there is no backend.
+`NOTEPAD:CMD`; there is no backend. Tools are declared on
+`get_tool_spec()` (`notepad_tools/`) so VoiceDeck discovers them.
 
 ## Halves
 

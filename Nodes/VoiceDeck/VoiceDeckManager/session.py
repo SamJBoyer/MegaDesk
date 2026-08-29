@@ -30,23 +30,11 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from megadesk_contracts import resolve_ephemeral_db, resolve_persistent_db, redis_connect, realtime, resolve_redis_url
-from megadesk_contracts.repo import CloneError, remote_url
-from megadesk_contracts.wire import cloud as cloud_wire
+from megadesk_contracts.repo import remote_url
 from megadesk_contracts.wire import code_scope as scope_wire
-from megadesk_contracts.wire import notepad as notepad_wire
 from megadesk_contracts.wire import voice as wire
 
-from VoiceDeckManager.tools import (
-    ANSWER_PREFIX,
-    TOOL_ADD_NOTE_TEXT,
-    TOOL_ASK_CODEBASE,
-    TOOL_CREATE_NOTE,
-    TOOL_DISPATCH_DOC_AGENT,
-    TOOL_END_SESSION,
-    TOOL_SET_REPO,
-    TOOL_SWITCH_NOTE,
-    is_farewell,
-)
+from VoiceDeckManager.tools import ANSWER_PREFIX, tool_handlers
 
 log = logging.getLogger("voice_deck.session")
 
@@ -81,6 +69,7 @@ class VoiceSession:
         self._persistent = persistent
         self._pending: dict[str, str] = {}
         self._last_user_text = ""
+        self.current_call_id = ""
         self._answer_cursor = "$"
         self._control_cursor = "$"
         self._stop = threading.Event()
@@ -235,21 +224,13 @@ class VoiceSession:
                 arguments = {}
 
         log.info("Tool call %s args=%s", name, sorted(arguments))
-        handlers = {
-            TOOL_ASK_CODEBASE: self._tool_ask_codebase,
-            TOOL_DISPATCH_DOC_AGENT: self._tool_dispatch_doc_agent,
-            TOOL_SET_REPO: self._tool_set_repo,
-            TOOL_CREATE_NOTE: self._tool_create_note,
-            TOOL_ADD_NOTE_TEXT: self._tool_add_note_text,
-            TOOL_SWITCH_NOTE: self._tool_switch_note,
-            TOOL_END_SESSION: self._tool_end_session,
-        }
-        handler = handlers.get(name)
+        self.current_call_id = call_id
+        handler = tool_handlers().get(name)
         if handler is None:
             result = {"status": "error", "detail": f"unknown tool {name}"}
         else:
             try:
-                result = handler(arguments, call_id)
+                result = handler(arguments, self)
             except Exception as exc:  # noqa: BLE001 - a failed tool must answer
                 log.exception("Tool %s failed", name)
                 result = {"status": "error", "detail": str(exc)}
@@ -257,158 +238,27 @@ class VoiceSession:
         if self.transport is not None and call_id:
             self.transport.send_tool_result(call_id, result)
 
-    # --- tools ---
+    # --- ToolHost ---
 
-    def _tool_ask_codebase(self, arguments: dict, call_id: str) -> dict:
-        question = str(arguments.get("question") or "").strip()
-        if not question:
-            return {"status": "error", "detail": "no question was provided"}
+    @property
+    def pending(self) -> dict[str, str]:
+        return self._pending
 
-        resolved = self.resolve_scope_session(self.target_repo)
-        if resolved is None:
-            detail = "no repository is loaded in CodeScope"
-            self._publish(wire.KIND_ERROR, detail)
-            return {"status": "error", "detail": detail}
+    @property
+    def last_user_text(self) -> str:
+        return self._last_user_text
 
-        scope_session_id, repo = resolved
-        question_id = scope_wire.new_question_id()
-        self.ephemeral.xadd(
-            scope_wire.ASK_STREAM,
-            scope_wire.ask_fields(
-                session_id=scope_session_id,
-                question_id=question_id,
-                repo=repo,
-                question=question,
-            ),
-        )
+    def publish(self, kind: str, text: str) -> None:
+        self._publish(kind, text)
+
+    def set_state(self, state: str) -> None:
+        self._set_state(state)
+
+    def remember_question(self, question_id: str, call_id: str) -> None:
         self._pending[question_id] = call_id
-        self._set_state(wire.STATE_THINKING)
-        # Deliberately not the answer: see the module docstring.
-        return {
-            "status": "searching",
-            "detail": (
-                "The answer will arrive shortly as a message beginning with "
-                f"{ANSWER_PREFIX}. Say one short thing, then wait silently. "
-                f"Do not call {TOOL_END_SESSION}; the session stays open."
-            ),
-        }
 
-    def _tool_dispatch_doc_agent(self, arguments: dict, call_id: str) -> dict:
-        instructions = str(arguments.get("instructions") or "").strip()
-        if not instructions:
-            return {"status": "error", "detail": "no instructions were provided"}
-        title = str(arguments.get("title") or "").strip() or _title_from(instructions)
-        repo = str(arguments.get("target") or "").strip() or self.target_repo
-
-        resolved = self.resolve_scope_session(repo)
-        if resolved is None:
-            detail = "no repository is loaded to dispatch against"
-            self._publish(wire.KIND_ERROR, detail)
-            return {"status": "error", "detail": detail}
-        scope_session_id, repo = resolved
-
-        try:
-            url = self._repo_url(scope_session_id)
-        except (CloneError, ValueError) as exc:
-            detail = f"could not resolve the remote for {repo}: {exc}"
-            self._publish(wire.KIND_ERROR, detail)
-            return {"status": "error", "detail": detail}
-
-        order_id = cloud_wire.new_order_id()
-        order = cloud_wire.cloudorder_fields(
-            order_id=order_id,
-            repo_url=url,
-            title=title,
-            instructions=instructions,
-            auto_pr=True,
-        )
-        cloud_wire.publish_cloudorder(self.ephemeral, order)
-
-        self._publish(wire.KIND_DISPATCH, f"{cloud_wire.STATUS_QUEUED}: {title}")
-        return {
-            "status": cloud_wire.STATUS_QUEUED,
-            "order_id": order_id,
-            "title": title,
-            "detail": "Queued to run.",
-        }
-
-    def _tool_set_repo(self, arguments: dict, call_id: str) -> dict:
-        repo = str(arguments.get("repo") or "").strip()
-        resolved = self.resolve_scope_session(repo)
-        if resolved is None:
-            return {
-                "status": "error",
-                "detail": f"{repo or 'that repository'} is not loaded",
-                "available": self.loaded_repos(),
-            }
-        _session_id, repo = resolved
-        self.target_repo = repo
-        self._publish(wire.KIND_TARGET, repo)
-        return {"status": "ok", "repo": repo}
-
-    def _tool_create_note(self, arguments: dict, call_id: str) -> dict:
-        title = str(arguments.get("title") or "").strip()
-        if not title:
-            return {"status": "error", "detail": "no title was provided"}
-        text = str(arguments.get("text") or "")
-        self.ephemeral.xadd(
-            notepad_wire.CMD_STREAM,
-            notepad_wire.command_fields(
-                action=notepad_wire.ACTION_CREATE, title=title, text=text
-            ),
-        )
-        return {"status": "ok", "title": title}
-
-    def _tool_add_note_text(self, arguments: dict, call_id: str) -> dict:
-        text = str(arguments.get("text") or "")
-        if not str(text).strip():
-            return {"status": "error", "detail": "no text was provided"}
-        title = str(arguments.get("title") or "").strip()
-        self.ephemeral.xadd(
-            notepad_wire.CMD_STREAM,
-            notepad_wire.command_fields(
-                action=notepad_wire.ACTION_APPEND, title=title, text=text
-            ),
-        )
-        return {"status": "ok", "title": title or "current"}
-
-    def _tool_switch_note(self, arguments: dict, call_id: str) -> dict:
-        title = str(arguments.get("title") or "").strip()
-        if not title:
-            return {"status": "error", "detail": "no title was provided"}
-        self.ephemeral.xadd(
-            notepad_wire.CMD_STREAM,
-            notepad_wire.command_fields(
-                action=notepad_wire.ACTION_SWITCH, title=title
-            ),
-        )
-        return {"status": "ok", "title": title}
-
-    def _tool_end_session(self, arguments: dict, call_id: str) -> dict:
-        """Close only on an explicit goodbye, never as a follow-up to a search."""
-        if self._pending:
-            log.info(
-                "Ignoring end_session; %d search(es) still in flight",
-                len(self._pending),
-            )
-            return {
-                "status": "error",
-                "detail": (
-                    "A codebase search is still running. Stay on the line and "
-                    f"wait for the {ANSWER_PREFIX} message. Do not hang up."
-                ),
-            }
-        if self._last_user_text and not is_farewell(self._last_user_text):
-            log.info("Ignoring end_session; last user turn was not a farewell")
-            return {
-                "status": "error",
-                "detail": (
-                    "The user did not ask to hang up. Keep listening. "
-                    f"Call {TOOL_END_SESSION} only after an explicit goodbye."
-                ),
-            }
-        self.stop()
-        return {"status": "ok"}
+    def repo_url(self, scope_session_id: str) -> str:
+        return self._repo_url(scope_session_id)
 
     # --- answers ---
 
@@ -607,11 +457,6 @@ class VoiceSession:
             except Exception:  # noqa: BLE001 - a dropped socket is recoverable
                 log.warning("Voice transport failed; closing", exc_info=True)
                 self.stop()
-
-
-def _title_from(instructions: str) -> str:
-    words = instructions.split()
-    return " ".join(words[:8]) or "documentation change"
 
 
 def main() -> None:

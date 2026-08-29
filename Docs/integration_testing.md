@@ -132,6 +132,7 @@ tests/
   test_workgraph_flow.py
   test_vision_board.py
   test_notepad.py
+  test_sargent_flow.py
 ```
 
 ### `CanvasHarness`

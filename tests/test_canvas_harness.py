@@ -42,7 +42,7 @@ def test_catalog_offers_the_installed_frontends(harness) -> None:
     from engine.megadesk_registry import all_fe_specs
 
     names = {spec.name for spec in all_fe_specs()}
-    assert {"work_dispatcher", "pr_manager"} <= names
+    assert {"work_dispatcher", "pr_manager", "sargent"} <= names
 
 
 def test_drop_hosts_the_fe_and_persists_the_member(harness, tmp_path) -> None:

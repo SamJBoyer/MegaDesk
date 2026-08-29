@@ -10,6 +10,8 @@ def test_be_nodes_declare_their_launch_endpoints() -> None:
     from code_scope_node import get_fe_spec as scope_fe
     from machine_factory_node import get_be_spec as mc_be
     from machine_factory_node import get_fe_spec as mc_fe
+    from sargent_node import get_be_spec as sargent_be
+    from sargent_node import get_fe_spec as sargent_fe
     from voice_deck_node import get_be_spec as voice_be
     from voice_deck_node import get_fe_spec as voice_fe
 
@@ -21,6 +23,8 @@ def test_be_nodes_declare_their_launch_endpoints() -> None:
     assert voice_be().name == "voice_deck"
     assert cloud_fe().backends == ("cloud_factory",)
     assert cloud_be().name == "cloud_factory"
+    assert sargent_fe().backends == ("sargent",)
+    assert sargent_be().name == "sargent"
 
 
 def test_fe_only_nodes_do_not_launch_a_backend() -> None:
@@ -55,3 +59,62 @@ def test_fe_only_nodes_do_not_launch_a_backend() -> None:
     assert np_fe().parameters == ("GIT_URL",)
     assert np_fe().read_parameters is not None
     assert np_be() is None
+
+
+def test_nodes_with_voice_tools_declare_them() -> None:
+    from code_scope_node import get_tool_spec as scope_tools
+    from notepad_node import get_tool_spec as notepad_tools
+    from voice_deck_node import get_tool_spec as voice_tools
+    from work_dispatcher_node import get_tool_spec as wd_tools
+    from work_dispatcher_node import get_fe_spec as wd_fe
+
+    code = scope_tools()
+    tickets = wd_tools()
+    notes = notepad_tools()
+    session = voice_tools()
+    assert (
+        code is not None
+        and tickets is not None
+        and notes is not None
+        and session is not None
+    )
+    assert code.name == "code_scope"
+    assert {schema["name"] for schema in code.schemas} == {
+        "ask_codebase",
+        "dispatch_doc_agent",
+        "set_repo",
+    }
+    assert tickets.name == wd_fe().name
+    assert {schema["name"] for schema in tickets.schemas} == {
+        "list_tickets",
+        "choose_ticket",
+        "set_dispatch",
+        "send_ticket",
+    }
+    assert notes.name == "notepad"
+    assert {schema["name"] for schema in notes.schemas} == {
+        "create_note",
+        "add_note_text",
+        "switch_note",
+    }
+    assert session.name == "voice_deck"
+    assert {schema["name"] for schema in session.schemas} == {"end_session"}
+    assert set(code.handlers) == {schema["name"] for schema in code.schemas}
+    assert set(tickets.handlers) == {schema["name"] for schema in tickets.schemas}
+    assert set(notes.handlers) == {schema["name"] for schema in notes.schemas}
+
+
+def test_nodes_without_voice_tools_do_not_declare_them() -> None:
+    import auto_integrate_node
+    import graph_scope_node
+    import machine_factory_node
+    import pr_manager_node
+
+    for mod in (
+        auto_integrate_node,
+        graph_scope_node,
+        machine_factory_node,
+        pr_manager_node,
+    ):
+        fn = getattr(mod, "get_tool_spec", None)
+        assert fn is None or fn() is None

@@ -20,4 +20,4 @@ notepad = "notepad_node"
 py-modules = ["notepad_node"]
 
 [tool.setuptools.packages.find]
-include = ["notepad_frontend*"]
+include = ["notepad_frontend*", "notepad_tools*"]

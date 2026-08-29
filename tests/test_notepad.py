@@ -14,11 +14,7 @@ from conftest import NOTEPAD_CMD_CANONICAL_FIELDS
 from megadesk_contracts.testing import git
 from megadesk_contracts.wire import notepad as wire
 from notepad_frontend.pad import Pad, PadError, note_filename, safe_title
-from VoiceDeckManager.tools import (
-    TOOL_ADD_NOTE_TEXT,
-    TOOL_CREATE_NOTE,
-    TOOL_SWITCH_NOTE,
-)
+from notepad_tools import TOOL_ADD_NOTE_TEXT, TOOL_CREATE_NOTE, TOOL_SWITCH_NOTE
 
 NODE = "notepad"
 

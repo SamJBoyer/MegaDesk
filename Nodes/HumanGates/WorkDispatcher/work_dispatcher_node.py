@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Mapping, Optional
 
-from megadesk_contracts import BeSpec, FeSpec, load_parameter_names, normalize_parameters
+from megadesk_contracts import BeSpec, FeSpec, ToolSpec, load_parameter_names, normalize_parameters
 
 from work_dispatcher_app import build_ui, read_parameters
 
@@ -41,3 +41,9 @@ def get_fe_spec(
 
 def get_be_spec() -> BeSpec | None:
     return None
+
+
+def get_tool_spec() -> ToolSpec | None:
+    from work_dispatcher_tools import tool_spec
+
+    return tool_spec()

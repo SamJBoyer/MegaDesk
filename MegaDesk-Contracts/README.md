@@ -2,7 +2,7 @@
 
 Central registry of MegaDesk cross-module contracts:
 
-1. **Python package `megadesk-contracts`** — installable shared library (`FeSpec` / `BeSpec`, `MegaDesk.nodes` discovery, Supervisor Redis client, Dear PyGui frame pump).
+1. **Python package `megadesk-contracts`** — installable shared library (`FeSpec` / `BeSpec` / `ToolSpec`, `MegaDesk.nodes` discovery, Supervisor Redis client, Dear PyGui frame pump).
 2. **Wire modules** (`megadesk_contracts/wire/`) — one canonical definition per stream, with build and parse helpers, imported by both halves of a node. New streams belong here. A node must never ship its own copy: `WORKORDER` used to be defined twice and the copies were free to drift.
 3. **Redis docs** (`redis/`) — expected Redis package layouts and IPC conventions (DB 0 ephemeral / DB 1 persistent for Supervisor).
 4. **Test harness** (`megadesk_contracts/testing/`) — drives a real canvas in-process so integration tests can cross GUI and stream seams. See [`Docs/integration_testing.md`](../Docs/integration_testing.md).
@@ -18,7 +18,7 @@ Import as:
 
 ```python
 from megadesk_contracts import (
-    FeSpec, BeSpec, frame_pump, SupervisorClient,
+    FeSpec, BeSpec, ToolSpec, frame_pump, SupervisorClient,
     DEFAULT_REDIS_URL, resolve_redis_url,
 )
 ```

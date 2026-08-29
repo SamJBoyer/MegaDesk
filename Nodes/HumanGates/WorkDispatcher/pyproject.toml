@@ -18,3 +18,4 @@ work_dispatcher = "work_dispatcher_node"
 
 [tool.setuptools]
 py-modules = ["work_dispatcher_app", "work_dispatcher_node"]
+packages = ["work_dispatcher_tools"]

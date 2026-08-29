@@ -9,7 +9,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from megadesk_contracts import BeSpec, FeSpec
+from megadesk_contracts import BeSpec, FeSpec, ToolSpec
 
 _CODE_SCOPE_ROOT = Path(__file__).resolve().parent
 NODE_NAME = "code_scope"
@@ -37,4 +37,10 @@ def get_be_spec() -> BeSpec | None:
         argv=[sys.executable, "-u", "-m", "CodeScopeManager"],
         cwd=str(_CODE_SCOPE_ROOT),
     )
+
+
+def get_tool_spec() -> ToolSpec | None:
+    from code_scope_tools import tool_spec
+
+    return tool_spec()
 

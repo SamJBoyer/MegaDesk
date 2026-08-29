@@ -149,7 +149,9 @@ def main() -> int:
         "-c",
         "import megadesk_contracts as mc; "
         "fe=sorted(mc.discover_frontends()); be=sorted(mc.discover_backends()); "
-        "print('frontends: ' + ', '.join(fe)); print('backends:  ' + ', '.join(be))",
+        "tools=sorted(mc.discover_tools()); "
+        "print('frontends: ' + ', '.join(fe)); print('backends:  ' + ', '.join(be)); "
+        "print('tools:     ' + ', '.join(tools))",
     )
     print(verify.stdout, end="")
     print("==> refresh complete")

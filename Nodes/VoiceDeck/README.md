@@ -41,18 +41,22 @@ wait for the user to speak again.
 
 ## Tools the model can call
 
-| Tool | Effect |
-|------|--------|
-| `ask_codebase(question)` | `CODEQ:ASK` to CodeScope; returns `searching` |
-| `dispatch_doc_agent(title, instructions, target)` | Publishes `CLOUDORDER` to CloudFactory |
-| `set_repo(repo)` | Switch which loaded repo questions are about |
-| `create_note(title, text)` | `NOTEPAD:CMD` create; opens a document on the notepad |
-| `add_note_text(text, title)` | `NOTEPAD:CMD` append to a document, or the current target |
-| `switch_note(title)` | `NOTEPAD:CMD` switch the notepad's current document |
-| `end_session()` | Close the socket |
+Tools are defined on the nodes that own them (`get_tool_spec()`), not hardcoded
+here. VoiceDeck discovers them the same way Canvas discovers FEs, then routes
+each call to that node's handler.
+
+| Source | Tool | Effect |
+|------|------|--------|
+| CodeScope | `ask_codebase(question)` | `CODEQ:ASK` to CodeScope; returns `searching` |
+| CodeScope | `dispatch_doc_agent(title, instructions, target)` | Publishes `CLOUDORDER` to CloudFactory |
+| CodeScope | `set_repo(repo)` | Switch which loaded repo questions are about |
+| WorkDispatcher | `list_tickets` / `choose_ticket` / `set_dispatch` / `send_ticket` | List labeled issues, pick one, set machine/cloud + model, dispatch |
+| Notepad | `create_note` / `add_note_text` / `switch_note` | New document, append text, switch the target tab |
+| VoiceDeck | `end_session()` | Close the socket |
 
 `dispatch_doc_agent` publishes a `CLOUDORDER` the same way WorkDispatcher does.
-The repo URL is read off the loaded CodeScope clone, not spoken.
+The repo URL is read off the loaded CodeScope clone, not spoken. Ticket send
+writes `WORKORDER` or `CLOUDORDER` according to `set_dispatch`.
 
 ## Turn-taking
 
