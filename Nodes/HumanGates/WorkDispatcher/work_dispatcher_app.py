@@ -19,6 +19,7 @@ from megadesk_contracts import (
 from megadesk_contracts.human_gate import (
     LABEL_AGENT_READY,
     check_repo,
+    extract_issue_pictures,
     list_labeled_issues,
     list_repo_labels,
     normalize_repo_url,
@@ -551,6 +552,7 @@ class WorkDispatcher:
 
         status = self._tag("status_text")
         instructions = ticket.body or ticket.name
+        pictures = extract_issue_pictures(ticket.body)
         try:
             if factory == "machine":
                 channel = WORKORDER_CHANNEL
@@ -561,6 +563,7 @@ class WorkDispatcher:
                     instructions=instructions,
                     model=model,
                     auto_pr=True,
+                    pictures=pictures,
                 )
                 publish = publish_workorder
             elif factory == "cloud":
@@ -572,6 +575,7 @@ class WorkDispatcher:
                     instructions=instructions,
                     model=model,
                     auto_pr=True,
+                    pictures=pictures,
                 )
                 publish = publish_cloudorder
             else:

@@ -14,10 +14,12 @@ import logging
 import os
 import sys
 from pathlib import Path
+from collections.abc import Sequence
 from typing import Any
 
 from cursor_sdk import Agent, CursorAgentError, LocalAgentOptions
 from megadesk_contracts import redis_connect, resolve_ephemeral_db, resolve_factory_redis_url
+from megadesk_contracts.factory import prompt_payload
 from megadesk_contracts.agent_audit import AgentAuditLog
 from megadesk_contracts.wire.graph import WORK_GRAPH
 from megadesk_contracts.wire.machine import (
@@ -97,6 +99,7 @@ def run_agent(
     api_key: str,
     model: str,
     audit: AgentAuditLog | None = None,
+    pictures: Sequence[str] = (),
 ) -> dict[str, Any]:
     """Create a local Cursor agent bound to cwd and wait for completion."""
     trail = audit or AgentAuditLog(guid="unknown")
@@ -109,7 +112,7 @@ def run_agent(
         ) as agent:
             agent_id = getattr(agent, "agent_id", None) or getattr(agent, "agentId", None)
             trail.event("created", f"agent_id={agent_id}")
-            run = agent.send(instruction)
+            run = agent.send(prompt_payload(instruction, pictures))
             run_id = getattr(run, "id", None)
             trail.event("run", f"run_id={run_id}")
             _stream_run(run, trail)

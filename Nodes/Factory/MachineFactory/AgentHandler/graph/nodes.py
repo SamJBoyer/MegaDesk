@@ -107,6 +107,7 @@ def startup_node(context: RunContext, state: WorkState) -> WorkState:
         "repo": repo,
         "model": model,
         "instructions": order["instructions"],
+        "pictures": list(order.get("pictures") or []),
         "auto_pr": auto_pr,
     }
 
@@ -153,12 +154,14 @@ def pathfinder_node(context: RunContext, state: WorkState) -> WorkState:
 def workhorse_node(context: RunContext, state: WorkState) -> WorkState:
     node = "workhorse_node"
     context.reporter.node_started(node)
+    pictures = list(state.get("pictures") or [])
     instruction = prompts.workhorse_prompt(
         ticket_name=state.get("ticket_name", ""),
         instructions=state.get("instructions", ""),
         pathfinder_report=state.get("pathfinder_report", ""),
+        pictures=pictures,
     )
-    outcome = _run_agent(context, state, instruction, node)
+    outcome = _run_agent(context, state, instruction, node, pictures=pictures)
     if outcome.get("error"):
         context.reporter.node_failed(node, _clip(outcome["error"], 200))
         return _fail(node, outcome["error"])
@@ -284,6 +287,7 @@ def _run_agent(
     state: WorkState,
     instruction: str,
     node: str,
+    pictures: list[str] | None = None,
 ) -> dict[str, Any]:
     """One agent turn inside the cloned workspace."""
     from AgentHandler.handler import run_agent
@@ -296,6 +300,7 @@ def _run_agent(
         api_key=context.api_key,
         model=model,
         audit=context.audit,
+        pictures=pictures or (),
     )
 
     status = normalize_status(outcome.get("status"))

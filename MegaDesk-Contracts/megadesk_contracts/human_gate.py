@@ -37,6 +37,13 @@ MERGE_CHECK_CONTEXT = "mergeable"
 MERGE_CHECK_SUCCESS = "success"
 MERGE_CHECK_FAILURE = "failure"
 
+# GitHub issue bodies carry screenshots as markdown images or <img src>.
+_MD_IMAGE = re.compile(r"!\[(?:[^\]]*)\]\((https?://[^)\s]+)\)")
+_HTML_IMAGE = re.compile(
+    r"<img\b[^>]*\bsrc=['\"](https?://[^'\"]+)['\"]",
+    re.IGNORECASE,
+)
+
 _SUCCESS_STATES = frozenset({"SUCCESS"})
 _FAILURE_STATES = frozenset({"FAILURE", "ERROR", "TIMED_OUT"})
 
@@ -53,6 +60,7 @@ __all__ = [
     "MERGE_CHECK_FAILURE",
     "MERGE_CHECK_SUCCESS",
     "check_repo",
+    "extract_issue_pictures",
     "list_labeled_issues",
     "list_merge_prs",
     "list_repo_labels",
@@ -133,6 +141,30 @@ def parse_github_repo(git_url: str) -> Optional[tuple[str, str]]:
 
 def normalize_repo_url(git_url: str, owner: str, repo: str) -> str:
     return f"https://github.com/{owner}/{repo}"
+
+
+def extract_issue_pictures(body: str) -> list[str]:
+    """Image URLs embedded in a GitHub issue body, in document order.
+
+    WorkDispatcher puts these on the order so a factory can attach them as
+    agent context. Markdown ``![alt](url)`` and HTML ``<img src>`` are the
+    two forms GitHub actually writes when someone drops a screenshot on an
+    issue; a bare URL in the text is not a picture.
+    """
+    text = body or ""
+    found: list[tuple[int, str]] = []
+    for match in _MD_IMAGE.finditer(text):
+        found.append((match.start(), match.group(1)))
+    for match in _HTML_IMAGE.finditer(text):
+        found.append((match.start(), match.group(1)))
+    seen: set[str] = set()
+    out: list[str] = []
+    for _pos, url in sorted(found, key=lambda item: item[0]):
+        if url in seen:
+            continue
+        seen.add(url)
+        out.append(url)
+    return out
 
 
 def check_repo(owner: str, repo: str, *, gh: GhRunner = run_gh) -> tuple[bool, str]:

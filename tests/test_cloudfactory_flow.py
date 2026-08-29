@@ -769,6 +769,67 @@ def test_launch_proceeds_when_the_repo_is_on_cursors_list(
     assert len(created) == 1
 
 
+def test_launch_attaches_order_pictures_to_the_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+    from types import SimpleNamespace
+
+    from CloudFactoryManager.runtime import CursorCloudFactory
+    from megadesk_contracts import RunHandle
+
+    sent: list[object] = []
+    shot = "https://github.com/user-attachments/assets/cloud-shot"
+
+    class _Agent:
+        agent_id = "bc-pics01"
+
+        async def send(self, payload):
+            sent.append(payload)
+            return SimpleNamespace(id="run-1")
+
+    class _Agents:
+        async def create(self, **kwargs):
+            return _Agent()
+
+    class _Repos:
+        async def list(self, api_key=None):
+            return [SimpleNamespace(url=REPO_URL)]
+
+    class _Client:
+        agents = _Agents()
+        repositories = _Repos()
+
+    runtime = CursorCloudFactory(api_key="key")
+
+    async def fake_client():
+        return _Client()
+
+    monkeypatch.setattr(runtime, "_ensure_client", fake_client)
+    monkeypatch.setattr(runtime, "_run", lambda coro: asyncio.run(coro))
+    monkeypatch.setattr(runtime, "_options_cls", lambda: SimpleNamespace)
+
+    handle = runtime.launch(
+        {
+            "repo_url": REPO_URL,
+            "instructions": INSTRUCTIONS,
+            "title": TITLE,
+            "pictures": [shot],
+        }
+    )
+    assert handle == RunHandle(run_key="bc-pics01", run_id="run-1")
+    assert sent, "agent.send was never called"
+    payload = sent[0]
+    if isinstance(payload, dict):
+        text = payload.get("text", "")
+        images = payload.get("images") or []
+    else:
+        text = getattr(payload, "text", "")
+        images = getattr(payload, "images", None) or []
+    assert "Reference images are attached" in str(text)
+    assert any(shot in str(item) for item in images)
+
+
 # --- the frontend ----------------------------------------------------------
 
 

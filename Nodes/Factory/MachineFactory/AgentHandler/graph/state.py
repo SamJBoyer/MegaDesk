@@ -25,6 +25,7 @@ class WorkState(TypedDict, total=False):
     repo: str
     model: str
     instructions: str
+    pictures: list[str]
     auto_pr: bool
     pr_url: str
 

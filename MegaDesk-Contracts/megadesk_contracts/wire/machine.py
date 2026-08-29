@@ -6,7 +6,7 @@
 
 (STREAM, db0) WORKORDER
   - reference store written by the factory after it receives the signal
-  - repo, URL, ref, ticket_name, instructions, model, auto_pr
+  - repo, URL, ref, ticket_name, instructions, model, auto_pr, pictures
 
 (HASH, db0) AGENTHANDLER:<guid>
   - ticket_id, status, error
@@ -48,6 +48,8 @@ from megadesk_contracts.wire._fields import (
     bool_field,
     is_true,
     one_of,
+    parse_pictures,
+    pictures_field,
     require,
     stripped,
     text_field,
@@ -157,12 +159,14 @@ def workorder_fields(
     model: str = DEFAULT_MODEL,
     auto_pr: bool = True,
     ref: str = "",
+    pictures: Any = "",
 ) -> dict[str, str]:
     """Build a WORKORDER stream entry.
 
     ``URL`` is always required: the factory clones into the sandbox rather than
     mounting a Floor worktree. ``ref`` is optional and empty means
-    ``DEFAULT_STARTING_REF``.
+    ``DEFAULT_STARTING_REF``. ``pictures`` is a JSON list of image URLs the
+    agent should see as context; empty means none.
     """
     fields = {
         "repo": stripped(repo),
@@ -172,6 +176,7 @@ def workorder_fields(
         "instructions": text_field(instructions),
         "model": stripped(model) or DEFAULT_MODEL,
         "auto_pr": bool_field(auto_pr),
+        "pictures": pictures_field(pictures),
     }
     require(
         "WORKORDER",
@@ -191,6 +196,7 @@ def parse_workorder(fields: Mapping[str, Any]) -> dict[str, Any]:
         "instructions": text_field(fields.get("instructions")),
         "model": stripped(fields.get("model")) or DEFAULT_MODEL,
         "auto_pr": is_true(fields.get("auto_pr", True)),
+        "pictures": parse_pictures(fields.get("pictures")),
     }
     require(
         "WORKORDER",
