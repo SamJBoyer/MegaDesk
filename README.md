@@ -30,6 +30,7 @@ Individual modules:
   - CodeScope: FE + BE node — clones a repo into `Scope/` and answers questions about it with a warm local Cursor agent. The agent's own search and file-read tools are the retrieval layer, so there is no index, no embeddings, and no RAG pipeline.
   - VoiceDeck: BE node + canvas chrome panel — a speech-to-speech loop (OpenAI Realtime) that calls into CodeScope and CloudFactory by tool call. The FE always boots with the canvas; the BE keeps the `voice_deck` identity and is launched once. Audio stays inside the BE; only transcripts and control messages cross Redis. Needs `[audio]` (PortAudio) and `OPENAI_API_KEY`.
   - GraphScope: FE-only node that draws a live AgentHandler work-graph run from `GRAPHRUN:<guid>` and `GRAPHEVENT`.
+  - Sargent: FE + BE node — a compact chat that rewrites a rough prompt through one OpenAI call (`OPENAI_API_KEY`). Not a Cursor agent.
 
 Shared contract: installable `megadesk-contracts` package in `MegaDesk-Contracts/` (`FeSpec` / `BeSpec`, entry-point discovery, Supervisor client). Redis IPC docs live alongside it (DB 0 ephemeral / DB 1 Supervisor persistent).
 

@@ -41,7 +41,7 @@ Default Redis has indexes 0–15. Live MegaDesk never leaves 0/1. MachineFactory
 
 | DB | Use | Constants |
 |----|-----|-----------|
-| **0** (live ephemeral) | Default realtime traffic: MachineFactory `WORKORDER` / `AGENTHANDLER` / `FINISHED` / `GRAPHRUN` / `GRAPHEVENT`; Supervisor streams `SUPERVISOR:LAUNCHREQUEST` / `SUPERVISOR:KILLREQUEST` / `NODEEXIT`; voice chain `CODEQ:*` / `VOICE:*` / `CLOUD*` | `REDIS_DB_EPHEMERAL` |
+| **0** (live ephemeral) | Default realtime traffic: MachineFactory `WORKORDER` / `AGENTHANDLER` / `FINISHED` / `GRAPHRUN` / `GRAPHEVENT`; Supervisor streams `SUPERVISOR:LAUNCHREQUEST` / `SUPERVISOR:KILLREQUEST` / `NODEEXIT`; voice chain `CODEQ:*` / `VOICE:*` / `CLOUD*`; Sargent `SARGENT:*` | `REDIS_DB_EPHEMERAL` |
 | **1** (live persistent) | `SUPERVISOR:SINGLETON`, `SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>`, `CODESCOPE:SESSION:<id>`, `CLOUDRUN:<agent_id>` | `REDIS_DB_PERSISTENT` |
 | **14/15** | Host pytest pair. Never handed to an agent. | `HOST_PYTEST_EPHEMERAL_DB` / `HOST_PYTEST_PERSISTENT_DB` |
 
@@ -75,6 +75,8 @@ Default Redis has indexes 0–15. Live MegaDesk never leaves 0/1. MachineFactory
 | `CLOUDFINISHED` | stream | `CLOUDFINISHED` | 0 | [voice-chain.md](voice-chain.md#cloudfinished) |
 | CodeScope session | hash | `CODESCOPE:SESSION:<id>` | 1 | [voice-chain.md](voice-chain.md#hashes-db-1) |
 | Cloud run | hash | `CLOUDRUN:<agent_id>` | 1 | [voice-chain.md](voice-chain.md#hashes-db-1) |
+| `SARGENT:ASK` | stream | `SARGENT:ASK` | 0 | [sargent.md](sargent.md) |
+| `SARGENT:ANSWER` | stream | `SARGENT:ANSWER` | 0 | [sargent.md](sargent.md) |
 
 ## Code references
 
@@ -86,6 +88,7 @@ there. A node shipping its own `redis_packets.py` is a bug, not a shortcut:
 - `MegaDesk-Contracts/megadesk_contracts/wire/graph.py` — `GRAPHRUN`, `GRAPHEVENT`, `WORK_GRAPH`
 - `MegaDesk-Contracts/megadesk_contracts/wire/cloud.py` — `CLOUDORDER`, `CLOUDFINISHED`, `CLOUDRUN`
 - `MegaDesk-Contracts/megadesk_contracts/wire/code_scope.py`
+- `MegaDesk-Contracts/megadesk_contracts/wire/sargent.py`
 - `MegaDesk-Contracts/megadesk_contracts/wire/voice.py`
 
 Supervisor keys/streams (Canvas-owned BE):

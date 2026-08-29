@@ -19,6 +19,7 @@ boundary that still removes a network or a device:
   Cursor-hosted VM, including both failure modes a factory must separate.
 * ``FakeMachineFactory`` — sandbox guids and a container that stops when told,
   instead of a Docker daemon.
+* ``FakeSargent`` — canned prompt rewrites. No OpenAI HTTP call.
 
 The last two implement ``megadesk_contracts.factory.AgentFactory``, so a test can
 hand either to a graph and assert the same three verbs behave the same way.
@@ -48,6 +49,7 @@ from megadesk_contracts.realtime import (
 from megadesk_contracts.wire import cloud as cloud_wire
 from megadesk_contracts.wire import code_scope as code_scope_wire
 from megadesk_contracts.wire import factory as factory_wire
+from megadesk_contracts.wire import sargent as sargent_wire
 
 
 from megadesk_contracts.human_gate import (
@@ -902,3 +904,125 @@ class FakeMachineFactory:
     def cancel(self, run_key: str) -> None:
         self.cancelled.append(run_key)
         self.running.discard(run_key)
+
+
+# --- Sargent ---------------------------------------------------------------
+
+
+@dataclass
+class PromptRewrite:
+    ask_id: str
+    prompt_id: str
+    prompt: str
+    rewrite: str
+    status: str
+    answer_id: str
+
+
+class FakeSargent:
+    """Rewrites prompts without calling OpenAI.
+
+    Two faces, matching ``FakeCodeAgent``:
+
+    * ``run_once()`` reads ``SARGENT:ASK`` through the real consumer group and
+      publishes ``SARGENT:ANSWER`` with the production wire helpers.
+    * ``complete`` is a callable the real ``SargentManager`` can use in place of
+      ``OpenAICompleter``.
+    """
+
+    def __init__(
+        self,
+        *,
+        redis: Any,
+        wire: Any = sargent_wire,
+        group: str = sargent_wire.ASK_GROUP,
+        consumer: str = "fake-sargent",
+        default_rewrite: str = "Improved prompt.",
+    ) -> None:
+        self.redis = redis
+        self.wire = wire
+        self.group = group
+        self.consumer = consumer
+        self.default_rewrite = default_rewrite
+        self.rewrites: dict[str, str] = {}
+        self.error = ""
+        self.prompts: list[str] = []
+        self.runs: list[PromptRewrite] = []
+
+    def add_rewrite(self, contains: str, rewrite: str) -> None:
+        self.rewrites[contains.strip().lower()] = rewrite
+
+    def rewrite_for(self, prompt: str) -> str:
+        text = str(prompt).strip().lower()
+        for needle, rewrite in self.rewrites.items():
+            if needle in text:
+                return rewrite
+        return self.default_rewrite
+
+    def complete(self, prompt: str) -> str:
+        self.prompts.append(prompt)
+        if self.error:
+            raise RuntimeError(self.error)
+        return self.rewrite_for(prompt)
+
+    def ensure_group(self) -> None:
+        from redis.exceptions import ResponseError
+
+        try:
+            self.redis.xgroup_create(
+                self.wire.ASK_STREAM, self.group, id="0", mkstream=True
+            )
+        except ResponseError as exc:
+            if "BUSYGROUP" not in str(exc):
+                raise
+
+    def pending(self) -> int:
+        info = self.redis.xpending(self.wire.ASK_STREAM, self.group)
+        if isinstance(info, dict):
+            return int(info.get("pending") or 0)
+        return int(info[0]) if info else 0
+
+    def run_once(self, *, count: int = 32) -> list[PromptRewrite]:
+        self.ensure_group()
+        produced: list[PromptRewrite] = []
+        for stream_id in ("0", ">"):
+            results = self.redis.xreadgroup(
+                groupname=self.group,
+                consumername=self.consumer,
+                streams={self.wire.ASK_STREAM: stream_id},
+                count=count,
+            )
+            for _stream, messages in results or []:
+                for entry_id, fields in messages:
+                    produced.append(self.handle(entry_id, fields))
+        self.runs.extend(produced)
+        return produced
+
+    def handle(self, entry_id: str, fields: dict[str, Any]) -> PromptRewrite:
+        ask = self.wire.parse_ask(fields)
+        self.prompts.append(ask["prompt"])
+        if self.error:
+            rewrite = self.error
+            status = self.wire.STATUS_ERROR
+        else:
+            rewrite = self.rewrite_for(ask["prompt"])
+            status = self.wire.STATUS_OK
+        answer_id = str(
+            self.redis.xadd(
+                self.wire.ANSWER_STREAM,
+                self.wire.answer_fields(
+                    prompt_id=ask["prompt_id"],
+                    rewrite=rewrite,
+                    status=status,
+                ),
+            )
+        )
+        self.redis.xack(self.wire.ASK_STREAM, self.group, entry_id)
+        return PromptRewrite(
+            ask_id=str(entry_id),
+            prompt_id=ask["prompt_id"],
+            prompt=ask["prompt"],
+            rewrite=rewrite,
+            status=status,
+            answer_id=answer_id,
+        )

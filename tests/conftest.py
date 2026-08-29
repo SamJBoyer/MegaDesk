@@ -33,6 +33,7 @@ sys.path[:0] = [
         "Nodes/Factory/CloudFactory",
         "Nodes/GraphScope",
         "Nodes/VisionBoard",
+        "Nodes/Sargent",
     )
 ]
 
@@ -121,11 +122,14 @@ GRAPHRUN_CANONICAL_FIELDS = frozenset(
 GRAPHEVENT_CANONICAL_FIELDS = frozenset(
     {"guid", "graph", "node", "status", "detail", "ts"}
 )
+SARGENT_ASK_CANONICAL_FIELDS = frozenset({"prompt_id", "prompt"})
+SARGENT_ANSWER_CANONICAL_FIELDS = frozenset({"prompt_id", "rewrite", "status"})
 
 WORKORDER_STREAM = "WORKORDER"
 WORKORDER_GROUP = "machine_factory"
 CODEQ_ASK_GROUP = "code_scope"
 CLOUDORDER_GROUP = "cloud_factory"
+SARGENT_ASK_GROUP = "sargent"
 
 # Background poll intervals, shortened so a test does not wait on production
 # cadence. Patched per test; module defaults are untouched.
@@ -282,6 +286,7 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
     from code_scope_frontend import app as code_scope_app
     from graph_scope_frontend import app as graph_scope_app
     from machine_factory_frontend import app as machine_factory_app
+    from sargent_frontend import app as sargent_app
     from voice_deck_frontend import app as voice_deck_app
 
     for module in (
@@ -293,6 +298,7 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
         cloud_factory_app,
         machine_factory_app,
         graph_scope_app,
+        sargent_app,
     ):
         monkeypatch.setattr(module, "POLL_INTERVAL_SEC", FAST_POLL_SEC)
 
@@ -479,6 +485,29 @@ def machine_factory(redis_client, fake_machine_factory):
     )
     manager.ensure_listen()
     return manager
+
+
+@pytest.fixture
+def fake_sargent(redis_client):
+    """Canned prompt rewrites: no OpenAI, no network."""
+    from megadesk_contracts.testing import FakeSargent
+
+    agent = FakeSargent(redis=redis_client, group=SARGENT_ASK_GROUP)
+    agent.ensure_group()
+    return agent
+
+
+@pytest.fixture
+def sargent_manager(redis_client, fake_sargent):
+    """The real BE loop with a fake completer: acks and error answers are real."""
+    from SargentManager.manager import SargentManager
+
+    return SargentManager(
+        ephemeral=redis_client,
+        completer=fake_sargent.complete,
+        group=SARGENT_ASK_GROUP,
+        consumer="test-sargent",
+    )
 
 
 @pytest.fixture

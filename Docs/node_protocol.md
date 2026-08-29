@@ -63,6 +63,7 @@ Examples in-repo:
 | CodeScope | `code_scope` | FE + BE |
 | VoiceDeck | `voice_deck` | BE only (FE is canvas chrome) |
 | GraphScope | `graph_scope` | FE only |
+| Sargent | `sargent` | FE + BE |
 | VisionBoard | `vision_board` | FE only |
 
 Nodes may be nested. Related ones are grouped by folder — `Nodes/Factory/` holds

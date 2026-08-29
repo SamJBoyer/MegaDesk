@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sargent"
+version = "0.1.0"
+description = "MegaDesk node: rewrite a rough prompt into a clearer one via one OpenAI call"
+requires-python = ">=3.10"
+dependencies = [
+    "redis>=5.0.0",
+    "megadesk-contracts",
+]
+
+[project.optional-dependencies]
+# Install megadesk-contracts + dearpygui into the MegaDesk env, then:
+#   pip install -e .[canvas]
+canvas = [
+    "dearpygui>=1.11.1",
+]
+
+[project.entry-points."MegaDesk.nodes"]
+sargent = "sargent_node"
+
+[tool.setuptools]
+py-modules = ["sargent_node"]
+
+[tool.setuptools.packages.find]
+include = ["SargentManager*", "sargent_frontend*"]
