@@ -9,6 +9,8 @@ Read /Docs and Docs/glossary for information about specific terms. For how Nodes
 
 Always use the **MEGADESK** conda environment (`conda activate MEGADESK`). Do not run MegaDesk, pytest, or pip against any other interpreter.
 
+Cursor Cloud agents boot from `.cursor/Dockerfile` (conda `MEGADESK` / Python 3.13, Redis, PortAudio, X11 + Xvfb). `.cursor/install.sh` editable-installs this checkout; `.cursor/start.sh` raises Redis and `DISPLAY=:99`. `pytest tests/test_wire_contract.py` and `pytest -m "not canvas"` need no display; the full canvas suite needs that Xvfb screen and Redis DBs 14/15. Do not add pytest-xdist.
+
 Before working, always make sure the supervisor is down by running. 
 
 ```bash

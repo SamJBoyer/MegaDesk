@@ -1,0 +1,17 @@
+{
+  "name": "MegaDesk",
+  "build": {
+    "dockerfile": "../.cursor/Dockerfile",
+    "context": "../.cursor"
+  },
+  "remoteUser": "ubuntu",
+  "postCreateCommand": "bash .cursor/install.sh",
+  "postStartCommand": "bash .cursor/start.sh",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/opt/conda/envs/MEGADESK/bin/python"
+      }
+    }
+  }
+}
