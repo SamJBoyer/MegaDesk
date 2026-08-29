@@ -60,4 +60,4 @@ from megadesk_contracts import (
 | **CodeScope** | Consumes `CODEQ:ASK`, publishes `CODEQ:ANSWER` on DB 0; owns `CODESCOPE:SESSION:<id>` on DB 1 |
 | **VoiceDeck** | Canvas chrome FE + `voice_deck` BE. `VOICE:CONTROL` / `VOICE:EVENT` on DB 0; publishes `CODEQ:ASK` and `CLOUDORDER`. Never puts audio on Redis |
 | **CloudFactory** | Consumes `CLOUDORDER`, publishes `CLOUDFINISHED` on DB 0; owns `CLOUDRUN:<agent_id>` on DB 1 |
-| **Sargent** | Consumes `SARGENT:ASK`, publishes `SARGENT:ANSWER` on DB 0. One OpenAI chat-completions call per ask. |
+| **PromptImprover** | Consumes `SARGENT:ASK`, publishes `SARGENT:ANSWER` on DB 0. One OpenAI chat-completions call per ask. VoiceDeck speaks the rewrite via `revise_my_prompt`. |

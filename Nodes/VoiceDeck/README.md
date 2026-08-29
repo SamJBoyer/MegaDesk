@@ -52,6 +52,7 @@ each call to that node's handler.
 | CodeScope | `set_repo(repo)` | Switch which loaded repo questions are about |
 | WorkDispatcher | `list_tickets` / `choose_ticket` / `set_dispatch` / `send_ticket` | List labeled issues, pick one, set machine/cloud + model, dispatch |
 | Notepad | `create_note` / `add_note_text` / `switch_note` | New document, append text, switch the target tab |
+| PromptImprover | `revise_my_prompt(prompt)` | `SARGENT:ASK` to PromptImprover; returns `revising`; the rewrite is spoken |
 | VoiceDeck | `end_session()` | Close the socket |
 
 `dispatch_doc_agent` publishes a `CLOUDORDER` the same way WorkDispatcher does.

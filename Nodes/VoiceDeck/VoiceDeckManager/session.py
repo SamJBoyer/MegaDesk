@@ -32,9 +32,10 @@ from typing import Any, Callable, Optional
 from megadesk_contracts import resolve_ephemeral_db, resolve_persistent_db, redis_connect, realtime, resolve_redis_url
 from megadesk_contracts.repo import remote_url
 from megadesk_contracts.wire import code_scope as scope_wire
+from megadesk_contracts.wire import sargent as sargent_wire
 from megadesk_contracts.wire import voice as wire
 
-from VoiceDeckManager.tools import ANSWER_PREFIX, tool_handlers
+from VoiceDeckManager.tools import ANSWER_PREFIX, REWRITE_PREFIX, tool_handlers
 
 log = logging.getLogger("voice_deck.session")
 
@@ -71,6 +72,7 @@ class VoiceSession:
         self._last_user_text = ""
         self.current_call_id = ""
         self._answer_cursor = "$"
+        self._rewrite_cursor = "$"
         self._control_cursor = "$"
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
@@ -108,6 +110,7 @@ class VoiceSession:
         # Arm the answer cursor before any question can exist, so the first read
         # starts from a fixed id rather than "now" and cannot skip an answer.
         self._answer_cursor = self._last_id(scope_wire.ANSWER_STREAM)
+        self._rewrite_cursor = self._last_id(sargent_wire.ANSWER_STREAM)
         try:
             self.transport = self._transport_factory()
             self.transport.connect()
@@ -263,7 +266,7 @@ class VoiceSession:
     # --- answers ---
 
     def pump_answers(self, *, block_ms: int = 0) -> int:
-        """Relay CODEQ:ANSWER entries for questions this session asked."""
+        """Relay CODEQ:ANSWER and SARGENT:ANSWER for asks this session made."""
         relayed = 0
         for _entry_id, fields in self._read(
             scope_wire.ANSWER_STREAM, self._answer_cursor, block_ms, ANSWER_BATCH
@@ -275,6 +278,16 @@ class VoiceSession:
             if answer["question_id"] not in self._pending:
                 continue
             relayed += self._relay(answer)
+        for _entry_id, fields in self._read(
+            sargent_wire.ANSWER_STREAM, self._rewrite_cursor, 0, ANSWER_BATCH
+        ):
+            try:
+                rewrite = sargent_wire.parse_answer(fields)
+            except ValueError:
+                continue
+            if rewrite["prompt_id"] not in self._pending:
+                continue
+            relayed += self._relay_rewrite(rewrite)
         return relayed
 
     def _relay(self, answer: dict) -> int:
@@ -295,6 +308,20 @@ class VoiceSession:
         self._speak(f"{ANSWER_PREFIX} {text}")
         return 1
 
+    def _relay_rewrite(self, answer: dict) -> int:
+        prompt_id = answer["prompt_id"]
+        text = answer["rewrite"].strip()
+        failed = answer["status"] == sargent_wire.STATUS_ERROR
+        self._pending.pop(prompt_id, None)
+        if failed:
+            self._publish(wire.KIND_ERROR, text)
+            self._speak(f"I could not revise the prompt: {text}")
+            return 1
+        if not text:
+            return 0
+        self._speak(f"{REWRITE_PREFIX} {text}")
+        return 1
+
     def _speak(self, text: str) -> None:
         if self.transport is None:
             log.debug("No transport; dropping %r", text[:60])
@@ -307,6 +334,8 @@ class VoiceSession:
         cleaned = text.strip()
         if cleaned.startswith(ANSWER_PREFIX):
             cleaned = cleaned[len(ANSWER_PREFIX) :].strip()
+        elif cleaned.startswith(REWRITE_PREFIX):
+            cleaned = cleaned[len(REWRITE_PREFIX) :].strip()
         return cleaned
 
     # --- CodeScope sessions ---
@@ -398,6 +427,8 @@ class VoiceSession:
             self._control_cursor = cursor
         elif stream == scope_wire.ANSWER_STREAM:
             self._answer_cursor = cursor
+        elif stream == sargent_wire.ANSWER_STREAM:
+            self._rewrite_cursor = cursor
 
     def _publish(self, kind: str, text: str) -> None:
         try:

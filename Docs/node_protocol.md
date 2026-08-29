@@ -67,7 +67,7 @@ Examples in-repo:
 | GraphScope | `graph_scope` | FE only |
 | VisionBoard | `vision_board` | FE only |
 | Notepad | `notepad` | FE + tools |
-| Sargent | `sargent` | FE + BE |
+| PromptImprover | `promptimprover` | FE + BE + tools |
 
 Nodes may be nested. Related ones are grouped by folder — `Nodes/Factory/` holds
 the two factories as siblings, `Nodes/HumanGates/` the two gates — and

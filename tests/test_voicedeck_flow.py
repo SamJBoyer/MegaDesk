@@ -18,6 +18,7 @@ import pytest
 from conftest import (
     CLOUDORDER_CANONICAL_FIELDS,
     CODEQ_ASK_CANONICAL_FIELDS,
+    SARGENT_ASK_CANONICAL_FIELDS,
     VOICE_CONTROL_CANONICAL_FIELDS,
     VOICE_EVENT_CANONICAL_FIELDS,
     WORKORDER_CANONICAL_FIELDS,
@@ -27,10 +28,13 @@ from megadesk_contracts.wire import cloud as cloud_wire
 from megadesk_contracts.wire import code_scope as scope_wire
 from megadesk_contracts.wire import machine as machine_wire
 from megadesk_contracts.wire import voice as wire
+from megadesk_contracts.wire import sargent as sargent_wire
 from notepad_tools import TOOL_ADD_NOTE_TEXT, TOOL_CREATE_NOTE, TOOL_SWITCH_NOTE
+from promptimprover_tools import TOOL_REVISE_MY_PROMPT
 from VoiceDeckManager.tools import (
     ANSWER_PREFIX,
     INSTRUCTIONS,
+    REWRITE_PREFIX,
     TOOL_ASK_CODEBASE,
     TOOL_CHOOSE_TICKET,
     TOOL_DISPATCH_DOC_AGENT,
@@ -257,6 +261,102 @@ def test_asking_with_nothing_loaded_fails_the_tool_instead_of_the_stream(
     assert result["status"] == "error"
     assert "CodeScope" in result["detail"]
     assert read_stream(scope_wire.ASK_STREAM) == []
+
+
+# --- revise my prompt ------------------------------------------------------
+
+
+ROUGH = "i need a node that take my prompt and make it beter spelling grammer etc"
+REWRITE = (
+    "Write a node that takes my prompt and improves it: fix spelling, "
+    "grammar, and structure while keeping the original intent."
+)
+
+
+def test_revise_my_prompt_returns_immediately_and_publishes_the_ask(
+    voice_session, fake_realtime, redis_client, read_stream
+) -> None:
+    voice_session.start()
+    call_id = fake_realtime.call_tool(TOOL_REVISE_MY_PROMPT, {"prompt": ROUGH})
+    voice_session.pump_events()
+
+    result = fake_realtime.result_for(call_id)
+    assert result["status"] == "revising"
+    assert REWRITE_PREFIX in result["detail"]
+    assert TOOL_END_SESSION in result["detail"]
+
+    asks = read_stream(sargent_wire.ASK_STREAM)
+    assert len(asks) == 1
+    _entry_id, ask = asks[0]
+    assert set(ask) == set(SARGENT_ASK_CANONICAL_FIELDS)
+    assert ask["prompt"] == ROUGH
+    assert ask["session_id"] == "voice-test"
+    assert ask["prompt_id"] in voice_session._pending
+    assert fake_realtime.injected == [], "nothing can be spoken before a rewrite exists"
+
+
+def test_a_revised_prompt_is_injected_for_the_model_to_speak(
+    voice_session, fake_realtime, redis_client, read_stream
+) -> None:
+    voice_session.start()
+    fake_realtime.call_tool(TOOL_REVISE_MY_PROMPT, {"prompt": ROUGH})
+    voice_session.pump_events()
+    (prompt_id,) = list(voice_session._pending)
+
+    redis_client.xadd(
+        sargent_wire.ANSWER_STREAM,
+        sargent_wire.answer_fields(
+            session_id="voice-test",
+            prompt_id=prompt_id,
+            rewrite=REWRITE,
+        ),
+    )
+    assert voice_session.pump_answers() == 1
+
+    assert fake_realtime.injected == [f"{REWRITE_PREFIX} {REWRITE}"]
+    assert voice_session.state == wire.STATE_SPEAKING
+
+    voice_session.pump_events()
+    assert events_of(read_stream, wire.KIND_ANSWER) == [REWRITE], (
+        "the marker is an instruction to the model, not something the user hears"
+    )
+    assert prompt_id not in voice_session._pending
+
+
+def test_a_failed_rewrite_is_spoken_rather_than_swallowed(
+    voice_session, fake_realtime, redis_client, read_stream
+) -> None:
+    voice_session.start()
+    fake_realtime.call_tool(TOOL_REVISE_MY_PROMPT, {"prompt": ROUGH})
+    voice_session.pump_events()
+    (prompt_id,) = list(voice_session._pending)
+
+    redis_client.xadd(
+        sargent_wire.ANSWER_STREAM,
+        sargent_wire.answer_fields(
+            session_id="voice-test",
+            prompt_id=prompt_id,
+            rewrite="OPENAI_API_KEY is not set",
+            status=sargent_wire.STATUS_ERROR,
+        ),
+    )
+    voice_session.pump_answers()
+
+    assert "OPENAI_API_KEY" in fake_realtime.injected[0]
+    assert any("OPENAI_API_KEY" in text for text in events_of(read_stream, wire.KIND_ERROR))
+    assert prompt_id not in voice_session._pending
+
+
+def test_revise_my_prompt_without_text_fails_the_tool_instead_of_the_stream(
+    voice_session, fake_realtime, redis_client, read_stream
+) -> None:
+    voice_session.start()
+    call_id = fake_realtime.call_tool(TOOL_REVISE_MY_PROMPT, {"prompt": "   "})
+    voice_session.pump_events()
+
+    result = fake_realtime.result_for(call_id)
+    assert result["status"] == "error"
+    assert read_stream(sargent_wire.ASK_STREAM) == []
 
 
 # --- dispatch safety -------------------------------------------------------
@@ -673,6 +773,7 @@ def test_the_session_hands_turn_taking_to_the_server() -> None:
         TOOL_CREATE_NOTE,
         TOOL_ADD_NOTE_TEXT,
         TOOL_SWITCH_NOTE,
+        TOOL_REVISE_MY_PROMPT,
         TOOL_END_SESSION,
         TOOL_LIST_TICKETS,
         TOOL_CHOOSE_TICKET,
