@@ -261,13 +261,16 @@ def start_ticket_sandbox(
     guid: str,
     ticket_id: str,
     auto_pr: bool = True,
+    ref: str = "",
     api_key: str | None = None,
 ) -> str:
     """Start a Redis sidecar + AgentHandler sandbox that clones ``repo_url``.
 
     The agent MegaDesk uses the sidecar (``REDIS_URL``). Factory IPC
     (AGENTHANDLER / WORKORDER / FINISHED / GRAPHRUN) uses
-    ``MEGADESK_FACTORY_REDIS_URL`` on the host pair.
+    ``MEGADESK_FACTORY_REDIS_URL`` on the host pair. ``ref`` is the branch the
+    sandbox clones and bases its pull request on; empty means
+    ``DEFAULT_STARTING_REF``.
     Returns the agent container name.
     """
     key = api_key or os.environ.get("CURSOR_API_KEY")
@@ -283,6 +286,7 @@ def start_ticket_sandbox(
         log.info("Removing existing container %s before restart", name)
         remove_container(name)
 
+    starting_ref = (ref or "").strip() or DEFAULT_STARTING_REF
     subject_url = f"redis://{redis_name}:6379/0"
     factory_url = factory_redis_url_for_container()
     gh_token = (
@@ -322,16 +326,17 @@ def start_ticket_sandbox(
         "-e",
         "WORKSPACE=/workspace",
         "-e",
-        f"STARTING_REF={DEFAULT_STARTING_REF}",
+        f"STARTING_REF={starting_ref}",
         *([f"-e", f"GH_TOKEN={gh_token}"] if gh_token else []),
         *([f"-e", f"GITHUB_TOKEN={gh_token}"] if gh_token else []),
         *agent_audit_bind_args(guid),
         IMAGE_NAME,
     ]
     log.info(
-        "Starting sandbox %s clone=%s guid=%s ticket_id=%s redis=%s",
+        "Starting sandbox %s clone=%s ref=%s guid=%s ticket_id=%s redis=%s",
         name,
         repo_url,
+        starting_ref,
         guid,
         ticket_id,
         redis_name,

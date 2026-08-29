@@ -24,13 +24,15 @@ sys.path[:0] = [
     for part in (
         "MegaDesk-Contracts",
         "MegaDesk-Canvas",
-        "Nodes/TicketDispatcher",
+        "Nodes/HumanGates/WorkDispatcher",
+        "Nodes/HumanGates/AutoIntegrate",
         "Nodes/PRManager",
         "Nodes/CodeScope",
         "Nodes/VoiceDeck",
         "Nodes/Factory/MachineFactory",
         "Nodes/Factory/CloudFactory",
         "Nodes/GraphScope",
+        "Nodes/VisionBoard",
     )
 ]
 
@@ -72,7 +74,7 @@ def _isolate_megadesk_logs(tmp_path, monkeypatch):
 
 # Canonical wire format. Every writer emits these names; parsers require them.
 WORKORDER_CANONICAL_FIELDS = frozenset(
-    {"repo", "URL", "ticket_name", "instructions", "model", "auto_pr"}
+    {"repo", "URL", "ref", "ticket_name", "instructions", "model", "auto_pr"}
 )
 FINISHED_CANONICAL_FIELDS = frozenset(
     {"ticket_name", "ticket_id", "status", "pr_url"}
@@ -137,7 +139,7 @@ FAST_POLL_SEC = 0.1
 def machine_wire() -> ModuleType:
     """The one definition of WORKORDER / AGENTHANDLER / FINISHED.
 
-    TicketDispatcher and MachineFactory write to this family and import it
+    WorkDispatcher and MachineFactory write to this family and import it
     from here, so there is no second copy to drift.
     """
     from megadesk_contracts.wire import machine
@@ -154,10 +156,17 @@ def graph_wire() -> ModuleType:
 
 
 @pytest.fixture(scope="session")
-def ticket_dispatcher_module() -> ModuleType:
-    import ticket_dispatcher_app
+def work_dispatcher_module() -> ModuleType:
+    import work_dispatcher_app
 
-    return ticket_dispatcher_app
+    return work_dispatcher_app
+
+
+@pytest.fixture(scope="session")
+def auto_integrate_module() -> ModuleType:
+    import auto_integrate_app
+
+    return auto_integrate_app
 
 
 @pytest.fixture(scope="session")
@@ -266,8 +275,9 @@ def artifacts_dir(request: pytest.FixtureRequest) -> Path:
 @pytest.fixture
 def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
     """Shorten FE background poll intervals so tests do not wait on real cadence."""
+    import auto_integrate_app
     import pr_manager_app
-    import ticket_dispatcher_app
+    import work_dispatcher_app
     from cloud_factory_frontend import app as cloud_factory_app
     from code_scope_frontend import app as code_scope_app
     from graph_scope_frontend import app as graph_scope_app
@@ -275,7 +285,8 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
     from voice_deck_frontend import app as voice_deck_app
 
     for module in (
-        ticket_dispatcher_app,
+        work_dispatcher_app,
+        auto_integrate_app,
         pr_manager_app,
         code_scope_app,
         voice_deck_app,
@@ -329,15 +340,16 @@ def git_floor(tmp_path: Path):
 @pytest.fixture
 def fake_gh(
     monkeypatch: pytest.MonkeyPatch,
-    ticket_dispatcher_module: ModuleType,
+    work_dispatcher_module: ModuleType,
+    auto_integrate_module: ModuleType,
     pr_manager_module: ModuleType,
 ):
-    """Swap both GitHub pollers' ``run_gh`` for canned answers — no network, no auth."""
+    """Swap every GitHub poller's ``run_gh`` for canned answers — no network, no auth."""
     from megadesk_contracts.testing import FakeGh
 
     gh = FakeGh()
-    monkeypatch.setattr(ticket_dispatcher_module, "run_gh", gh)
-    monkeypatch.setattr(pr_manager_module, "run_gh", gh)
+    for module in (work_dispatcher_module, auto_integrate_module, pr_manager_module):
+        monkeypatch.setattr(module, "run_gh", gh)
     return gh
 
 

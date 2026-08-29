@@ -52,7 +52,7 @@ def test_read_graph_document_accepts_parameters(tmp_path: Path) -> None:
                 "members": {
                     "m1": {
                         "type": "megadesk",
-                        "node_name": "ticket_dispatcher",
+                        "node_name": "work_dispatcher",
                         "position": [1, 2],
                         "parameters": {"GIT_URL": "https://github.com/acme/widgets"},
                     }
@@ -62,7 +62,7 @@ def test_read_graph_document_accepts_parameters(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     records = read_graph_document(path)
-    assert records["m1"]["node_name"] == "ticket_dispatcher"
+    assert records["m1"]["node_name"] == "work_dispatcher"
     assert records["m1"]["parameters"]["GIT_URL"] == "https://github.com/acme/widgets"
     assert records["m1"]["member_id"] == "m1"
 

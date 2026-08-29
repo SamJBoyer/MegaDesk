@@ -32,7 +32,7 @@ sequenceDiagram
     RT->>VD: tool call dispatch_doc_agent
     VD->>CD: XADD CLOUDORDER
     CD->>CD: HSET CLOUDRUN:bc-xxx status=running (DB 1)
-    CD->>VDFE: XADD CLOUDFINISHED (agent_id, status, pr_url)
+    CD->>CD: HSET CLOUDRUN.pr_url, cancel VM (no success CLOUDFINISHED)
 ```
 
 ## CODEQ:ASK
@@ -103,14 +103,17 @@ Stream, DB 0. Consumer group `cloud_factory`.
 
 ## CLOUDFINISHED
 
-Stream, DB 0.
+Stream, DB 0. Failures and operator cancel only. CloudFactory never XADD's
+`status=finished`: a PR URL is a handoff to GitHub (`CLOUDRUN.pr_url` set, VM
+cancelled, no success stream entry). Merge-check files `MERGE_SUCCESS` /
+`MERGE_FAIL`. `finished` remains a legal wire value for parsers.
 
 | Field | Meaning |
 |---|---|
 | `agent_id` | Cursor's `bc-` id; empty when no agent exists (`startup_error`, or `cancelled` before launch) |
 | `order_id` | The order this settles |
-| `status` | `finished`, `error`, `cancelled`, `startup_error` |
-| `pr_url` | The pull request, when there is one |
+| `status` | `error`, `cancelled`, `startup_error` (CloudFactory); `finished` is still accepted by the parser |
+| `pr_url` | Empty on these failure paths |
 
 `startup_error` means the run never started (fix auth or config, then retry); `error`
 means it ran and failed (read the transcript). Collapsing the two loses the only
@@ -125,8 +128,10 @@ information that decides what to do next.
 
 `agent_id` on a session is what lets a restarted CodeScope BE `Agent.resume` instead of
 starting cold. `CLOUDRUN` is written before its order is acked, so a crash in between
-leaves a visible run rather than an order that silently launched nothing — and its stored
-status is what makes `CLOUDFINISHED` fire exactly once per run.
+leaves a visible run rather than an order that silently launched nothing. A non-empty
+`pr_url` on that hash is the handoff: the VM is cancelled and later polls that come
+back `cancelled` must not write a stream entry. `CLOUDFINISHED` is then only for
+runs that never started, ran and failed, or the operator cancelled.
 
 ## Code references
 

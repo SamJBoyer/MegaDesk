@@ -370,9 +370,13 @@ class CursorCloudFactory:
         The question goes to the run, not the agent. ``agents.get`` answers with
         ``SDKAgentInfo``, whose ``status`` is ``None`` for a cloud agent and
         which carries no pull request anywhere — polling it reports ``running``
-        forever, so CLOUDFINISHED never fires and the FE waits on a run that
-        finished minutes ago. The run carries both, and the PR lives under
-        ``git.branches``.
+        forever, so the manager never sees a PR URL and cannot hand the run off
+        to GitHub. The run carries both, and the PR lives under ``git.branches``.
+
+        A PR URL is a kill switch for the VM, not a MegaDesk done flag. Some SDK
+        versions never go terminal; mapping that URL (or SDK ``finished`` /
+        ``completed`` / ``success``) onto ``STATUS_FINISHED`` would publish a
+        success ``CLOUDFINISHED`` and drop the run while Cursor kept writing.
         """
         try:
             run = self._run(self._async_latest_run(run_key))
@@ -385,10 +389,11 @@ class CursorCloudFactory:
             return RunStatus(status=wire.STATUS_RUNNING, result="", detail="")
         status = normalize_status(_first_attr(run, "status", "state"))
         pr_url = self._pr_url(run)
-        if pr_url and status == wire.STATUS_RUNNING:
-            # A PR exists, so the work landed; some versions report the run as
-            # running until its VM is reaped.
-            status = wire.STATUS_FINISHED
+        if status == wire.STATUS_FINISHED:
+            # Never write MegaDesk finished from a PR URL or from SDK success.
+            # With a PR the manager hands off and cancels the VM; without one
+            # the run is gone and produced nothing, which is an error.
+            status = wire.STATUS_RUNNING if pr_url else wire.STATUS_ERROR
         return RunStatus(
             status=status,
             result=pr_url,

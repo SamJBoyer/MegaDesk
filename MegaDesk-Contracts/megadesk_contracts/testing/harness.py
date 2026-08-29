@@ -74,7 +74,7 @@ class CanvasHarness:
     Typical use::
 
         with CanvasHarness(graph_path=tmp_path / "graph.json") as harness:
-            d = harness.drop("ticket_dispatcher")
+            d = harness.drop("work_dispatcher")
             d.type_into("git_url", "https://github.com/acme/widgets")
             harness.wait_until(lambda: d.get("status_text") != "Idle")
     """

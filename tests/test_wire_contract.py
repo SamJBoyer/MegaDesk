@@ -1,6 +1,6 @@
 """The WORKORDER / FINISHED wire format itself, independent of any GUI.
 
-TicketDispatcher and MachineFactory write to this family, and both import it
+WorkDispatcher and MachineFactory write to this family, and both import it
 from ``megadesk_contracts.wire.machine``. Tests assert the canonical field set
 so a writer drifting off it fails here.
 """
@@ -49,13 +49,13 @@ def test_every_writer_shares_one_definition() -> None:
     This is what replaced the old copy-versus-copy comparison: sameness is now
     an import fact rather than something a test has to keep checking.
     """
-    import ticket_dispatcher_app
+    import work_dispatcher_app
     from megadesk_contracts.wire import cloud, machine
 
-    assert ticket_dispatcher_app.WORKORDER_STREAM == machine.WORKORDER_STREAM
-    assert ticket_dispatcher_app.workorder_fields is machine.workorder_fields
-    assert ticket_dispatcher_app.CLOUDORDER_STREAM == cloud.CLOUDORDER_STREAM
-    assert ticket_dispatcher_app.cloudorder_fields is cloud.cloudorder_fields
+    assert work_dispatcher_app.WORKORDER_STREAM == machine.WORKORDER_STREAM
+    assert work_dispatcher_app.workorder_fields is machine.workorder_fields
+    assert work_dispatcher_app.CLOUDORDER_STREAM == cloud.CLOUDORDER_STREAM
+    assert work_dispatcher_app.cloudorder_fields is cloud.cloudorder_fields
 
 
 def test_workorder_round_trips_through_the_parser(machine_wire) -> None:

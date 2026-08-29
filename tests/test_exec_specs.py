@@ -24,17 +24,23 @@ def test_be_nodes_declare_their_launch_endpoints() -> None:
 
 
 def test_fe_only_nodes_do_not_launch_a_backend() -> None:
+    from auto_integrate_node import get_be_spec as ai_be
+    from auto_integrate_node import get_fe_spec as ai_fe
     from graph_scope_node import get_be_spec as gs_be
     from graph_scope_node import get_fe_spec as gs_fe
     from pr_manager_node import get_be_spec as pm_be
     from pr_manager_node import get_fe_spec as pm_fe
-    from ticket_dispatcher_node import get_be_spec as td_be
-    from ticket_dispatcher_node import get_fe_spec as td_fe
+    from work_dispatcher_node import get_be_spec as wd_be
+    from work_dispatcher_node import get_fe_spec as wd_fe
 
-    assert td_fe().backends == ()
-    assert td_fe().parameters == ("GIT_URL",)
-    assert td_fe().read_parameters is not None
-    assert td_be() is None
+    assert wd_fe().backends == ()
+    assert wd_fe().parameters == ("GIT_URL", "ISSUE_LABEL")
+    assert wd_fe().read_parameters is not None
+    assert wd_be() is None
+    assert ai_fe().backends == ()
+    assert ai_fe().parameters == ("GIT_URL", "ISSUE_LABEL")
+    assert ai_fe().read_parameters is not None
+    assert ai_be() is None
     assert pm_fe().backends == ()
     assert pm_fe().parameters == ("GIT_URL",)
     assert pm_fe().read_parameters is not None

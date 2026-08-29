@@ -40,11 +40,11 @@ def test_catalog_offers_the_installed_frontends(harness) -> None:
     from engine.megadesk_registry import all_fe_specs
 
     names = {spec.name for spec in all_fe_specs()}
-    assert {"ticket_dispatcher", "pr_manager"} <= names
+    assert {"work_dispatcher", "pr_manager"} <= names
 
 
 def test_drop_hosts_the_fe_and_persists_the_member(harness, tmp_path) -> None:
-    driver = harness.drop("ticket_dispatcher")
+    driver = harness.drop("work_dispatcher")
 
     assert driver.member_id in harness.model.members
     assert driver.is_hosted()
@@ -55,7 +55,7 @@ def test_drop_hosts_the_fe_and_persists_the_member(harness, tmp_path) -> None:
     saved = json.loads((tmp_path / "graph.json").read_text(encoding="utf-8"))
     member = saved["members"][driver.member_id]
     assert member["type"] == "megadesk"
-    assert member["node_name"] == "ticket_dispatcher"
+    assert member["node_name"] == "work_dispatcher"
     assert "parameters" in member
     assert "scale" not in member
     assert "parents" not in member
@@ -64,25 +64,25 @@ def test_drop_hosts_the_fe_and_persists_the_member(harness, tmp_path) -> None:
 
 
 def test_widgets_are_writable_and_callbacks_are_real(harness) -> None:
-    driver = harness.drop("ticket_dispatcher")
+    driver = harness.drop("work_dispatcher")
 
     driver.type_into("git_url", "https://github.com/acme/widgets")
     assert driver.get("git_url") == "https://github.com/acme/widgets"
     # The input's own callback queues a status change, drained by the frame pump.
     harness.wait_until(
         lambda: driver.get("status_text") != "Idle",
-        message="TicketDispatcher status to leave Idle",
+        message="WorkDispatcher status to leave Idle",
     )
 
 
 def test_addressing_a_missing_widget_fails_loudly(harness) -> None:
-    driver = harness.drop("ticket_dispatcher")
+    driver = harness.drop("work_dispatcher")
     with pytest.raises(WidgetMissing):
         driver.get("no_such_widget")
 
 
 def test_close_button_removes_the_member_from_the_model(harness) -> None:
-    driver = harness.drop("ticket_dispatcher")
+    driver = harness.drop("work_dispatcher")
     assert harness.model.members
 
     driver.close()
@@ -92,7 +92,7 @@ def test_close_button_removes_the_member_from_the_model(harness) -> None:
 
 
 def test_screenshot_writes_a_real_render(harness) -> None:
-    harness.drop("ticket_dispatcher")
+    harness.drop("work_dispatcher")
     path = harness.screenshot("smoke")
 
     assert path.is_file()
@@ -101,7 +101,7 @@ def test_screenshot_writes_a_real_render(harness) -> None:
 
 
 def test_wait_until_raises_and_leaves_an_artifact(harness) -> None:
-    harness.drop("ticket_dispatcher")
+    harness.drop("work_dispatcher")
     with pytest.raises(HarnessTimeout) as excinfo:
         harness.wait_until(lambda: False, timeout=0.2, message="the impossible")
 
@@ -120,7 +120,7 @@ def test_first_node_on_an_empty_board_still_updates(harness) -> None:
     assert harness.model.members == {}
     assert dpg.get_frame_count() > 1
 
-    driver = harness.drop("ticket_dispatcher")
+    driver = harness.drop("work_dispatcher")
 
     # Only reachable if the FE's per-frame drain is actually running: the text
     # is written by the poll thread through _ui_queue.
@@ -131,7 +131,7 @@ def test_first_node_on_an_empty_board_still_updates(harness) -> None:
 
 
 def test_two_frontends_share_one_live_pump(harness, fake_gh) -> None:
-    dispatcher = harness.drop("ticket_dispatcher")
+    dispatcher = harness.drop("work_dispatcher")
     manager = harness.drop("pr_manager")
 
     probe = harness.install_pump_probe()
@@ -140,6 +140,6 @@ def test_two_frontends_share_one_live_pump(harness, fake_gh) -> None:
 
     harness.wait_until(
         lambda: dispatcher.get("status_text") == "Enter a GitHub repository URL",
-        message="TicketDispatcher to drain with a second FE on the board",
+        message="WorkDispatcher to drain with a second FE on the board",
     )
     assert manager.exists("issue_scroll")

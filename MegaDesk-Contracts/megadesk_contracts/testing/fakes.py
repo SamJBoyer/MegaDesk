@@ -1,7 +1,7 @@
 """Stand-ins for the parts of the chain that are not the seam under test.
 
-``FakeGh`` removes GitHub (network, auth, rate limits) from TicketDispatcher
-and PRManager poll loops. ``FakeAgent`` replaces the sandbox boundary — clone,
+``FakeGh`` removes GitHub (network, auth, rate limits) from the human gates' and
+PRManager's poll loops. ``FakeAgent`` replaces the sandbox boundary — clone,
 Docker, Redis sidecar and ``cursor_sdk`` — while keeping everything on both
 sides of it real: the WORKORDER consumer group, the wire payloads, and the
 FINISHED stream the factory publishes. It publishes a canned PR URL rather
@@ -50,8 +50,14 @@ from megadesk_contracts.wire import code_scope as code_scope_wire
 from megadesk_contracts.wire import factory as factory_wire
 
 
-LABEL_AGENT_READY = "agent-ready"
-LABEL_MERGE_SUCCESS = "MERGE_SUCCESS"
+from megadesk_contracts.human_gate import (
+    LABEL_AGENT_READY,
+    LABEL_MERGE_FAIL,
+    LABEL_MERGE_SUCCESS,
+    merge_issue_markers,
+)
+
+DEFAULT_REPO_LABELS = (LABEL_AGENT_READY, LABEL_MERGE_SUCCESS, LABEL_MERGE_FAIL)
 
 
 @dataclass
@@ -61,6 +67,16 @@ class Issue:
     body: str = ""
     labels: tuple[str, ...] = (LABEL_AGENT_READY,)
     state: str = "open"
+
+
+@dataclass
+class PullRequest:
+    """What ``gh pr view`` knows about a PR, for gates that ask about a branch."""
+
+    number: int
+    head: str
+    base: str = "dev"
+    url: str = ""
 
 
 def _flag(args: tuple[str, ...], name: str) -> str:
@@ -74,23 +90,29 @@ def _flag(args: tuple[str, ...], name: str) -> str:
 
 
 class FakeGh:
-    """Canned replacement for ``run_gh`` on TicketDispatcher and PRManager.
+    """Canned replacement for ``run_gh`` on the human gates and PRManager.
 
-    Answers ``gh repo view``, ``gh issue list --label …``, and ``gh issue close``,
-    and fails loudly on anything else so a changed argv surfaces as a test
-    failure rather than a hang. ``issue list`` filters by ``--label`` and
-    ``--state`` the way the real CLI does.
+    Answers ``gh repo view``, ``gh label list``, ``gh issue list --label …``,
+    ``gh issue close`` and ``gh pr view``, and fails loudly on anything else so a
+    changed argv surfaces as a test failure rather than a hang. ``issue list``
+    filters by ``--label`` and ``--state`` the way the real CLI does.
     """
 
     def __init__(
         self,
         *,
         issues: Optional[list[Issue]] = None,
+        labels: Optional[Sequence[str]] = None,
+        pull_requests: Optional[list[PullRequest]] = None,
         repo_error: str = "",
         issue_error: str = "",
         close_error: str = "",
     ) -> None:
         self.issues: list[Issue] = list(issues or [])
+        self.labels: list[str] = list(
+            labels if labels is not None else DEFAULT_REPO_LABELS
+        )
+        self.pull_requests: list[PullRequest] = list(pull_requests or [])
         self.repo_error = repo_error
         self.issue_error = issue_error
         self.close_error = close_error
@@ -122,19 +144,84 @@ class FakeGh:
         pr_url: str,
         *,
         pr_number: int | None = None,
+        branch: str = "",
+        base: str = "dev",
     ) -> Issue:
         """File the issue merge-check would open after a clean PR merge-tree."""
+        return self._add_merge_issue(
+            number,
+            title,
+            pr_url,
+            label=LABEL_MERGE_SUCCESS,
+            phrase="merges into",
+            pr_number=pr_number,
+            branch=branch,
+            base=base,
+        )
+
+    def add_merge_fail(
+        self,
+        number: int,
+        title: str,
+        pr_url: str,
+        *,
+        pr_number: int | None = None,
+        branch: str = "",
+        base: str = "dev",
+    ) -> Issue:
+        """File the issue merge-check would open for a PR that stopped merging."""
+        return self._add_merge_issue(
+            number,
+            title,
+            pr_url,
+            label=LABEL_MERGE_FAIL,
+            phrase="does not merge into",
+            pr_number=pr_number,
+            branch=branch,
+            base=base,
+        )
+
+    def _add_merge_issue(
+        self,
+        number: int,
+        title: str,
+        pr_url: str,
+        *,
+        label: str,
+        phrase: str,
+        pr_number: int | None,
+        branch: str,
+        base: str,
+    ) -> Issue:
+        """The body merge-check writes: markers first, then the readable part.
+
+        ``branch=""`` reproduces an issue filed before the branch markers
+        existed, which a gate has to survive by asking GitHub instead.
+        """
         pr = pr_number
         if pr is None:
             match = re.search(r"/pull/(\d+)", pr_url)
             pr = int(match.group(1)) if match else number
+        if branch:
+            markers = merge_issue_markers(pr_number=pr, branch=branch, base=base)
+        else:
+            markers = f"<!-- megadesk:merge-check:pr-{pr} -->"
         body = (
-            f"<!-- megadesk:merge-check:pr-{pr} -->\n\n"
-            f"{pr_url} merges into `dev`.\n"
+            f"{markers}\n\n"
+            f"Branch `{branch or '?'}` {phrase} `{base}`.\n\n"
+            f"{pr_url}\n"
         )
-        return self.add_issue(
-            number, title, body, labels=(LABEL_MERGE_SUCCESS,)
-        )
+        if branch:
+            self.add_pull_request(pr, head=branch, base=base, url=pr_url)
+        return self.add_issue(number, title, body, labels=(label,))
+
+    def add_pull_request(
+        self, number: int, *, head: str, base: str = "dev", url: str = ""
+    ) -> PullRequest:
+        pr = PullRequest(number=int(number), head=head, base=base, url=url)
+        self.pull_requests = [p for p in self.pull_requests if p.number != pr.number]
+        self.pull_requests.append(pr)
+        return pr
 
     @property
     def repo_views(self) -> int:
@@ -148,6 +235,14 @@ class FakeGh:
     def issue_closes(self) -> int:
         return sum(1 for call in self.calls if call[:2] == ("issue", "close"))
 
+    @property
+    def label_lists(self) -> int:
+        return sum(1 for call in self.calls if call[:2] == ("label", "list"))
+
+    @property
+    def pr_views(self) -> int:
+        return sum(1 for call in self.calls if call[:2] == ("pr", "view"))
+
     def __call__(self, *args: str) -> tuple[bool, str, str]:
         self.calls.append(tuple(args))
         if args[:2] == ("repo", "view"):
@@ -155,6 +250,29 @@ class FakeGh:
                 return False, "", self.repo_error
             slug = args[2] if len(args) > 2 else ""
             return True, json.dumps({"nameWithOwner": slug}), ""
+        if args[:2] == ("label", "list"):
+            if self.repo_error:
+                return False, "", self.repo_error
+            return True, json.dumps([{"name": name} for name in self.labels]), ""
+        if args[:2] == ("pr", "view"):
+            try:
+                number = int(args[2])
+            except (IndexError, ValueError):
+                return False, "", "FakeGh pr view needs a number"
+            for pr in self.pull_requests:
+                if pr.number == number:
+                    return (
+                        True,
+                        json.dumps(
+                            {
+                                "url": pr.url,
+                                "headRefName": pr.head,
+                                "baseRefName": pr.base,
+                            }
+                        ),
+                        "",
+                    )
+            return False, "", f"PR #{number} not found"
         if args[:2] == ("issue", "list"):
             if self.issue_error:
                 return False, "", self.issue_error
@@ -642,7 +760,9 @@ class FakeCloudFactory:
 
     Models both failure modes a factory has to keep apart: ``startup_error``
     raises before an agent id exists, while ``run_error`` produces a real agent
-    that finishes badly.
+    that finishes badly. The completing poll returns ``running`` with that URL
+    in ``result`` — not MegaDesk ``finished``. After ``cancel()``, polls report
+    ``cancelled``.
     """
 
     def __init__(
@@ -693,7 +813,7 @@ class FakeCloudFactory:
             return RunStatus(status=factory_wire.STATUS_ERROR, detail=self.run_error)
         index = run_key.rsplit("fake", 1)[-1].lstrip("0") or "1"
         return RunStatus(
-            status=factory_wire.STATUS_FINISHED,
+            status=factory_wire.STATUS_RUNNING,
             result=self.pr_url_template.format(n=index),
         )
 
@@ -731,6 +851,7 @@ class FakeMachineFactory:
                 "repo": str(order["repo"]),
                 "ticket_name": str(order["ticket_name"]),
                 "URL": str(order.get("URL") or order.get("repo_url") or ""),
+                "ref": str(order.get("ref") or ""),
                 "auto_pr": bool(order.get("auto_pr", True)),
                 "ticket_id": str(order["ticket_id"]),
                 "container": container,

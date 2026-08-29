@@ -1,4 +1,4 @@
-"""Consume CLOUDORDER, launch cloud agents, follow them to a pull request.
+"""Consume CLOUDORDER, launch cloud agents, hand a PR off to GitHub.
 
 Two loops, the same two MachineFactory runs, because the two halves have very
 different clocks. Orders arrive in bursts and launch in under a second; the runs
@@ -9,7 +9,10 @@ memory:
 * ``poll_orders`` reads the consumer group, launches, and writes
   ``CLOUDRUN:<agent_id>`` before it does anything else it could fail at.
 * ``poll_runs`` walks that registry, asks Cursor where each run got to, and
-  publishes CLOUDFINISHED once — the hash's own status is what makes it once.
+  either hands off (first PR URL: store it, cancel the VM, no stream entry) or
+  publishes CLOUDFINISHED for a real failure. Success for a cloud order lives
+  on GitHub — merge-check files ``MERGE_SUCCESS`` / ``MERGE_FAIL`` — not on
+  ``CLOUDFINISHED``.
 
 The order of the first loop is the mirror image of the machine factory's. Cursor
 mints the agent id, so the registry entry can only be written after the launch;
@@ -270,19 +273,19 @@ class CloudFactoryManager:
     # --- runs ---
 
     def poll_runs(self, *, force: bool = False) -> int:
-        """Ask Cursor about every unfinished run. Returns how many finished."""
+        """Ask Cursor about every live run. Returns how many handed off or failed."""
         now = time.monotonic()
         if not force and now < self._next_run_poll:
             return 0
         self._next_run_poll = now + self.run_poll_interval
 
-        finished = 0
-        settled = self._finished_by_order()
+        settled = 0
+        already = self._finished_by_order()
         for agent_id, run in self.live_runs():
-            done = settled.get(run["order_id"])
+            done = already.get(run["order_id"])
             if done and done["status"] == wire.STATUS_CANCELLED:
                 if self._honor_reject(agent_id, run):
-                    finished += 1
+                    settled += 1
                 continue
             try:
                 state = self.runtime.poll(agent_id)
@@ -290,8 +293,8 @@ class CloudFactoryManager:
                 log.warning("Could not read agent %s: %s", agent_id, exc)
                 continue
             if self._apply_state(agent_id, run, state):
-                finished += 1
-        return finished
+                settled += 1
+        return settled
 
     def _honor_reject(self, agent_id: str, run: dict[str, str]) -> bool:
         """The FE rejected an order that already had a live agent."""
@@ -309,16 +312,53 @@ class CloudFactoryManager:
     def _apply_state(self, agent_id: str, run: dict[str, str], state: Any) -> bool:
         status = str(getattr(state, "status", "") or wire.STATUS_RUNNING)
         # ``result`` is the shared name for whatever a run produced; here it is
-        # always a pull request URL.
+        # a pull request URL — a VM kill switch, not a MegaDesk done flag.
         pr_url = str(getattr(state, "result", "") or "")
-        changed = status != run["status"] or (pr_url and pr_url != run["pr_url"])
+
+        # Already handed off. A later poll may come back cancelled because we
+        # reaped the VM; that must not write a second stream entry.
+        if run["pr_url"]:
+            return False
+
+        if pr_url:
+            # First PR URL: leave status running, store the URL, cancel the VM
+            # so a later commit cannot open a second PR. Do not XADD
+            # CLOUDFINISHED — success lives on GitHub. Call runtime.cancel,
+            # not self.cancel: the manager method writes cancelled and would
+            # look like the operator killed a successful run.
+            self.persistent.hset(
+                wire.cloudrun_key(agent_id),
+                mapping={"pr_url": pr_url},
+            )
+            try:
+                self.runtime.cancel(agent_id)
+            except AgentError as exc:
+                log.warning("Could not cancel handed-off agent %s: %s", agent_id, exc)
+            log.info("Agent %s handed off to GitHub -> %s", agent_id, pr_url)
+            return True
+
+        if status == wire.STATUS_FINISHED:
+            # Runtime must not return this; a success with no PR is a failed run.
+            status = wire.STATUS_ERROR
+
+        changed = status != run["status"]
         if changed:
             self.persistent.hset(
                 wire.cloudrun_key(agent_id),
-                mapping={"status": status, "pr_url": pr_url or run["pr_url"]},
+                mapping={"status": status},
             )
-        if status not in wire.TERMINAL_STATUSES:
+        if status not in {
+            wire.STATUS_ERROR,
+            wire.STATUS_CANCELLED,
+            wire.STATUS_STARTUP_ERROR,
+        }:
             return False
+
+        if status == wire.STATUS_ERROR:
+            try:
+                self.runtime.cancel(agent_id)
+            except AgentError as exc:
+                log.warning("Could not cancel failed agent %s: %s", agent_id, exc)
 
         self.ephemeral.xadd(
             wire.CLOUDFINISHED_STREAM,
@@ -326,19 +366,13 @@ class CloudFactoryManager:
                 agent_id=agent_id,
                 order_id=run["order_id"],
                 status=status,
-                pr_url=pr_url or run["pr_url"],
             ),
         )
-        log.info(
-            "Agent %s %s%s",
-            agent_id,
-            status,
-            f" -> {pr_url}" if pr_url else "",
-        )
+        log.info("Agent %s %s", agent_id, status)
         return True
 
     def live_runs(self) -> list[tuple[str, dict[str, str]]]:
-        """Every registered run that has not reached a terminal status."""
+        """Runs still on a Cursor VM: not failed, not cancelled, not handed off."""
         out: list[tuple[str, dict[str, str]]] = []
         for key in self.persistent.scan_iter(
             match=f"{wire.CLOUDRUN_PREFIX}*", count=100
@@ -349,7 +383,7 @@ class CloudFactoryManager:
             except ValueError as exc:
                 log.warning("Unusable %s: %s", key, exc)
                 continue
-            if run["status"] in wire.TERMINAL_STATUSES:
+            if run["status"] in wire.TERMINAL_STATUSES or run["pr_url"]:
                 continue
             out.append((wire.agent_id_from_key(key), run))
         return out

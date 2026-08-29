@@ -222,6 +222,7 @@ class MachineFactoryManager:
                     "instructions": item["instructions"],
                     "model": item["model"],
                     "URL": url,
+                    "ref": item["ref"],
                     "auto_pr": item["auto_pr"],
                     "ticket_id": message_id,
                 }

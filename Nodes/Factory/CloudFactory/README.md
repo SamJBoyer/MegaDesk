@@ -1,7 +1,10 @@
 # CloudFactory
 
-Sends Cursor cloud agents to work on a repo and open a pull request. One order in,
-one PR link out.
+Sends Cursor cloud agents to work on a repo and open a pull request. One order
+in, a GitHub PR out via Cursor `auto_create_pr`. CloudFactory does **not**
+publish success `CLOUDFINISHED`; it cancels the VM on the first PR URL so a
+later commit cannot open a second PR. `CLOUDFINISHED` is failures and operator
+cancel only.
 
 The local counterpart is [MachineFactory](../MachineFactory/README.md); what the
 two share, and where they honestly differ, is in [Factory](../README.md).
@@ -11,7 +14,7 @@ two share, and where they honestly differ, is in [Factory](../README.md).
 | Half | What it does |
 |------|--------------|
 | FE (`cloud_factory_frontend/app.py`) | Queued CLOUDORDERs, boot lamp, live agents, reject |
-| BE (`CloudFactoryManager/`) | Consume `CLOUDORDER`, launch cloud agents, follow them, publish `CLOUDFINISHED` |
+| BE (`CloudFactoryManager/`) | Consume `CLOUDORDER`, launch cloud agents, follow them until a PR URL, cancel the VM; `CLOUDFINISHED` only on failure / cancel |
 
 ## How a cloud agent differs from a local one
 
@@ -35,7 +38,7 @@ matters:
   not owning the machine: less control over the loop, and minutes rather than
   milliseconds to get going.
 
-TicketDispatcher publishes `CLOUDORDER` the same way it publishes `WORKORDER`:
+WorkDispatcher publishes `CLOUDORDER` the same way it publishes `WORKORDER`:
 each ticket row picks machine or cloud, and one click feeds that factory.
 VoiceDeck can also publish `CLOUDORDER`. This node does not take a GitHub URL
 or issue text of its own. The FE **reject** button writes `CLOUDFINISHED` with
@@ -72,8 +75,10 @@ vocabulary in `megadesk_contracts.wire.factory`, and imported by both halves.
 
 The registry on db 1 is the source of truth, not anything held in memory. Orders
 launch in under a second; the runs they start take minutes and outlive any process
-here, so `CLOUDRUN:<agent_id>` is written **before** the order is acked and its
-status is what makes `CLOUDFINISHED` fire exactly once.
+here, so `CLOUDRUN:<agent_id>` is written **before** the order is acked. The first
+PR URL is stored on that hash (`status` stays `running`) and the VM is cancelled;
+that is the handoff. `CLOUDFINISHED` fires for `startup_error`, `error`, and
+operator `cancel` only — never `status=finished`.
 
 ## The two failure modes, kept apart
 
@@ -108,7 +113,8 @@ appended if Cursor still returns the branch-verification error.
 
 `FakeCloudFactory` returns `bc-` ids and a canned PR URL, so
 `tests/test_cloudfactory_flow.py` exercises the real consumer group, the real
-registry and the real canvas without a VM or a pull request. The cut for the launch
+registry and the real canvas without a VM or a pull request. The completing poll
+returns `running` plus that URL — not MegaDesk `finished`. The cut for the launch
 options themselves is one level higher — `cloud_launch_options` / `CloudAgentOptions.to_json()`
 — because a bare URL in `repos` never reaches the network.
 

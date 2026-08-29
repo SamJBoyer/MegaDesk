@@ -237,6 +237,15 @@ class CloudFactoryFE:
             run = runs_by_order.get(order_id) or {}
             done = finished_by_order.get(order_id) or {}
             status = str(run.get("status") or done.get("status") or "")
+            pr_url = str(run.get("pr_url") or done.get("pr_url") or "")
+            # Handed off to GitHub: do not show MegaDesk finished (or running).
+            # Failures on CLOUDFINISHED stay visible.
+            if pr_url and status not in {
+                wire.STATUS_ERROR,
+                wire.STATUS_CANCELLED,
+                wire.STATUS_STARTUP_ERROR,
+            }:
+                status = ""
             short_id = entry_id if len(entry_id) <= 14 else entry_id[:14]
             label = f"{short_id}  {parsed['title']}  {parsed['model']}"
             if status:
@@ -257,7 +266,7 @@ class CloudFactoryFE:
         rows: list[LiveRow] = []
         for agent_id, run in runs.items():
             status = run["status"]
-            if is_terminal(status):
+            if is_terminal(status) or run["pr_url"]:
                 continue
             short = agent_id if len(agent_id) <= 8 else agent_id[:8]
             rows.append(

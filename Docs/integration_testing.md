@@ -77,7 +77,7 @@ plus `test_first_node_on_an_empty_board_still_updates` in
 
 ## Machine pipeline under test
 
-TicketDispatcher → MachineFactory → PRManager. Factory pipeline traffic is on
+WorkDispatcher → MachineFactory → PRManager. Factory pipeline traffic is on
 the process **ephemeral** Redis DB (0 on the live pair; 14 when host pytest
 isolates). Supervisor keys live on the persistent half and are not involved.
 PRManager does not read Redis: it lists GitHub issues labeled `merge_success`.
@@ -96,9 +96,9 @@ The real MachineFactory BE is never launched: with no Supervisor alive,
 Writers emit canonical field names only. Tests assert that set — see
 [`tests/test_wire_contract.py`](../tests/test_wire_contract.py).
 
-`WORKORDER` fields: `repo`, `URL`, `ticket_name`, `instructions`, `model`,
-`auto_pr`. `FINISHED:<REPO>` fields: `ticket_name`, `ticket_id`, `status`,
-`pr_url`. PRManager shows and opens PRs from `merge_success` GitHub issues; it
+`WORKORDER` fields: `repo`, `URL`, `ref`, `ticket_name`, `instructions`,
+`model`, `auto_pr`. `FINISHED:<REPO>` fields: `ticket_name`, `ticket_id`,
+`status`, `pr_url`. PRManager shows and opens PRs from `merge_success` GitHub issues; it
 does not consume `FINISHED`.
 
 ---
@@ -116,7 +116,8 @@ tests/
   conftest.py
   test_frame_pump.py
   test_canvas_harness.py
-  test_nodeflow.py              # TicketDispatcher → PRManager seams
+  test_nodeflow.py              # WorkDispatcher → PRManager seams
+  test_humangate_flow.py        # AutoIntegrate: issue → PR branch → order ref
   test_vertical_slice.py
   test_node_runtime.py
   test_wire_contract.py
@@ -126,6 +127,7 @@ tests/
   test_voicedeck_flow.py
   test_voice_contract.py
   test_workgraph_flow.py
+  test_vision_board.py
 ```
 
 ### `CanvasHarness`
@@ -146,7 +148,7 @@ thread → `_ui_queue` → frame-pump drain, so a fixed frame count is a race.
 ### `NodeDriver`
 
 ```python
-d = harness.drop("ticket_dispatcher")
+d = harness.drop("work_dispatcher")
 d.type_into("git_url", "https://github.com/acme/widgets")
 harness.wait_for_widget(d, f"ticket_btn_{issue_id}")
 d.select(f"ticket_factory_{issue_id}", "cloud")
@@ -159,9 +161,12 @@ with as many of `(sender, app_data, user_data)` as their signature accepts.
 
 ### Fixtures
 
-**`FakeGh`** — monkeypatches `ticket_dispatcher_app.run_gh` and
-`pr_manager_app.run_gh` for `gh repo view`, `gh issue list --label …`, and
-`gh issue close`. Lists are filtered by label (`agent-ready` vs `merge_success`).
+**`FakeGh`** — monkeypatches `run_gh` on both human gates and on
+`pr_manager_app` for `gh repo view`, `gh label list`, `gh issue list --label …`,
+`gh issue close`, and `gh pr view`. Lists are filtered by label (`agent-ready`
+vs `MERGE_SUCCESS` vs `MERGE_FAIL`). `add_merge_success` / `add_merge_fail` file
+the issue merge-check would, markers and all; pass `branch=""` for one filed
+before the branch markers existed.
 
 **`GitFloor`** — a real git Floor in a temp dir. A successful merge test always
 pushes, so the fixture includes a pushable local `origin`.
@@ -185,7 +190,7 @@ host DB lanes; if `REDIS_URL` already names a non-live pair, conftest honors it.
 
 | # | Scenario | Catches |
 |---|---|---|
-| T1 | Click a ticket row (default factory `machine`). Assert `WORKORDER` gained one entry with the six canonical fields (`repo`, `URL`, `ticket_name`, `instructions`, `model`, `auto_pr="true"`) and `CLOUDORDER` stayed empty. | Field renames; dual-dispatch |
+| T1 | Click a ticket row (default factory `machine`). Assert `WORKORDER` gained one entry with the canonical fields (`repo`, `URL`, `ref`, `ticket_name`, `instructions`, `model`, `auto_pr="true"`) and `CLOUDORDER` stayed empty. | Field renames; dual-dispatch |
 | T1b | Empty issue body dispatches with `instructions` = title | Body/title fallback inverted |
 | T1c | Row factory combo `cloud` writes a canonical `CLOUDORDER` and no `WORKORDER` | CloudFactory starved of tickets; dual-dispatch |
 | T2 | Row model combo `grok-4.5` → payload `model` | Per-row widget → payload |
@@ -199,7 +204,18 @@ host DB lanes; if `REDIS_URL` already names a non-live pair, conftest honors it.
 | T9 | Click pull. PR head lands under `PR_SCOPE_ROOT/<repo>/pr-<n>/` | Button → scoped checkout |
 | T9b | A second pull hard-resets the same checkout onto a newer PR head | Stale Scope |
 | T8 | Full chain in one canvas: dispatch → FakeAgent, merge_success PR row | Two FEs sharing the pump |
-| V1 | TicketDispatcher on SMOKETESTREPO → FakeAgent → PRManager | The sandbox row T8 never hosted |
+| V1 | WorkDispatcher on SMOKETESTREPO → FakeAgent → PRManager | The sandbox row T8 never hosted |
+
+[`tests/test_humangate_flow.py`](../tests/test_humangate_flow.py):
+
+| # | Scenario | Catches |
+|---|---|---|
+| H1 | The target-label dropdown offers the repo's own labels | A gate that can only ever watch its default |
+| H2 | AutoIntegrate reads the PR branch out of a `MERGE_FAIL` issue and dispatches a `WORKORDER` whose `ref` is that branch | An agent sent to fix a conflict starting from `dev` |
+| H2b | The same row on `cloud` puts the branch on `CLOUDORDER.ref` | One factory learning the branch and the other not |
+| H3 | An issue with no branch marker still resolves through `gh pr view` | Issues filed before merge-check wrote markers going dark |
+| H4 | A `MERGE_SUCCESS` issue is readable by the same parser | The two labels drifting apart |
+| H5 | WorkDispatcher leaves `ref` empty, so the factory falls back to `dev` | A default branch quietly becoming mandatory |
 
 Failure artifacts: `wait_until` writes a screenshot on timeout into
 `tests/_artifacts/<test name>/`.

@@ -19,8 +19,8 @@
     "2dcff599-6995-4179-bdd0-b7c2cbb391b0": {
       "member_id": "2dcff599-6995-4179-bdd0-b7c2cbb391b0",
       "type": "megadesk",
-      "nickname": "ticket_dispatcher",
-      "node_name": "ticket_dispatcher",
+      "nickname": "work_dispatcher",
+      "node_name": "work_dispatcher",
       "position": [
         414.0,
         -185.0
@@ -31,7 +31,7 @@
       "data": {
         "width": 480.0,
         "height": 160.0,
-        "node_name": "ticket_dispatcher"
+        "node_name": "work_dispatcher"
       }
     },
     "332256e8-2699-4eab-b492-b0339bec1001": {

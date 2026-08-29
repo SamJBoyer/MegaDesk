@@ -1,7 +1,7 @@
 """MachineFactory wire format: agent work done in a Docker sandbox on this machine.
 
 (STREAM, db0) WORKORDER
-  - repo, URL, ticket_name, instructions, model, auto_pr
+  - repo, URL, ref, ticket_name, instructions, model, auto_pr
 
 (HASH, db0) AGENTHANDLER:<guid>
   - ticket_id, status, error
@@ -20,7 +20,10 @@ The cloud family's counterpart is ``wire.cloud``, and the two are deliberately
 the same shape: an order stream, a hash per live run, a finished stream. They
 differ where the infrastructure differs. A machine order names a ``repo`` plus
 clone ``URL`` and an optional ``auto_pr``; a cloud order names a ``repo_url`` /
-``ref`` / ``auto_pr``. Both hand back a PR URL as the addressable result.
+``auto_pr``. Both carry an optional ``ref`` — the branch to start from, empty
+meaning ``DEFAULT_STARTING_REF`` — because a gate that sends an agent at a
+broken pull request has to put it on that PR's branch. Both hand back a PR URL
+as the addressable result.
 
 ``FINISHED`` is per-repo rather than one stream so a factory FE can watch one
 repo's outcomes without scanning every other.
@@ -139,15 +142,18 @@ def workorder_fields(
     instructions: str,
     model: str = DEFAULT_MODEL,
     auto_pr: bool = True,
+    ref: str = "",
 ) -> dict[str, str]:
     """Build a WORKORDER stream entry.
 
     ``URL`` is always required: the factory clones into the sandbox rather than
-    mounting a Floor worktree.
+    mounting a Floor worktree. ``ref`` is optional and empty means
+    ``DEFAULT_STARTING_REF``.
     """
     fields = {
         "repo": stripped(repo),
         "URL": stripped(url),
+        "ref": stripped(ref),
         "ticket_name": stripped(ticket_name),
         "instructions": text_field(instructions),
         "model": stripped(model) or DEFAULT_MODEL,
@@ -166,6 +172,7 @@ def parse_workorder(fields: Mapping[str, Any]) -> dict[str, Any]:
     parsed = {
         "repo": stripped(fields.get("repo")),
         "URL": stripped(fields.get("URL")),
+        "ref": stripped(fields.get("ref")),
         "ticket_name": stripped(fields.get("ticket_name")),
         "instructions": text_field(fields.get("instructions")),
         "model": stripped(fields.get("model")) or DEFAULT_MODEL,

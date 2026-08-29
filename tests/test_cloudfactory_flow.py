@@ -1,8 +1,9 @@
 """CloudFactory end to end, without spending money or opening a real PR.
 
 ``FakeCloudFactory`` stands in for Cursor's VM; everything either side of it is
-real — the CLOUDORDER consumer group, the run registry on db 1, the CLOUDFINISHED
-payloads, and the canvas widgets that list queued orders and live agents.
+real — the CLOUDORDER consumer group, the run registry on db 1, failure
+CLOUDFINISHED payloads, and the canvas widgets that list queued orders and live
+agents.
 
 The assertions cluster around one risk. Every other failure here is cosmetic, but
 launching twice for one order means two pull requests, so duplicate suppression
@@ -238,6 +239,7 @@ def test_a_run_that_ran_and_failed_is_not_a_startup_error(
 def test_a_finished_run_is_reported_once_with_its_pr_link(
     cloud_factory, fake_cloud_factory, redis_client, persistent_client, read_stream
 ) -> None:
+    """A PR URL hands the run to GitHub: cancel the VM, do not declare finished."""
     place_order(redis_client)
     cloud_factory.poll_orders()
     agent_id = fake_cloud_factory.launches[0]["agent_id"]
@@ -247,30 +249,30 @@ def test_a_finished_run_is_reported_once_with_its_pr_link(
     assert runs_on(persistent_client)[agent_id]["status"] == wire.STATUS_RUNNING
     assert finished(read_stream) == []
 
-    assert cloud_factory.poll_runs() == 1
+    cloud_factory.poll_runs()
 
-    reports = finished(read_stream)
-    assert len(reports) == 1
-    assert set(reports[0]) == set(CLOUDFINISHED_CANONICAL_FIELDS)
-    assert reports[0]["status"] == wire.STATUS_FINISHED
-    assert reports[0]["agent_id"] == agent_id
-    assert "/pull/" in reports[0]["pr_url"]
-
+    assert fake_cloud_factory.cancelled == [agent_id]
     stored = runs_on(persistent_client)[agent_id]
-    assert stored["status"] == wire.STATUS_FINISHED
-    assert stored["pr_url"] == reports[0]["pr_url"]
+    assert stored["status"] == wire.STATUS_RUNNING
+    assert "/pull/" in stored["pr_url"]
+    assert finished(read_stream) == [], "handoff must not publish success CLOUDFINISHED"
 
-    # Polled again, a finished run says nothing: the hash is what makes it once,
-    # which is also what survives a restart of this process.
+    # Handed off: not polled again, even though the hash is still running.
     assert cloud_factory.poll_runs() == 0
-    assert len(finished(read_stream)) == 1
+    assert len(finished(read_stream)) == 0
+    assert fake_cloud_factory.cancelled == [agent_id]
 
 
 def test_only_unfinished_runs_are_polled(
     cloud_factory, fake_cloud_factory, persistent_client
 ) -> None:
-    """A finished run asked about again is a rate limit spent on old news."""
-    seed_run(persistent_client, agent_id="bc-done01", status=wire.STATUS_FINISHED)
+    """A handed-off or failed run asked about again is a rate limit spent on old news."""
+    seed_run(persistent_client, agent_id="bc-done01", status=wire.STATUS_ERROR)
+    seed_run(
+        persistent_client,
+        agent_id="bc-pr01",
+        pr_url="https://github.com/acme/widgets/pull/1",
+    )
     live = seed_run(persistent_client, agent_id="bc-live01")
 
     assert [agent_id for agent_id, _run in cloud_factory.live_runs()] == [live]
@@ -395,7 +397,7 @@ def test_the_cloud_runtime_asks_for_a_pr_and_never_runs_locally(
 def test_the_smoke_repo_is_identified_by_name_not_owner_slash_name() -> None:
     """Cursor prints nameWithOwner; MegaDesk's name is the last path segment."""
     from CloudFactoryManager.runtime import canonical_github_repo, cloud_launch_options
-    from ticket_dispatcher_app import normalize_repo_url, parse_github_repo
+    from work_dispatcher_app import normalize_repo_url, parse_github_repo
 
     git_url = "https://github.com/SamJBoyer/SMOKETESTREPO.git"
     owner, repo = parse_github_repo(git_url)
@@ -442,11 +444,15 @@ def test_poll_asks_the_run_because_a_cloud_agent_carries_no_status(
     """``agents.get`` cannot answer this question, and fails silently when asked.
 
     For a cloud agent ``SDKAgentInfo.status`` is ``None`` and no field anywhere
-    on it holds a pull request, so polling the agent reports ``running`` for a
-    run that finished minutes ago: CLOUDFINISHED never fires and the FE waits
-    forever. Nothing raises, which is why this needs a test rather than a log.
+    on it holds a pull request, so polling the agent reports ``running`` with
+    no PR forever: the manager never hands off and the VM keeps writing. Nothing
+    raises, which is why this needs a test rather than a log.
     ``runtime="cloud"`` is part of the contract too — without it the SDK checks
     the local run store and raises ``AgentNotFoundError``.
+
+    SDK ``finished`` / ``completed`` / ``success`` is not MegaDesk finished.
+    A PR URL is only a kill switch for the VM; CLOUDFINISHED is not the
+    success path.
     """
     import asyncio
     from types import SimpleNamespace
@@ -495,9 +501,20 @@ def test_poll_asks_the_run_because_a_cloud_agent_carries_no_status(
         pr_url=pr_url,
     )
     state = poll_against([_run("finished", created_at="01", branches=(branch,))])
-    assert state.status == wire.STATUS_FINISHED
+    assert state.status == wire.STATUS_RUNNING
+    assert state.status != wire.STATUS_FINISHED
     assert state.result == pr_url, "the PR lives at run.git.branches[*].pr_url"
     assert asked == [("bc-abc123", "cloud")]
+
+    still_running = poll_against(
+        [_run("running", created_at="01", branches=(branch,))]
+    )
+    assert still_running.status == wire.STATUS_RUNNING
+    assert still_running.result == pr_url
+
+    gone = poll_against([_run("finished", created_at="01")])
+    assert gone.status == wire.STATUS_ERROR
+    assert gone.result == ""
 
     # An agent Cursor has not opened a run for yet is still running, not finished.
     assert poll_against([]).status == wire.STATUS_RUNNING
@@ -720,11 +737,11 @@ def test_launch_proceeds_when_the_repo_is_on_cursors_list(
 
 
 @pytest.mark.canvas
-def test_ticket_dispatcher_publishes_a_canonical_cloudorder(
+def test_work_dispatcher_publishes_a_canonical_cloudorder(
     harness, redis_client, fake_gh, read_stream
 ) -> None:
     fake_gh.add_issue(41, TITLE, INSTRUCTIONS)
-    dispatcher = harness.drop("ticket_dispatcher")
+    dispatcher = harness.drop("work_dispatcher")
     dispatcher.type_into("git_url", REPO_URL)
     harness.wait_for_widget(dispatcher, "ticket_btn_41")
     dispatcher.select("ticket_factory_41", "cloud")
@@ -794,14 +811,14 @@ def test_a_run_shows_its_status_in_the_queue(
     pr_url = "https://github.com/acme/widgets/pull/7"
     persistent_client.hset(
         wire.cloudrun_key(agent_id),
-        mapping={"status": wire.STATUS_FINISHED, "pr_url": pr_url},
+        mapping={"status": wire.STATUS_RUNNING, "pr_url": pr_url},
     )
 
     harness.wait_until(
-        lambda: any(wire.STATUS_FINISHED in item for item in fe.items("queue_list")),
-        message="the processed order to show finished",
+        lambda: fe.items("live_list") == ["(no live agents)"],
+        message="the live list to clear after handoff",
     )
-    assert all(wire.STATUS_RUNNING not in item for item in fe.items("live_list"))
+    assert all(wire.STATUS_FINISHED not in item for item in fe.items("queue_list"))
 
 
 @pytest.mark.canvas

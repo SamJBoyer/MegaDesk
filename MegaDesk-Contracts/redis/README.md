@@ -8,7 +8,7 @@ in the URL stays on the live pair.
 
 Three families share that pair:
 
-1. **MachineFactory pipeline** (streams + short-lived hashes on **ephemeral**) — TicketDispatcher, MachineFactory
+1. **MachineFactory pipeline** (streams + short-lived hashes on **ephemeral**) — WorkDispatcher, MachineFactory
 2. **Supervisor** (streams on **ephemeral**; RUNNINGNODES / singleton / alive on **persistent**) — Canvas-owned Supervisor BE and launched BE nodes
 3. **Voice chain** (streams on **ephemeral**; session / run hashes on **persistent**) — CodeScope, VoiceDeck, CloudFactory
 
@@ -33,7 +33,7 @@ Do **not** hardcode host/port. Prefer `redis_connect(url, db=resolve_ephemeral_d
 
 **`DEV_FLUSH_MODE`** — debug convenience, default on. When MegaDesk-Canvas `main()` boots, unless the env var is explicitly falsey (`0` / `false` / `no` / `off`, case-insensitive), it FLUSHDB's live DB 0 then DB 1 (`flush_live_redis_pair`) **before** `ensure_supervisor_running()`. Disable with `set DEV_FLUSH_MODE=0` (Windows) or `export DEV_FLUSH_MODE=0`. Pytest, `python -m supervisor` alone, and agent sandboxes never flush 0/1.
 
-MachineFactory, TicketDispatcher, `SupervisorClient`, and Supervisor provision all read **`REDIS_URL`**. They **do not** start Redis. The Canvas-owned Supervisor BE may attach to an existing Redis at `REDIS_URL` or (when the URL host is loopback) provision Docker Redis + Redis Insight if none is reachable.
+MachineFactory, WorkDispatcher, `SupervisorClient`, and Supervisor provision all read **`REDIS_URL`**. They **do not** start Redis. The Canvas-owned Supervisor BE may attach to an existing Redis at `REDIS_URL` or (when the URL host is loopback) provision Docker Redis + Redis Insight if none is reachable.
 
 ## Databases
 

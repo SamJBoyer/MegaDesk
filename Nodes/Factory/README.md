@@ -10,7 +10,7 @@ genuinely different, not because their jobs are:
 | Node | Runs agents | Harness | Hands back |
 |------|-------------|---------|------------|
 | [MachineFactory](MachineFactory/README.md) | Docker sandboxes on this machine (repo clone + Redis sidecar) | `AgentHandler/`, ours end to end | a pull request |
-| [CloudFactory](CloudFactory/README.md) | Cursor-hosted VMs | the cloud agent SDK, whatever it gives us | a pull request |
+| [CloudFactory](CloudFactory/README.md) | Cursor-hosted VMs | the cloud agent SDK, whatever it gives us | a pull request (Cursor opens it on GitHub; not a `CLOUDFINISHED` payload) |
 
 ## Why they look alike on purpose
 
@@ -64,7 +64,7 @@ MachineFactory keeps a corner lamp that turns red if an error has been thrown,
 and also shows active sandboxes. Node logs are in the Supervisor Logs
 tab, not on the factory.
 
-Both take their orders from TicketDispatcher (and VoiceDeck can also publish
+Both take their orders from WorkDispatcher (and VoiceDeck can also publish
 `CLOUDORDER`). Each ticket row picks machine or cloud the same way it picks a
 model, so one click writes either `WORKORDER` or `CLOUDORDER`. Neither factory
 has its own GitHub URL or issue-text input.
@@ -88,16 +88,21 @@ has its own GitHub URL or issue-text input.
 - **Latency.** Redis and a local container start in under a second. A cloud VM
   does not, so a graph that mixes them should expect minutes on those edges.
 
+On the cloud side, "hands back a PR" means Cursor opens it on GitHub
+(`auto_create_pr`). CloudFactory stores that URL on `CLOUDRUN` and cancels the
+VM; it does not publish success `CLOUDFINISHED`. MachineFactory still publishes
+`FINISHED:<repo>` after AgentHandler teardown.
+
 ## Layout
 
 ```text
 Nodes/Factory/
   MachineFactory/     WORKORDER  → Docker sandbox (+ Redis sidecar) → FINISHED:<repo>
-  CloudFactory/       CLOUDORDER → Cursor VM                         → CLOUDFINISHED
+  CloudFactory/       CLOUDORDER → Cursor VM → GitHub PR (CLOUDFINISHED on failure only)
 ```
 
 Each is its own installable node with its own `MegaDesk.nodes` entry point
 (`machine_factory`, `cloud_factory`); the nesting groups them, it does not merge
 them. Their wire formats are defined once in `megadesk_contracts.wire.machine` and
-`megadesk_contracts.wire.cloud`, and every consumer — TicketDispatcher,
+`megadesk_contracts.wire.cloud`, and every consumer — WorkDispatcher,
 VoiceDeck — imports from there.

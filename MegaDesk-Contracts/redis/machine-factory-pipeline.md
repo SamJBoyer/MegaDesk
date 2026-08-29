@@ -14,7 +14,7 @@ lists GitHub issues labeled `merge_success`.
 Flow:
 
 ```
-TicketDispatcher
+WorkDispatcher
         │  XADD
         ▼
    WORKORDER (stream)
@@ -49,7 +49,7 @@ GitHub issues labeled merge_success
 | Key | `WORKORDER` |
 | Consumer group | `machine_factory` |
 | Primary consumer | MachineFactoryManager |
-| Producers | TicketDispatcher, manual `XADD` |
+| Producers | WorkDispatcher, manual `XADD` |
 
 ### Fields
 

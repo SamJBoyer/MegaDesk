@@ -1,7 +1,11 @@
 name: Merge check
 
 on:
-  pull_request:
+  # GitHub skips `pull_request` when the PR cannot merge (no merge ref).
+  # `pull_request_target` still runs, from the base branch even then.
+  # This job must not execute PR code: checkout the base, fetch the PR
+  # head as a ref, and detect conflicts with merge-tree.
+  pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [dev]
@@ -25,7 +29,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Default ref is the PR base (pull_request_target) or the push SHA.
+          # Do not set ref to github.event.pull_request.head.sha.
 
       - name: Check pull requests are mergeable
         env:
@@ -48,7 +53,7 @@ jobs:
                 --state open \
                 --limit 100 \
                 --json number,body \
-                --jq "[.[] | select(.body | contains(\"megadesk:merge-check:pr-${pr}\") or contains(\"megadesk:merge_success:pr-${pr}\") or contains(\"megadesk:failed-merge:pr-${pr}\")) | .number][0] // empty")"
+                --jq "[.[] | select(.body | contains(\"megadesk:merge-check:pr-${pr} -->\") or contains(\"megadesk:merge_success:pr-${pr} -->\") or contains(\"megadesk:failed-merge:pr-${pr} -->\")) | .number][0] // empty")"
               if [ -n "${n}" ]; then
                 echo "${n}"
                 return 0
@@ -56,22 +61,30 @@ jobs:
             done
           }
 
+          # The markers are read back by MegaDesk (AutoIntegrate, PRManager) and
+          # are spelled once in megadesk_contracts.human_gate. The head branch
+          # also goes in the title: "PR #12" alone says nothing about which
+          # branch is stuck.
           upsert_issue() {
             local pr="$1"
             local base="$2"
             local label="$3"
             local other="$4"
-            local title="$5"
-            local detail="$6"
-            local marker="<!-- megadesk:merge-check:pr-${pr} -->"
-            local pr_url body existing
+            local phrase="$5"
+            local pr_url head title body existing
             pr_url="$(gh pr view "${pr}" --json url --jq .url)"
-            body="${marker}
-
-          ${pr_url} ${detail} \`${base}\`.
-
-          Workflow run: ${RUN_URL}
-          "
+            head="$(gh pr view "${pr}" --json headRefName --jq .headRefName)"
+            title="${label}: ${head} (PR #${pr}) ${phrase} ${base}"
+            body="$(printf '%s\n' \
+              "<!-- megadesk:merge-check:pr-${pr} -->" \
+              "<!-- megadesk:pr-branch:${head} -->" \
+              "<!-- megadesk:pr-base:${base} -->" \
+              "" \
+              "Branch \`${head}\` ${phrase} \`${base}\`." \
+              "" \
+              "${pr_url}" \
+              "" \
+              "Workflow run: ${RUN_URL}")"
             existing="$(find_issue "${pr}")"
 
             if [ -n "${existing}" ]; then
@@ -80,7 +93,7 @@ jobs:
                 --body "${body}" \
                 --add-label "${label}"
               gh issue edit "${existing}" --remove-label "${other}" 2>/dev/null || true
-              echo "Issue #${existing} → ${label} for PR #${pr}"
+              echo "Issue #${existing} → ${label} for PR #${pr} (${head})"
               return 0
             fi
 
@@ -90,7 +103,7 @@ jobs:
               --body "${body}"
           }
 
-          if [ "${EVENT}" = "pull_request" ]; then
+          if [ "${EVENT}" = "pull_request" ] || [ "${EVENT}" = "pull_request_target" ]; then
             BASE="${BASE_REF}"
             PRS="${PR_NUMBER}"
           else
@@ -111,13 +124,11 @@ jobs:
             if git merge-tree --write-tree "origin/${BASE}" "pr-${pr}" >/tmp/merge-tree.out; then
               echo "PR #${pr} merges into ${BASE}"
               upsert_issue "${pr}" "${BASE}" "${LABEL_OK}" "${LABEL_FAIL}" \
-                "MERGE_SUCCESS: PR #${pr} can merge into ${BASE}" \
                 "merges into"
             else
               echo "PR #${pr} does not merge into ${BASE}"
               cat /tmp/merge-tree.out || true
               upsert_issue "${pr}" "${BASE}" "${LABEL_FAIL}" "${LABEL_OK}" \
-                "MERGE_FAIL: PR #${pr} cannot merge into ${BASE}" \
                 "does not merge into"
               failed=1
             fi
