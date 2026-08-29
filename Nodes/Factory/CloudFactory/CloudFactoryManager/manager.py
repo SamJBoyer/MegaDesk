@@ -144,7 +144,7 @@ class CloudFactoryManager:
                 order_id = wire.parse_cloudorder(fields)["order_id"]
             except ValueError:
                 continue
-            if self._blocked_until.get(order_id, 0.0) > time.monotonic():
+            if order_id in self._attempts and self._attempts[order_id] < MAX_LAUNCH_ATTEMPTS:
                 still.append((entry_id, fields))
         self._pending = still
         return launched

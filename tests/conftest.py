@@ -513,19 +513,30 @@ def voice_session(redis_client, persistent_client, fake_realtime):
 # --- helpers ---------------------------------------------------------------
 
 
-@pytest.fixture
-def workorders(redis_client, machine_wire):
-    """Collect published WORKORDER signals as (index, fields) in arrival order."""
+def _published_orders(redis_client, channel: str):
+    """Subscribe before the test body, then collect published field maps."""
+    import time
+
     from megadesk_contracts.wire.signal import FieldInbox
 
-    inbox = FieldInbox(redis_client, machine_wire.WORKORDER_CHANNEL)
+    inbox = FieldInbox(redis_client, channel)
     inbox.listen()
     collected: list[dict[str, str]] = []
 
     def _read() -> list[tuple[str, dict[str, str]]]:
-        collected.extend(inbox.drain())
+        deadline = time.monotonic() + 0.5
+        collected.extend(inbox.drain(timeout=0.0))
+        while not collected and time.monotonic() < deadline:
+            collected.extend(inbox.drain(timeout=0.05))
         return [(str(i), fields) for i, fields in enumerate(collected)]
 
+    return inbox, _read
+
+
+@pytest.fixture
+def workorders(redis_client, machine_wire):
+    """Collect published WORKORDER signals as (index, fields) in arrival order."""
+    inbox, _read = _published_orders(redis_client, machine_wire.WORKORDER_CHANNEL)
     try:
         yield _read
     finally:
@@ -536,16 +547,8 @@ def workorders(redis_client, machine_wire):
 def cloudorders(redis_client):
     """Collect published CLOUDORDER signals as (index, fields) in arrival order."""
     from megadesk_contracts.wire.cloud import CLOUDORDER_CHANNEL
-    from megadesk_contracts.wire.signal import FieldInbox
 
-    inbox = FieldInbox(redis_client, CLOUDORDER_CHANNEL)
-    inbox.listen()
-    collected: list[dict[str, str]] = []
-
-    def _read() -> list[tuple[str, dict[str, str]]]:
-        collected.extend(inbox.drain())
-        return [(str(i), fields) for i, fields in enumerate(collected)]
-
+    inbox, _read = _published_orders(redis_client, CLOUDORDER_CHANNEL)
     try:
         yield _read
     finally:
