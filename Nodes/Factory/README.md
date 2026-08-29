@@ -10,7 +10,7 @@ genuinely different, not because their jobs are:
 | Node | Runs agents | Harness | Hands back |
 |------|-------------|---------|------------|
 | [MachineFactory](MachineFactory/README.md) | Docker sandboxes on this machine (repo clone + Redis sidecar) | `AgentHandler/`, ours end to end | a pull request |
-| [CloudFactory](CloudFactory/README.md) | Cursor-hosted VMs | the cloud agent SDK, whatever it gives us | a pull request |
+| [CloudFactory](CloudFactory/README.md) | Cursor-hosted VMs | the cloud agent SDK, whatever it gives us | a pull request (Cursor opens it on GitHub; not a `CLOUDFINISHED` payload) |
 
 ## Why they look alike on purpose
 
@@ -85,12 +85,17 @@ has its own GitHub URL or issue-text input.
 - **Latency.** Redis and a local container start in under a second. A cloud VM
   does not, so a graph that mixes them should expect minutes on those edges.
 
+On the cloud side, "hands back a PR" means Cursor opens it on GitHub
+(`auto_create_pr`). CloudFactory stores that URL on `CLOUDRUN` and cancels the
+VM; it does not publish success `CLOUDFINISHED`. MachineFactory still publishes
+`FINISHED:<repo>` after AgentHandler teardown.
+
 ## Layout
 
 ```text
 Nodes/Factory/
   MachineFactory/     WORKORDER  → Docker sandbox (+ Redis sidecar) → FINISHED:<repo>
-  CloudFactory/       CLOUDORDER → Cursor VM                         → CLOUDFINISHED
+  CloudFactory/       CLOUDORDER → Cursor VM → GitHub PR (CLOUDFINISHED on failure only)
 ```
 
 Each is its own installable node with its own `MegaDesk.nodes` entry point
