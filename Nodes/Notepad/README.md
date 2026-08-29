@@ -1,8 +1,7 @@
 # Notepad
 
-A small pad on the canvas. Each note is a tab; the body is a text file. Point
-it at a GitHub repo and the files land under `notes/` in that clone, where
-`git` stages them so they can be committed with the rest of the tree.
+A small pad on the canvas. Each note is a tab; the body is a text file
+saved under `notes/` inside this node.
 
 VoiceDeck writes the same documents the tabs show. The FE consumes
 `NOTEPAD:CMD`; there is no backend. Tools are declared on
@@ -12,7 +11,7 @@ VoiceDeck writes the same documents the tabs show. The FE consumes
 
 | Half | What it does |
 |------|--------------|
-| FE (`notepad_frontend/app.py`) | Tabs, editor, clone, `git add` |
+| FE (`notepad_frontend/app.py`) | Tabs, editor, local `.txt` files |
 | BE | none |
 
 ## Wire
@@ -26,11 +25,6 @@ Defined once in `megadesk_contracts.wire.notepad`. See
 | `add_note_text(text, title)` | Append to `title`, or to the current target |
 | `switch_note(title)` | Change the target document |
 
-## Parameters
+## Files
 
-| Name | Value |
-|------|-------|
-| `GIT_URL` | Repo the `notes/*.txt` files are written into |
-
-Local scratch (no URL) lives under `NOTEPAD_ROOT`, or `Nodes/Notepad/notes/`.
-Clones live under `NOTEPAD_SCOPE`, or `Nodes/Notepad/Scope/`.
+Notes live under `NOTEPAD_ROOT`, or `Nodes/Notepad/notes/`.

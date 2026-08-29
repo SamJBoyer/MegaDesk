@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "notepad"
 version = "0.1.0"
-description = "MegaDesk FE node: a tabbed notepad of git-backed text files"
+description = "MegaDesk FE node: a tabbed notepad of local text files"
 requires-python = ">=3.10"
 dependencies = [
     "dearpygui>=1.11.1",

@@ -1,19 +1,16 @@
 """Notepad FE — a compact pad of tabbed text files a voice agent can write to.
 
-Notes persist as ``.txt`` files. Point the URL at a GitHub repo to keep them
-inside that clone; ``git`` stages them so they can be committed with the rest
-of the tree. VoiceDeck publishes ``NOTEPAD:CMD``; this FE applies those verbs
-on the frame pump.
+Notes persist as ``.txt`` files under the node. VoiceDeck publishes
+``NOTEPAD:CMD``; this FE applies those verbs on the frame pump.
 """
 
 from __future__ import annotations
 
-from typing import Mapping, Optional
+from typing import Optional
 
 import dearpygui.dearpygui as dpg
 import redis
 from megadesk_contracts import (
-    coerce_parameters,
     frame_pump,
     redis_connect,
     resolve_ephemeral_db,
@@ -26,7 +23,6 @@ from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from notepad_frontend.pad import Pad, PadError, safe_title
 
-PARAM_GIT_URL = "GIT_URL"
 CMD_BATCH = 32
 
 _LIVE: dict[str, "Notepad"] = {}
@@ -35,21 +31,13 @@ _LIVE: dict[str, "Notepad"] = {}
 class Notepad:
     """One hosted pad: its files, its tabs, and the Redis commands it applies."""
 
-    def __init__(self, parameters: Optional[Mapping[str, str]] = None) -> None:
-        values = coerce_parameters(parameters)
+    def __init__(self) -> None:
         self.pad = Pad()
-        self._git_url = values.get(PARAM_GIT_URL, "").strip()
         self._root_tag = "notepad"
         self._redis: Optional[redis.Redis] = None
         self._cursor = "$"
         self._frame_registered = False
-        if self._git_url:
-            try:
-                self.pad.attach_repo(self._git_url)
-            except PadError:
-                self.pad.load()
-        else:
-            self.pad.load()
+        self.pad.load()
         if not self.pad.notes:
             self.pad.create("note")
 
@@ -108,10 +96,6 @@ class Notepad:
         self._refresh()
         return note.title
 
-    def include(self) -> list[str]:
-        self._flush_body()
-        return self.pad.git_include()
-
     def apply_command(self, command: dict[str, str]) -> str:
         self._flush_body()
         note = self.pad.apply(command)
@@ -141,32 +125,18 @@ class Notepad:
         height: int = 200,
     ) -> None:
         self._root_tag = tag_prefix
-        body_h = max(72, int(height) - 56)
+        body_h = max(72, int(height) - 32)
 
         with dpg.group(parent=parent):
             with dpg.group(horizontal=True):
-                dpg.add_input_text(
-                    tag=self._tag("git_url"),
-                    default_value=self._git_url,
-                    width=-52,
-                    hint="https://github.com/owner/repo",
-                    callback=self._on_url,
-                    on_enter=True,
-                )
                 dpg.add_button(
                     label="+",
                     width=22,
                     tag=self._tag("new_btn"),
                     callback=self._on_new,
                 )
-                dpg.add_button(
-                    label="git",
-                    width=26,
-                    tag=self._tag("include_btn"),
-                    callback=self._on_include,
-                )
-            with dpg.group(horizontal=True, tag=self._tag("tabs")):
-                pass
+                with dpg.group(horizontal=True, tag=self._tag("tabs")):
+                    pass
             dpg.add_input_text(
                 tag=self._tag("body"),
                 multiline=True,
@@ -224,27 +194,6 @@ class Notepad:
         self._flush_body()
         self._persist()
 
-    def _on_include(self, sender=None, app_data=None, user_data=None) -> None:
-        try:
-            self.include()
-        except PadError:
-            return
-
-    def _on_url(self, sender=None, app_data=None, user_data=None) -> None:
-        tag = self._tag("git_url")
-        url = (dpg.get_value(tag) or "").strip() if dpg.does_item_exist(tag) else ""
-        self._git_url = url
-        if not url:
-            return
-        self._flush_body()
-        try:
-            self.pad.attach_repo(url)
-        except PadError:
-            return
-        if not self.pad.notes:
-            self.pad.create("note")
-        self._refresh()
-
     def _on_frame(self) -> None:
         if not dpg.does_item_exist(self._root_tag):
             return
@@ -292,17 +241,5 @@ def build_ui(
     tag_prefix: str,
     width: int = 280,
     height: int = 200,
-    parameters: Optional[Mapping[str, str]] = None,
 ) -> None:
-    Notepad(parameters).build_ui(
-        parent, tag_prefix=tag_prefix, width=width, height=height
-    )
-
-
-def read_parameters(tag_prefix: str) -> dict[str, str]:
-    url_tag = f"{tag_prefix}::git_url"
-    if not dpg.does_item_exist(url_tag):
-        instance = _LIVE.get(tag_prefix)
-        url = instance._git_url if instance is not None else ""
-        return {PARAM_GIT_URL: url}
-    return {PARAM_GIT_URL: (dpg.get_value(url_tag) or "").strip()}
+    Notepad().build_ui(parent, tag_prefix=tag_prefix, width=width, height=height)

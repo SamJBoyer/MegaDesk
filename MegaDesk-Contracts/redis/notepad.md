@@ -31,6 +31,4 @@ stream tail so it does not replay history.
 
 ## Files
 
-Notes are `{title}.txt` under `notes/` of the `GIT_URL` clone, or a local
-`NOTEPAD_ROOT`. `git add` includes them in that checkout so they can be
-committed and pushed to GitHub with the rest of the tree.
+Notes are `{title}.txt` under `NOTEPAD_ROOT`, or `Nodes/Notepad/notes/`.

@@ -74,7 +74,6 @@ def _isolate_megadesk_logs(tmp_path, monkeypatch):
     monkeypatch.setenv("MEGADESK_LOGS_ROOT", str(tmp_path / "Logs"))
     monkeypatch.delenv("MEGADESK_LOGS_DIR", raising=False)
     monkeypatch.setenv("NOTEPAD_ROOT", str(tmp_path / "notepad-notes"))
-    monkeypatch.setenv("NOTEPAD_SCOPE", str(tmp_path / "notepad-scope"))
 
 # Canonical wire format. Every writer emits these names; parsers require them.
 WORKORDER_CANONICAL_FIELDS = frozenset(

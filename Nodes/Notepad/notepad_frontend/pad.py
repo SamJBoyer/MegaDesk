@@ -1,35 +1,31 @@
 """The notepad itself: titled documents stored as ``.txt`` files.
 
-Kept free of Dear PyGui so create / append / switch, the filename codec, and
-``git add`` can be exercised without a desktop session. ``app.py`` owns the tabs.
+Kept free of Dear PyGui so create / append / switch and the filename codec
+can be exercised without a desktop session. ``app.py`` owns the tabs.
 """
 
 from __future__ import annotations
 
 import os
 import re
-import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from megadesk_contracts.repo import CloneError, ensure_clone, is_clone, repo_name_from_url
 from megadesk_contracts.wire import notepad as wire
 
 ENV_NOTES_ROOT = "NOTEPAD_ROOT"
-ENV_SCOPE_ROOT = "NOTEPAD_SCOPE"
 NOTES_DIRNAME = "notes"
-GIT_TIMEOUT_SEC = 30
 
 _UNSAFE = re.compile(r"[^\w.-]+")
 
 
 class PadError(RuntimeError):
-    """A note or git operation failed; the message is safe to show."""
+    """A note operation failed; the message is safe to show."""
 
 
 def safe_title(title: str) -> str:
-    """Turn a tab name into a ``.txt`` stem git and GitHub will accept."""
+    """Turn a tab name into a ``.txt`` stem."""
     cleaned = _UNSAFE.sub("-", str(title or "").strip()).strip(".-")
     if not cleaned:
         raise PadError("note title is empty")
@@ -45,45 +41,6 @@ def default_notes_root() -> Path:
     if configured:
         return Path(configured)
     return Path(__file__).resolve().parent.parent / NOTES_DIRNAME
-
-
-def default_scope_root() -> Path:
-    configured = (os.environ.get(ENV_SCOPE_ROOT) or "").strip()
-    if configured:
-        return Path(configured)
-    return Path(__file__).resolve().parent.parent / "Scope"
-
-
-def repo_root_of(path: Path) -> Optional[Path]:
-    """Nearest directory that is a git checkout, walking toward the filesystem root."""
-    current = Path(path).resolve()
-    for candidate in (current, *current.parents):
-        if (candidate / ".git").exists():
-            return candidate
-    return None
-
-
-def _git(args: list[str], *, cwd: Path) -> str:
-    env = os.environ.copy()
-    env["GIT_TERMINAL_PROMPT"] = "0"
-    try:
-        result = subprocess.run(
-            ["git", *args],
-            cwd=str(cwd),
-            capture_output=True,
-            text=True,
-            timeout=GIT_TIMEOUT_SEC,
-            check=False,
-            env=env,
-        )
-    except FileNotFoundError as exc:
-        raise PadError("git not found on PATH") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise PadError(f"git {' '.join(args)} timed out") from exc
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout or "").strip()
-        raise PadError(f"git {' '.join(args)} failed: {detail}")
-    return result.stdout
 
 
 @dataclass
@@ -102,7 +59,6 @@ class Pad:
     notes: dict[str, Note] = field(default_factory=dict)
     current: str = ""
     notes_root: Path = field(default_factory=default_notes_root)
-    repo_root: Optional[Path] = None
 
     def titles(self) -> list[str]:
         return list(self.notes)
@@ -195,33 +151,6 @@ class Pad:
             path.write_text(note.text, encoding="utf-8")
             written.append(path)
         return written
-
-    def attach_repo(self, url: str, *, scope: Optional[Path] = None) -> Path:
-        """Clone ``url`` and read ``notes/*.txt`` from it. Does not hard-reset."""
-        text = str(url or "").strip()
-        if not text:
-            raise PadError("repository URL is empty")
-        try:
-            name = repo_name_from_url(text)
-            clone = ensure_clone(url=text, root=scope or default_scope_root(), name=name)
-        except (CloneError, ValueError) as exc:
-            raise PadError(str(exc)) from exc
-        self.repo_root = clone
-        self.notes_root = clone / NOTES_DIRNAME
-        self.notes_root.mkdir(parents=True, exist_ok=True)
-        self.load()
-        return clone
-
-    def git_include(self, repo: Optional[Path] = None) -> list[str]:
-        """``git add`` the note files so they are part of the checkout."""
-        paths = self.save()
-        root = repo or self.repo_root or repo_root_of(self.notes_root)
-        if root is None or not is_clone(root):
-            raise PadError("notes are not inside a git repository")
-        rels = [str(path.relative_to(root)) for path in paths]
-        if rels:
-            _git(["add", "--", *rels], cwd=root)
-        return rels
 
 
 def stripped_title(title: str) -> str:

@@ -1,4 +1,4 @@
-"""Notepad: text files, git include, and the voice-tool seam.
+"""Notepad: local text files and the voice-tool seam.
 
 The pad model imports no Dear PyGui. Canvas tests drop the real FE and drive
 the same create / append / switch verbs the Redis commands call. VoiceDeck
@@ -11,7 +11,6 @@ from pathlib import Path
 
 import pytest
 from conftest import NOTEPAD_CMD_CANONICAL_FIELDS
-from megadesk_contracts.testing import git
 from megadesk_contracts.wire import notepad as wire
 from notepad_frontend.pad import Pad, PadError, note_filename, safe_title
 from notepad_tools import TOOL_ADD_NOTE_TEXT, TOOL_CREATE_NOTE, TOOL_SWITCH_NOTE
@@ -58,21 +57,6 @@ def test_titles_become_safe_text_filenames(tmp_path: Path) -> None:
     assert reloaded.note().text == "ship it"
 
 
-def test_git_include_stages_the_note_files(tmp_path: Path) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    git("init", cwd=repo)
-    git("checkout", "-b", "dev", cwd=repo, check=False)
-
-    pad = Pad(notes_root=repo / "notes", repo_root=repo)
-    pad.create("plan", "do the thing")
-    rels = pad.git_include()
-
-    assert rels == ["notes/plan.txt"]
-    staged = git("diff", "--cached", "--name-only", cwd=repo).stdout.split()
-    assert staged == ["notes/plan.txt"]
-
-
 def test_command_writer_emits_only_canonical_fields() -> None:
     fields = wire.command_fields(
         action=wire.ACTION_CREATE, title="plan", text="do the thing"
@@ -108,6 +92,8 @@ def test_typing_a_note_writes_a_text_file(harness, tmp_path: Path) -> None:
     pad = _instance(driver)
 
     assert driver.exists("tab_note")
+    assert not driver.exists("git_url")
+    assert not driver.exists("include_btn")
     driver.type_into("body", "ship the node")
     harness.pump(2)
 
@@ -158,61 +144,18 @@ def test_a_voice_command_creates_a_tab_and_fills_it(
 
 
 @pytest.mark.canvas
-def test_capture_writes_the_git_url_into_the_graph(
-    harness, tmp_path: Path
-) -> None:
+def test_capture_stores_no_github_parameters(harness, tmp_path: Path) -> None:
     from engine.graph_bar import CAPTURE_TAG
     from megadesk_contracts.testing import invoke_callback
     import dearpygui.dearpygui as dpg
     import json
 
     driver = harness.drop(NODE)
-    # Set without firing: a fake https URL must not start a clone.
-    driver.set("git_url", "https://github.com/acme/widgets")
     invoke_callback(dpg.get_item_callback(CAPTURE_TAG), CAPTURE_TAG, None, None)
 
     saved = json.loads((tmp_path / "graph.json").read_text(encoding="utf-8"))
-    assert (
-        saved["members"][driver.member_id]["parameters"]["GIT_URL"]
-        == "https://github.com/acme/widgets"
-    )
-
-
-def _local_origin(tmp_path: Path) -> Path:
-    repo = tmp_path / "origin"
-    repo.mkdir()
-    git("init", cwd=repo)
-    (repo / "README.md").write_text("origin\n", encoding="utf-8")
-    git("add", "README.md", cwd=repo)
-    git("commit", "-m", "init", cwd=repo)
-    return repo
-
-
-@pytest.mark.canvas
-def test_a_repo_url_loads_notes_and_git_includes_them(
-    harness, tmp_path: Path
-) -> None:
-    origin = _local_origin(tmp_path)
-    (origin / "notes").mkdir()
-    (origin / "notes" / "brief.txt").write_text("already there", encoding="utf-8")
-    git("add", "notes/brief.txt", cwd=origin)
-    git("commit", "-m", "note", cwd=origin)
-
-    driver = harness.drop(NODE)
-    pad = _instance(driver)
-    driver.type_into("git_url", str(origin))
-    harness.pump(2)
-
-    assert driver.exists("tab_brief")
-    assert pad.pad.note("brief").text == "already there"
-
-    pad.add_text("\nmore", "brief")
-    driver.click("include_btn")
-
-    clone = pad.pad.repo_root
-    assert clone is not None
-    staged = git("diff", "--cached", "--name-only", cwd=clone).stdout.split()
-    assert "notes/brief.txt" in staged
+    parameters = saved["members"][driver.member_id].get("parameters") or {}
+    assert "GIT_URL" not in parameters
 
 
 # --- voice tools -----------------------------------------------------------

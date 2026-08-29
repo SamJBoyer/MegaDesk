@@ -61,8 +61,7 @@ def test_fe_only_nodes_do_not_launch_a_backend() -> None:
     assert gs_be() is None
     assert np_fe().backends == ()
     assert np_fe().name == "notepad"
-    assert np_fe().parameters == ("GIT_URL",)
-    assert np_fe().read_parameters is not None
+    assert np_fe().parameters == ()
     assert np_be() is None
 
 
