@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vision-board"
+version = "0.1.0"
+description = "MegaDesk FE node: a sticky-note sub-canvas with containers, pan and zoom"
+requires-python = ">=3.10"
+dependencies = [
+    "dearpygui>=1.11.1",
+    "megadesk-contracts",
+]
+
+[project.entry-points."MegaDesk.nodes"]
+vision_board = "vision_board_node"
+
+[tool.setuptools]
+py-modules = ["vision_board_node"]
+
+[tool.setuptools.packages.find]
+include = ["vision_board_frontend*"]

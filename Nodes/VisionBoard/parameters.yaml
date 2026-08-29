@@ -1,0 +1,2 @@
+- NOTES      # JSON list of stickies: id, x, y, text
+- CONTAINERS # JSON list of containers: id, x, y, w, h, name

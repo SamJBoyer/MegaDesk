@@ -32,6 +32,7 @@ sys.path[:0] = [
         "Nodes/Factory/MachineFactory",
         "Nodes/Factory/CloudFactory",
         "Nodes/GraphScope",
+        "Nodes/VisionBoard",
     )
 ]
 

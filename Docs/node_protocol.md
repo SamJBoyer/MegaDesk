@@ -61,6 +61,7 @@ Examples in-repo:
 | CodeScope | `code_scope` | FE + BE |
 | VoiceDeck | `voice_deck` | FE + BE |
 | GraphScope | `graph_scope` | FE only |
+| VisionBoard | `vision_board` | FE only |
 
 Nodes may be nested. Related ones are grouped by folder — `Nodes/Factory/` holds
 the two factories as siblings, `Nodes/HumanGates/` the two gates — and
