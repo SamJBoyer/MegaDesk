@@ -159,10 +159,11 @@ def test_tabs_switch_the_target_document(harness) -> None:
     assert live.pad.current == "ideas"
     assert driver.get("body") == "later"
 
-    live.switch_document("standup")
+    driver.click("tab_standup")
     harness.pump(2)
     assert live.pad.current == "standup"
     assert driver.get("body") == "morning"
+    harness.screenshot("notepad-tabs")
 
 
 @pytest.mark.canvas

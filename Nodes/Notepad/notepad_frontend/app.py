@@ -114,9 +114,15 @@ class Notepad:
         try:
             dpg.delete_item(bar, children_only=True)
             for name in self.pad.names():
-                dpg.add_tab(label=name, parent=bar, tag=self._tab_tag(name))
-            if self.pad.current and dpg.does_item_exist(self._tab_tag(self.pad.current)):
-                dpg.set_value(bar, self._tab_tag(self.pad.current))
+                label = f">{name}" if name == self.pad.current else name
+                dpg.add_button(
+                    label=label,
+                    parent=bar,
+                    tag=self._tab_tag(name),
+                    small=True,
+                    callback=self._on_tab,
+                    user_data=name,
+                )
         finally:
             self._rebuilding = False
         self._refresh_body()
@@ -214,14 +220,12 @@ class Notepad:
             url = str(dpg.get_value(url_tag) or "")
         self.attach_repo(url)
 
-    def _on_tab(self, _sender=None, app_data=None, _user_data=None) -> None:
+    def _on_tab(self, _sender=None, _app_data=None, user_data=None) -> None:
         if self._rebuilding:
             return
-        selected = str(app_data or "")
-        prefix = f"{self._root_tag}::tab_"
-        if not selected.startswith(prefix):
+        name = str(user_data or "").strip()
+        if not name:
             return
-        name = selected[len(prefix) :]
         try:
             self.switch_document(name)
         except PadError as exc:
@@ -314,7 +318,7 @@ class Notepad:
                     width=20,
                     callback=self._on_new,
                 )
-            dpg.add_tab_bar(tag=self._tag("tabs"), callback=self._on_tab)
+            dpg.add_group(horizontal=True, tag=self._tag("tabs"))
             dpg.add_input_text(
                 tag=self._tag("body"),
                 default_value="",
