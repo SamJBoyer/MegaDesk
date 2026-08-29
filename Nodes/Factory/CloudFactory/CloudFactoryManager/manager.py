@@ -1,4 +1,4 @@
-"""Consume CLOUDORDER, launch cloud agents, hand a PR off to GitHub.
+"""Consume CLOUDORDER signals, launch cloud agents, hand a PR off to GitHub.
 
 Two loops, the same two MachineFactory runs, because the two halves have very
 different clocks. Orders arrive in bursts and launch in under a second; the runs
@@ -6,8 +6,9 @@ they start take minutes, and the BE may be restarted while they are still going.
 So the registry on the persistent DB is the source of truth rather than anything held in
 memory:
 
-* ``poll_orders`` reads the consumer group, launches, and writes
-  ``CLOUDRUN:<agent_id>`` before it does anything else it could fail at.
+* ``poll_orders`` reads the CLOUDORDER pub/sub channel, XADDs the stream as a
+  reference, launches, and writes ``CLOUDRUN:<agent_id>`` before it does
+  anything else it could fail at. Leftover stream entries do not start work.
 * ``poll_runs`` walks that registry, asks Cursor where each run got to, and
   either hands off (first PR URL: store it, cancel the VM, no stream entry) or
   publishes CLOUDFINISHED for a real failure. Success for a cloud order lives
@@ -41,10 +42,10 @@ from megadesk_contracts import (
     resolve_redis_url,
 )
 from megadesk_contracts.wire import cloud as wire
+from megadesk_contracts.wire.signal import FieldInbox
 
 log = logging.getLogger("cloud_factory.manager")
 
-ORDER_BATCH = 16
 POLL_INTERVAL_SEC = 1.0
 # Cloud runs take minutes. Asking every second would spend the whole rate limit
 # on questions rather than work.
@@ -78,7 +79,8 @@ class CloudFactoryManager:
         self._ephemeral = ephemeral
         self._persistent = persistent
         self._runtime = runtime
-        self._group_ready = False
+        self._inbox: FieldInbox | None = None
+        self._pending: list[tuple[str, dict[str, Any]]] = []
         self._next_run_poll = 0.0
         self._blocked_until: dict[str, float] = {}
         self._attempts: dict[str, int] = {}
@@ -110,52 +112,42 @@ class CloudFactoryManager:
             self._runtime = CursorCloudFactory()
         return self._runtime
 
-    def ensure_group(self) -> None:
-        if self._group_ready:
-            return
-        from redis.exceptions import ResponseError
+    def ensure_listen(self) -> None:
+        if self._inbox is None:
+            self._inbox = FieldInbox(self.ephemeral, wire.CLOUDORDER_CHANNEL)
+        self._inbox.listen()
 
-        try:
-            self.ephemeral.xgroup_create(
-                wire.CLOUDORDER_STREAM, self.group, id="0", mkstream=True
-            )
-        except ResponseError as exc:
-            if "BUSYGROUP" not in str(exc):
-                raise
-        self._group_ready = True
+    def ensure_group(self) -> None:
+        """Subscribe for execution signals. Name kept for existing callers."""
+        self.ensure_listen()
+
+    @property
+    def pending_count(self) -> int:
+        return len(self._pending)
 
     # --- orders ---
 
     def poll_orders(self) -> int:
-        """Drain pending then new CLOUDORDER entries. Returns how many launched."""
-        self.ensure_group()
+        """Drain published CLOUDORDER signals. Returns how many launched."""
+        self.ensure_listen()
+        assert self._inbox is not None
+        for fields in self._inbox.drain():
+            entry_id = str(self.ephemeral.xadd(wire.CLOUDORDER_STREAM, fields))
+            self._pending.append((entry_id, fields))
         launched = 0
-        for stream_id in ("0", ">"):
-            results = self._xreadgroup(stream_id)
-            for _stream, messages in results or []:
-                for entry_id, fields in messages:
-                    if self.handle_order(entry_id, fields):
-                        launched += 1
+        still: list[tuple[str, dict[str, Any]]] = []
+        for entry_id, fields in self._pending:
+            if self.handle_order(entry_id, fields):
+                launched += 1
+                continue
+            try:
+                order_id = wire.parse_cloudorder(fields)["order_id"]
+            except ValueError:
+                continue
+            if order_id in self._attempts and self._attempts[order_id] < MAX_LAUNCH_ATTEMPTS:
+                still.append((entry_id, fields))
+        self._pending = still
         return launched
-
-    def _xreadgroup(self, stream_id: str) -> Any:
-        """Read the group, recreating it if Redis was flushed out from under us."""
-        from redis.exceptions import ResponseError
-
-        kwargs = {
-            "groupname": self.group,
-            "consumername": self.consumer,
-            "streams": {wire.CLOUDORDER_STREAM: stream_id},
-            "count": ORDER_BATCH,
-        }
-        try:
-            return self.ephemeral.xreadgroup(**kwargs)
-        except ResponseError as exc:
-            if "NOGROUP" not in str(exc):
-                raise
-            self._group_ready = False
-            self.ensure_group()
-            return self.ephemeral.xreadgroup(**kwargs)
 
     def handle_order(self, entry_id: str, fields: dict[str, Any]) -> bool:
         """Launch one order. Returns whether an agent now exists for it."""
@@ -163,22 +155,18 @@ class CloudFactoryManager:
             order = wire.parse_cloudorder(fields)
         except ValueError as exc:
             log.error("Unusable CLOUDORDER %s: %s", entry_id, exc)
-            self._ack(entry_id)
             return False
 
         order_id = order["order_id"]
         if self.run_for_order(order_id) is not None:
-            # Already launched, and the ack evidently did not land. Launching
-            # again would open a second pull request for one request.
+            # Already launched. Launching again would open a second pull request.
             log.warning("Order %s already has a run; skipping", order_id)
-            self._ack(entry_id)
             return False
 
         if self.settled_order(order_id) is not None:
             # Rejected (or otherwise finished) before we got to it — most
             # often from the FE reject button while this order sat in queue.
             log.info("Order %s already settled; skipping", order_id)
-            self._ack(entry_id)
             return False
 
         wait_until = self._blocked_until.get(order_id, 0.0)
@@ -194,7 +182,6 @@ class CloudFactoryManager:
         except AgentError as exc:
             log.error("Order %s failed to launch: %s", order_id, exc)
             self._finish_without_agent(order, str(exc))
-            self._ack(entry_id)
             return False
 
         # Rejected while Cursor was still minting the id: drop the agent rather
@@ -206,7 +193,6 @@ class CloudFactoryManager:
                 log.warning(
                     "Could not cancel rejected launch %s: %s", handle.run_key, exc
                 )
-            self._ack(entry_id)
             log.info(
                 "Order %s was rejected during launch; dropped agent %s",
                 order_id,
@@ -214,8 +200,8 @@ class CloudFactoryManager:
             )
             return False
 
-        # Registered before the ack, so a crash in between leaves a visible run
-        # rather than an order that silently launched nothing.
+        # Registered as soon as Cursor mints an id, so a crash leaves a visible
+        # run rather than an order that silently launched nothing.
         self.persistent.hset(
             wire.cloudrun_key(handle.run_key),
             mapping=wire.cloudrun_fields(
@@ -228,7 +214,6 @@ class CloudFactoryManager:
         )
         self._attempts.pop(order_id, None)
         self._blocked_until.pop(order_id, None)
-        self._ack(entry_id)
         log.info("Order %s is agent %s", order_id, handle.run_key)
         return True
 
@@ -256,7 +241,6 @@ class CloudFactoryManager:
 
         log.error("Order %s could not start: %s", order_id, exc)
         self._finish_without_agent(order, str(exc))
-        self._ack(entry_id)
         self._attempts.pop(order_id, None)
         return False
 
@@ -459,10 +443,9 @@ class CloudFactoryManager:
 
     def run_forever(self) -> None:
         log.info(
-            "CloudFactoryManager up: %s group=%s consumer=%s",
+            "CloudFactoryManager up: listening on %s (stream %s is reference only)",
+            wire.CLOUDORDER_CHANNEL,
             wire.CLOUDORDER_STREAM,
-            self.group,
-            self.consumer,
         )
         from megadesk_contracts import node_should_stop
 
@@ -476,15 +459,17 @@ class CloudFactoryManager:
                     return
                 except Exception:  # noqa: BLE001 - a long-lived BE outlives Redis restarts
                     log.exception("Poll failed; retrying in %.1fs", RECONNECT_WAIT_SEC)
-                    self._group_ready = False
+                    if self._inbox is not None:
+                        self._inbox.close()
+                        self._inbox = None
                     time.sleep(RECONNECT_WAIT_SEC)
         finally:
             closer = getattr(self._runtime, "close", None)
             if callable(closer):
                 closer()
-
-    def _ack(self, entry_id: str) -> None:
-        self.ephemeral.xack(wire.CLOUDORDER_STREAM, self.group, entry_id)
+            if self._inbox is not None:
+                self._inbox.close()
+                self._inbox = None
 
 
 def main() -> None:

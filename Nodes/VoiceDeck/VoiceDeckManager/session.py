@@ -315,7 +315,7 @@ class VoiceSession:
             instructions=instructions,
             auto_pr=True,
         )
-        self.ephemeral.xadd(cloud_wire.CLOUDORDER_STREAM, order)
+        cloud_wire.publish_cloudorder(self.ephemeral, order)
 
         self._publish(wire.KIND_DISPATCH, f"{cloud_wire.STATUS_QUEUED}: {title}")
         return {

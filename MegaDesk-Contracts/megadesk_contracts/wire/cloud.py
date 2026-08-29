@@ -1,6 +1,11 @@
 """CloudFactory wire format: work sent to Cursor-hosted agents.
 
+(PUBSUB, db0) CLOUDORDER
+  - execution signal; same fields as the stream. A PUBLISH starts work.
+    An unsubscribed publish is dropped, so leftover tickets cannot re-run.
+
 (STREAM, db0) CLOUDORDER
+  - reference store written by the factory after it receives the signal
   - order_id, repo_url, ref, title, instructions, model, auto_pr
 
 (STREAM, db0) CLOUDFINISHED
@@ -38,6 +43,7 @@ from megadesk_contracts.wire._fields import (
     stripped,
     text_field,
 )
+from megadesk_contracts.wire.signal import publish_fields
 from megadesk_contracts.wire.factory import (
     DEFAULT_MODEL,
     DEFAULT_STARTING_REF,
@@ -53,6 +59,7 @@ from megadesk_contracts.wire.factory import (
     normalize_status,
 )
 
+CLOUDORDER_CHANNEL = "CLOUDORDER"
 CLOUDORDER_STREAM = "CLOUDORDER"
 CLOUDFINISHED_STREAM = "CLOUDFINISHED"
 CLOUDRUN_PREFIX = "CLOUDRUN:"
@@ -64,6 +71,7 @@ CLOUD_AGENT_ID_PREFIX = "bc-"
 # every status it needs off one module.
 __all__ = [
     "CLOUDFINISHED_STREAM",
+    "CLOUDORDER_CHANNEL",
     "CLOUDORDER_GROUP",
     "CLOUDORDER_STREAM",
     "CLOUDRUN_PREFIX",
@@ -90,6 +98,7 @@ __all__ = [
     "parse_cloudfinished",
     "parse_cloudorder",
     "parse_cloudrun",
+    "publish_cloudorder",
 ]
 
 
@@ -119,6 +128,11 @@ def is_cloud_agent_id(agent_id: str) -> bool:
 
 
 # --- CLOUDORDER ------------------------------------------------------------
+
+
+def publish_cloudorder(redis: Any, fields: Mapping[str, Any]) -> int:
+    """PUBLISH a CLOUDORDER signal. The factory XADDs the stream itself."""
+    return publish_fields(redis, CLOUDORDER_CHANNEL, fields)
 
 
 def cloudorder_fields(

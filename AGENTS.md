@@ -60,7 +60,7 @@ We use a Redis **pair** per MegaDesk process. DB 0 is the live ephemeral bus and
 - **SUPERVISOR:LAUNCHREQUEST** — consume `node_endpoint` + `parameters` (JSON object of graph kvps, or `""`); discover BE via `MegaDesk.nodes` → `BeSpec`; `Popen` with `MEGADESK_*` env (including `MEGADESK_PARAMETERS`)
 - **SUPERVISOR:KILLREQUEST** — match `node_endpoint` + `unique_id`, graceful→force shutdown, `DEL` the RUNNINGNODES hash
 - **NODEEXIT** — published on natural exit (metadata only; no log bodies)
-- MachineFactory `WORKORDER` / `AGENTHANDLER` / `FINISHED` also live here (same `REDIS_URL`, db 0)
+- MachineFactory `WORKORDER` (pub/sub signal + reference stream) / `AGENTHANDLER` / `FINISHED` also live here (same `REDIS_URL`, db 0)
 - Voice chain: `CODEQ:ASK` / `CODEQ:ANSWER`, `VOICE:CONTROL` / `VOICE:EVENT`, `CLOUDORDER` / `CLOUDFINISHED` — defined once in `megadesk_contracts.wire`, documented in `MegaDesk-Contracts/redis/voice-chain.md`. Audio never goes on a stream.
 
 Every stream and hash is defined exactly once, in `megadesk_contracts.wire`, and imported by every writer. A node must never ship its own `redis_packets.py`: `WORKORDER` used to be defined twice and the copies were free to drift. Both factories additionally share one status vocabulary (`wire/factory.py`) and one Python surface (`megadesk_contracts.factory.AgentFactory`: launch / poll / cancel), so a graph controller can place an agent locally or in the cloud without the two behaving differently.

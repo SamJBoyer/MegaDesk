@@ -19,16 +19,17 @@ controller decides where that work runs. That only holds if the two factories ar
 interchangeable at the seam, so a scheduling decision never turns into a
 capability decision.
 
-Both are shaped the same way: an order stream, one hash per live run, a finished
-stream, and a `manager.py` order loop over a `runtime.py` that actually starts
-things.
+Both are shaped the same way: an order pub/sub signal, a reference stream, one
+hash per live run, a finished stream, and a `manager.py` order loop over a
+`runtime.py` that actually starts things.
 
 ```text
-order stream  →  manager.py  →  runtime.py  →  agent somewhere
-                     ↓              ↑
-              hash per live run ─────┘
-                     ↓
-              finished stream
+order channel  →  manager.py  →  runtime.py  →  agent somewhere
+                      │               ↑
+                 XADD stream     hash per live run
+                      │               │
+                      └───────────────┘
+                      finished stream
 ```
 
 Both runtimes implement one protocol, `megadesk_contracts.factory.AgentFactory`:
@@ -66,8 +67,9 @@ tab, not on the factory.
 
 Both take their orders from WorkDispatcher (and VoiceDeck can also publish
 `CLOUDORDER`). Each ticket row picks machine or cloud the same way it picks a
-model, so one click writes either `WORKORDER` or `CLOUDORDER`. Neither factory
-has its own GitHub URL or issue-text input.
+model, so one click PUBLISHes either `WORKORDER` or `CLOUDORDER`. The factory
+stores that payload on the matching stream as a reference; the stream itself
+does not start work. Neither factory has its own GitHub URL or issue-text input.
 
 ## Where they honestly differ
 

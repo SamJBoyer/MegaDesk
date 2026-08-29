@@ -26,13 +26,15 @@ from megadesk_contracts.human_gate import (
     run_gh,
 )
 from megadesk_contracts.wire.cloud import (
-    CLOUDORDER_STREAM,
+    CLOUDORDER_CHANNEL,
     cloudorder_fields,
     new_order_id,
+    publish_cloudorder,
 )
 from megadesk_contracts.wire.machine import (
     DEFAULT_MODEL,
-    WORKORDER_STREAM,
+    WORKORDER_CHANNEL,
+    publish_workorder,
     workorder_fields,
 )
 
@@ -429,7 +431,7 @@ class WorkDispatcher:
         instructions = ticket.body or ticket.name
         try:
             if factory == "machine":
-                stream = WORKORDER_STREAM
+                channel = WORKORDER_CHANNEL
                 fields = workorder_fields(
                     repo=repo_name,
                     url=repo_url,
@@ -438,8 +440,9 @@ class WorkDispatcher:
                     model=model,
                     auto_pr=True,
                 )
+                publish = publish_workorder
             elif factory == "cloud":
-                stream = CLOUDORDER_STREAM
+                channel = CLOUDORDER_CHANNEL
                 fields = cloudorder_fields(
                     order_id=new_order_id(),
                     repo_url=repo_url,
@@ -448,6 +451,7 @@ class WorkDispatcher:
                     model=model,
                     auto_pr=True,
                 )
+                publish = publish_cloudorder
             else:
                 raise ValueError(f"unknown factory {factory!r}")
         except ValueError as exc:
@@ -466,14 +470,14 @@ class WorkDispatcher:
             return
 
         try:
-            self._redis.xadd(stream, fields)
+            publish(self._redis, fields)
             self._dispatched.add(issue_id)
             if dpg.does_item_exist(status):
-                dpg.set_value(status, f"Dispatched #{issue_id} → {stream}")
+                dpg.set_value(status, f"Dispatched #{issue_id} → {channel}")
                 dpg.configure_item(status, color=COLOR_BLUE)
         except redis.RedisError as exc:
             if dpg.does_item_exist(status):
-                dpg.set_value(status, f"Redis xadd failed: {exc}")
+                dpg.set_value(status, f"Redis publish failed: {exc}")
                 dpg.configure_item(status, color=COLOR_RED)
             self._redis = None
 

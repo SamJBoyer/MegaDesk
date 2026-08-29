@@ -111,16 +111,14 @@ def test_h2_auto_integrate_orders_a_fix_on_the_pull_requests_branch(
 
 
 def test_h2b_the_cloud_factory_is_told_the_same_branch(
-    fake_gh, harness, read_stream, workorders
+    fake_gh, harness, cloudorders, workorders
 ) -> None:
-    from megadesk_contracts.wire import cloud as cloud_wire
-
     fake_gh.add_merge_fail(50, "stuck", PR_URL, branch=BRANCH)
 
     gate = connect_gate(harness, "auto_integrate")
     press_row(harness, gate, 50, factory="cloud")
 
-    orders = read_stream(cloud_wire.CLOUDORDER_STREAM)
+    orders = cloudorders()
     assert len(orders) == 1, f"expected one CLOUDORDER, got {orders}"
     _entry_id, fields = orders[0]
     assert set(fields) == set(CLOUDORDER_CANONICAL_FIELDS)

@@ -3,9 +3,9 @@
 ``FakeGh`` removes GitHub (network, auth, rate limits) from the human gates' and
 PRManager's poll loops. ``FakeAgent`` replaces the sandbox boundary — clone,
 Docker, Redis sidecar and ``cursor_sdk`` — while keeping everything on both
-sides of it real: the WORKORDER consumer group, the wire payloads, and the
-FINISHED stream the factory publishes. It publishes a canned PR URL rather
-than depending on Floor.
+sides of it real: the WORKORDER pub/sub signal, the reference stream, the wire
+payloads, and the FINISHED stream the factory publishes. It publishes a canned
+PR URL rather than depending on Floor.
 
 The three newer fakes cut the same way for the voice chain, each at the lowest
 boundary that still removes a network or a device:
@@ -325,12 +325,12 @@ class AgentRun:
 
 
 class FakeAgent:
-    """Consumes WORKORDER and publishes FINISHED with a canned PR URL.
+    """Consumes WORKORDER signals and publishes FINISHED with a canned PR URL.
 
-    Reads through MachineFactory's real consumer group with the real ack
-    semantics, and builds its payloads with the production wire helpers injected
-    as ``wire`` — so a renamed field or a dropped ack fails here. No Floor,
-    worktree, or Docker: callers only need ``status`` and ``pr_url``.
+    Subscribes to the production channel, XADDs the stream as a reference the
+    way MachineFactory does, and builds its payloads with the production wire
+    helpers injected as ``wire``. No Floor, worktree, or Docker: callers only
+    need ``status`` and ``pr_url``.
     """
 
     def __init__(
@@ -356,43 +356,47 @@ class FakeAgent:
         self._ticket_worktree = ticket_worktree
         self.pr_url_template = pr_url_template
         self.runs: list[AgentRun] = []
+        self._inbox: Any = None
+        self._recorded: list[tuple[str, dict[str, Any]]] = []
 
-    # --- consumer group ---
+    # --- pub/sub ---
+
+    def ensure_listen(self) -> None:
+        if self._inbox is None:
+            from megadesk_contracts.wire.signal import FieldInbox
+
+            self._inbox = FieldInbox(self.redis, self.wire.WORKORDER_CHANNEL)
+        self._inbox.listen()
 
     def ensure_group(self) -> None:
-        from redis.exceptions import ResponseError
-
-        try:
-            self.redis.xgroup_create(
-                self.wire.WORKORDER_STREAM, self.group, id="0", mkstream=True
-            )
-        except ResponseError as exc:
-            if "BUSYGROUP" not in str(exc):
-                raise
+        """Subscribe for execution signals. Name kept for existing callers."""
+        self.ensure_listen()
 
     def pending(self) -> int:
-        """Entries delivered to the group but not yet acked."""
-        info = self.redis.xpending(self.wire.WORKORDER_STREAM, self.group)
-        if isinstance(info, dict):
-            return int(info.get("pending") or 0)
-        return int(info[0]) if info else 0
+        """Signals received and stored but not yet handled."""
+        return len(self._recorded)
+
+    def record(self) -> list[tuple[str, dict[str, Any]]]:
+        """Receive published signals and store them on the WORKORDER stream."""
+        self.ensure_listen()
+        stored: list[tuple[str, dict[str, Any]]] = []
+        for fields in self._inbox.drain():
+            entry_id = str(self.redis.xadd(self.wire.WORKORDER_STREAM, fields))
+            stored.append((entry_id, fields))
+            self._recorded.append((entry_id, fields))
+        return stored
 
     # --- work ---
 
     def run_once(self, *, count: int = 32) -> list[AgentRun]:
-        """Drain pending then new WORKORDER entries, one pass."""
-        self.ensure_group()
+        """Drain published WORKORDER signals, store them, then handle each."""
+        _ = count
+        self.record()
         produced: list[AgentRun] = []
-        for stream_id in ("0", ">"):
-            results = self.redis.xreadgroup(
-                groupname=self.group,
-                consumername=self.consumer,
-                streams={self.wire.WORKORDER_STREAM: stream_id},
-                count=count,
-            )
-            for _stream, messages in results or []:
-                for entry_id, fields in messages:
-                    produced.append(self.handle(entry_id, fields))
+        recorded = self._recorded
+        self._recorded = []
+        for entry_id, fields in recorded:
+            produced.append(self.handle(entry_id, fields))
         self.runs.extend(produced)
         return produced
 
@@ -422,7 +426,6 @@ class FakeAgent:
         )
         stream = self.wire.finished_stream(repo)
         finished_id = self.redis.xadd(stream, payload)
-        self.redis.xack(self.wire.WORKORDER_STREAM, self.group, entry_id)
 
         return AgentRun(
             workorder_id=str(entry_id),

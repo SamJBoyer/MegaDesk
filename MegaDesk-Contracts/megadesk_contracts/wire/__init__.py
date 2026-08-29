@@ -22,7 +22,7 @@ words for the same outcome. ``wire.graph`` reuses those same statuses one level
 down, for the nodes inside a single run.
 """
 
-from megadesk_contracts.wire import cloud, code_scope, factory, graph, machine, voice
+from megadesk_contracts.wire import cloud, code_scope, factory, graph, machine, signal, voice
 from megadesk_contracts.wire._fields import BOOL_FALSE, BOOL_TRUE, bool_field, is_true
 
 __all__ = [
@@ -35,5 +35,6 @@ __all__ = [
     "graph",
     "is_true",
     "machine",
+    "signal",
     "voice",
 ]

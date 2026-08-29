@@ -262,6 +262,7 @@ def test_voice_publishes_a_cloudorder(
     redis_client,
     persistent_client,
     read_stream,
+    cloudorders,
     git_floor,
 ) -> None:
     """A spoken dispatch is a CLOUDORDER. The URL is read off the clone, not said."""
@@ -276,12 +277,13 @@ def test_voice_publishes_a_cloudorder(
 
     result = fake_realtime.result_for(call_id)
     assert result["status"] == cloud_wire.STATUS_QUEUED
-    orders = read_stream(cloud_wire.CLOUDORDER_STREAM)
+    orders = cloudorders()
     assert len(orders) == 1
     assert set(orders[0][1]) == set(CLOUDORDER_CANONICAL_FIELDS)
     assert orders[0][1]["title"] == "Document the frame pump"
     assert orders[0][1]["order_id"] == result["order_id"]
     assert orders[0][1]["auto_pr"] == "true"
+    assert read_stream(cloud_wire.CLOUDORDER_STREAM) == []
     assert events_of(read_stream, wire.KIND_DISPATCH) == [
         f"{cloud_wire.STATUS_QUEUED}: Document the frame pump"
     ]

@@ -29,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="MachineFactoryManager",
         description=(
-            "MachineFactoryManager: poll the WORKORDER stream and spin one-shot "
+            "MachineFactoryManager: listen for WORKORDER signals and spin one-shot "
             "AgentHandler sandboxes with Redis sidecars (clone in-container, no Floor)."
         ),
     )

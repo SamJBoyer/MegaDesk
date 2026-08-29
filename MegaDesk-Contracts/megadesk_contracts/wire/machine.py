@@ -1,6 +1,11 @@
 """MachineFactory wire format: agent work done in a Docker sandbox on this machine.
 
+(PUBSUB, db0) WORKORDER
+  - execution signal; same fields as the stream. A PUBLISH starts work.
+    An unsubscribed publish is dropped, so leftover tickets cannot re-run.
+
 (STREAM, db0) WORKORDER
+  - reference store written by the factory after it receives the signal
   - repo, URL, ref, ticket_name, instructions, model, auto_pr
 
 (HASH, db0) AGENTHANDLER:<guid>
@@ -47,6 +52,7 @@ from megadesk_contracts.wire._fields import (
     stripped,
     text_field,
 )
+from megadesk_contracts.wire.signal import publish_fields
 from megadesk_contracts.wire.factory import (
     DEFAULT_MODEL,
     DEFAULT_STARTING_REF,
@@ -61,6 +67,7 @@ from megadesk_contracts.wire.factory import (
     normalize_status,
 )
 
+WORKORDER_CHANNEL = "WORKORDER"
 WORKORDER_STREAM = "WORKORDER"
 FINISHED_PREFIX = "FINISHED:"
 AGENTHANDLER_PREFIX = "AGENTHANDLER:"
@@ -81,6 +88,7 @@ __all__ = [
     "STATUS_QUEUED",
     "STATUS_RUNNING",
     "TERMINAL_STATUSES",
+    "WORKORDER_CHANNEL",
     "WORKORDER_GROUP",
     "WORKORDER_STREAM",
     "agent_handler_fields",
@@ -94,6 +102,7 @@ __all__ = [
     "parse_agent_handler",
     "parse_finished",
     "parse_workorder",
+    "publish_workorder",
     "repo_from_finished_key",
     "workorder_fields",
 ]
@@ -132,6 +141,11 @@ def guid_from_agent_handler_key(key: str) -> str:
 
 
 # --- WORKORDER -------------------------------------------------------------
+
+
+def publish_workorder(redis: Any, fields: Mapping[str, Any]) -> int:
+    """PUBLISH a WORKORDER signal. The factory XADDs the stream itself."""
+    return publish_fields(redis, WORKORDER_CHANNEL, fields)
 
 
 def workorder_fields(

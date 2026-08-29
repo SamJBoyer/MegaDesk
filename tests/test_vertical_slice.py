@@ -72,9 +72,10 @@ def test_ticket_factory_merge_vertical_slice(
     harness.wait_for_widget(dispatcher, f"ticket_btn_{ISSUE_NUMBER}")
     dispatcher.click(f"ticket_btn_{ISSUE_NUMBER}")
 
+    stored = smoke_agent.record()
+    assert len(stored) == 1
+    workorder_id, fields = stored[0]
     assert redis_client.xlen(WORKORDER_STREAM) == 1
-    workorder_id = redis_client.xrange(WORKORDER_STREAM)[0][0]
-    fields = redis_client.xrange(WORKORDER_STREAM)[0][1]
     assert fields["repo"] == SMOKE_REPO
     assert fields["URL"] == "https://github.com/SamJBoyer/SMOKETESTREPO"
     assert fields["auto_pr"] == "true"
