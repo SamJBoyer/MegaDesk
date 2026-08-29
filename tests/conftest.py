@@ -286,7 +286,6 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
     from code_scope_frontend import app as code_scope_app
     from graph_scope_frontend import app as graph_scope_app
     from machine_factory_frontend import app as machine_factory_app
-    from sargent_frontend import app as sargent_app
     from voice_deck_frontend import app as voice_deck_app
 
     for module in (
@@ -298,7 +297,6 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
         cloud_factory_app,
         machine_factory_app,
         graph_scope_app,
-        sargent_app,
     ):
         monkeypatch.setattr(module, "POLL_INTERVAL_SEC", FAST_POLL_SEC)
 

@@ -1,15 +1,13 @@
 """Sargent FE — type a rough prompt, read the rewritten one.
 
 The FE never talks to OpenAI. It publishes ``SARGENT:ASK`` and XREADs
-``SARGENT:ANSWER``. Answers are not a consumer group: any other reader of the
-same rewrite should see it too.
+``SARGENT:ANSWER`` on the shared frame pump (no background thread). Answers
+are not a consumer group: any other reader of the same rewrite should see it too.
 """
 
 from __future__ import annotations
 
 import logging
-import queue
-import threading
 from typing import Optional
 
 import dearpygui.dearpygui as dpg
@@ -24,13 +22,11 @@ from megadesk_contracts.wire import sargent as wire
 
 log = logging.getLogger("sargent.fe")
 
-POLL_INTERVAL_SEC = 0.4
 ANSWER_BATCH = 50
 
 COLOR_GREEN = (80, 200, 80, 255)
 COLOR_RED = (220, 70, 70, 255)
 COLOR_BLUE = (70, 140, 230, 255)
-COLOR_AMBER = (215, 170, 70, 255)
 COLOR_DIM = (90, 90, 90, 255)
 COLOR_TEXT_Q = (150, 175, 215, 255)
 COLOR_TEXT_A = (205, 205, 205, 255)
@@ -41,10 +37,8 @@ _LIVE: dict[str, "Sargent"] = {}
 class Sargent:
     def __init__(self) -> None:
         self.redis_url = resolve_redis_url()
-        self._ui_queue: queue.Queue = queue.Queue()
-        self._stop = threading.Event()
-        self._worker: Optional[threading.Thread] = None
-        self._last_answer_id = "$"
+        # "0-0" not "$": a rewrite can land between frames, and "$" would miss it.
+        self._last_answer_id = "0-0"
         self._prompts: dict[str, int] = {}
         self._root_tag = "primary"
         self._frame_registered = False
@@ -63,6 +57,7 @@ class Sargent:
                 self.redis_url,
                 db=resolve_ephemeral_db(self.redis_url),
                 socket_connect_timeout=2,
+                socket_timeout=2,
             )
             self._redis.ping()
         except (redis.RedisError, OSError, ValueError):
@@ -106,32 +101,27 @@ class Sargent:
             )
 
         dpg.set_item_user_data(parent, self.shutdown)
-        self._start_services()
-        _LIVE[tag_prefix] = self
-
-    def _start_services(self) -> None:
-        if self._worker and self._worker.is_alive():
-            return
-        self._stop.clear()
-        self._worker = threading.Thread(target=self._worker_loop, daemon=True)
-        self._worker.start()
         if not self._frame_registered:
             frame_pump.register(self._on_frame)
             self._frame_registered = True
+        self._set_light(COLOR_GREEN if self._redis is not None else COLOR_RED)
+        _LIVE[tag_prefix] = self
 
     def _on_frame(self) -> None:
         if not dpg.does_item_exist(self._root_tag):
             return
-        self._drain_ui_queue()
+        self._read_answers()
 
     def shutdown(self) -> None:
-        self._stop.set()
         if self._frame_registered:
             frame_pump.unregister(self._on_frame)
             self._frame_registered = False
-        if self._worker:
-            self._worker.join(timeout=2.0)
-            self._worker = None
+        if self._redis is not None:
+            try:
+                self._redis.close()
+            except Exception:
+                pass
+            self._redis = None
         _LIVE.pop(self._root_tag, None)
 
     def _on_prompt(self, sender=None, app_data=None, user_data=None) -> None:
@@ -160,29 +150,22 @@ class Sargent:
         dpg.set_value(tag, "")
         self._status("Rewriting…", COLOR_BLUE)
 
-    def _worker_loop(self) -> None:
-        while not self._stop.is_set():
-            self._read_answers()
-
     def _read_answers(self) -> None:
         if self._redis is None:
             self._connect_redis()
         if self._redis is None:
-            self._push(("conn", False))
-            self._stop.wait(POLL_INTERVAL_SEC)
+            self._set_light(COLOR_RED)
             return
-        self._push(("conn", True))
+        self._set_light(COLOR_GREEN)
         try:
-            block_ms = max(50, int(POLL_INTERVAL_SEC * 1000))
             batches = self._redis.xread(
                 {wire.ANSWER_STREAM: self._last_answer_id},
                 count=ANSWER_BATCH,
-                block=block_ms,
+                block=None,
             )
         except redis.RedisError:
             self._redis = None
-            self._push(("conn", False))
-            self._stop.wait(POLL_INTERVAL_SEC)
+            self._set_light(COLOR_RED)
             return
 
         for _stream, messages in batches or []:
@@ -195,31 +178,9 @@ class Sargent:
                     continue
                 if answer["prompt_id"] not in self._prompts:
                     continue
-                self._push(("answer", answer))
-
-    def _push(self, message: tuple) -> None:
-        self._ui_queue.put(message)
-
-    def _drain_ui_queue(self) -> None:
-        while True:
-            try:
-                message = self._ui_queue.get_nowait()
-            except queue.Empty:
-                return
-
-            kind = message[0]
-            if kind == "conn":
-                self._set_light(COLOR_GREEN if message[1] else COLOR_RED)
-            elif kind == "status":
-                _, text, color = message
-                self._apply_status(text, color)
-            elif kind == "answer":
-                self._apply_answer(message[1])
+                self._apply_answer(answer)
 
     def _status(self, text: str, color: tuple[int, int, int, int]) -> None:
-        self._apply_status(text, color)
-
-    def _apply_status(self, text: str, color: tuple[int, int, int, int]) -> None:
         tag = self._tag("status_text")
         if dpg.does_item_exist(tag):
             dpg.set_value(tag, text)
@@ -262,9 +223,9 @@ class Sargent:
             dpg.set_value(tag, answer["rewrite"] or "(empty)")
             dpg.configure_item(tag, color=COLOR_RED if failed else COLOR_TEXT_A)
         if answer["status"] == wire.STATUS_ERROR:
-            self._apply_status("Rewrite failed", COLOR_RED)
+            self._status("Rewrite failed", COLOR_RED)
         else:
-            self._apply_status("Idle", COLOR_DIM)
+            self._status("Idle", COLOR_DIM)
         self._resize_scroll()
 
     def _resize_scroll(self) -> None:
