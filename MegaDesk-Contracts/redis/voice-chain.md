@@ -110,7 +110,7 @@ cancelled, no success stream entry). Merge-check files `MERGE_SUCCESS` /
 
 | Field | Meaning |
 |---|---|
-| `agent_id` | Cursor's `bc-` id, empty **only** for `startup_error` |
+| `agent_id` | Cursor's `bc-` id; empty when no agent exists (`startup_error`, or `cancelled` before launch) |
 | `order_id` | The order this settles |
 | `status` | `error`, `cancelled`, `startup_error` (CloudFactory); `finished` is still accepted by the parser |
 | `pr_url` | Empty on these failure paths |

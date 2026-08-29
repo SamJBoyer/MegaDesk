@@ -5,6 +5,7 @@
 
 (STREAM, db0) CLOUDFINISHED
   - agent_id, order_id, status, pr_url
+    agent_id is empty when no agent exists: startup_error, or cancelled before launch
 
 (HASH, db1) CLOUDRUN:<agent_id>
   - order_id, repo_url, title, status, pr_url, run_id
@@ -171,7 +172,12 @@ def cloudfinished_fields(
     agent_id: str = "",
     pr_url: str = "",
 ) -> dict[str, str]:
-    """``agent_id`` is empty only for ``startup_error``: no run, so no id."""
+    """``agent_id`` is empty when no agent exists.
+
+    That is ``startup_error`` (the run never started) and ``cancelled`` (the
+    order was rejected before Cursor minted an id). A run that executed always
+    carries its ``bc-`` id.
+    """
     fields = {
         "agent_id": stripped(agent_id),
         "order_id": stripped(order_id),
@@ -181,9 +187,13 @@ def cloudfinished_fields(
         "pr_url": stripped(pr_url),
     }
     require("CLOUDFINISHED", fields, ("order_id",))
-    if not fields["agent_id"] and fields["status"] != STATUS_STARTUP_ERROR:
+    if not fields["agent_id"] and fields["status"] not in {
+        STATUS_STARTUP_ERROR,
+        STATUS_CANCELLED,
+    }:
         raise ValueError(
-            f"CLOUDFINISHED requires agent_id unless status is {STATUS_STARTUP_ERROR}"
+            "CLOUDFINISHED requires agent_id unless status is "
+            f"{STATUS_STARTUP_ERROR} or {STATUS_CANCELLED}"
         )
     return fields
 

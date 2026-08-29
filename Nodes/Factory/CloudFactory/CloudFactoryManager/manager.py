@@ -174,6 +174,13 @@ class CloudFactoryManager:
             self._ack(entry_id)
             return False
 
+        if self.settled_order(order_id) is not None:
+            # Rejected (or otherwise finished) before we got to it — most
+            # often from the FE reject button while this order sat in queue.
+            log.info("Order %s already settled; skipping", order_id)
+            self._ack(entry_id)
+            return False
+
         wait_until = self._blocked_until.get(order_id, 0.0)
         if wait_until > time.monotonic():
             # Cursor asked for a delay. Leave it pending so it is retried on the
@@ -188,6 +195,23 @@ class CloudFactoryManager:
             log.error("Order %s failed to launch: %s", order_id, exc)
             self._finish_without_agent(order, str(exc))
             self._ack(entry_id)
+            return False
+
+        # Rejected while Cursor was still minting the id: drop the agent rather
+        # than registering a run the operator already refused.
+        if self.settled_order(order_id) is not None:
+            try:
+                self.runtime.cancel(handle.run_key)
+            except AgentError as exc:
+                log.warning(
+                    "Could not cancel rejected launch %s: %s", handle.run_key, exc
+                )
+            self._ack(entry_id)
+            log.info(
+                "Order %s was rejected during launch; dropped agent %s",
+                order_id,
+                handle.run_key,
+            )
             return False
 
         # Registered before the ack, so a crash in between leaves a visible run
@@ -256,7 +280,13 @@ class CloudFactoryManager:
         self._next_run_poll = now + self.run_poll_interval
 
         settled = 0
+        already = self._finished_by_order()
         for agent_id, run in self.live_runs():
+            done = already.get(run["order_id"])
+            if done and done["status"] == wire.STATUS_CANCELLED:
+                if self._honor_reject(agent_id, run):
+                    settled += 1
+                continue
             try:
                 state = self.runtime.poll(agent_id)
             except AgentError as exc:
@@ -265,6 +295,19 @@ class CloudFactoryManager:
             if self._apply_state(agent_id, run, state):
                 settled += 1
         return settled
+
+    def _honor_reject(self, agent_id: str, run: dict[str, str]) -> bool:
+        """The FE rejected an order that already had a live agent."""
+        try:
+            self.runtime.cancel(agent_id)
+        except AgentError as exc:
+            log.warning("Could not cancel rejected agent %s: %s", agent_id, exc)
+            return False
+        self.persistent.hset(
+            wire.cloudrun_key(agent_id), "status", wire.STATUS_CANCELLED
+        )
+        log.info("Agent %s cancelled after order %s was rejected", agent_id, run["order_id"])
+        return True
 
     def _apply_state(self, agent_id: str, run: dict[str, str], state: Any) -> bool:
         status = str(getattr(state, "status", "") or wire.STATUS_RUNNING)
@@ -353,6 +396,40 @@ class CloudFactoryManager:
             if self.persistent.hget(key, "order_id") == order_id:
                 return wire.agent_id_from_key(key)
         return None
+
+    def _finished_by_order(self) -> dict[str, dict[str, str]]:
+        by_order: dict[str, dict[str, str]] = {}
+        entries = self.ephemeral.xrevrange(wire.CLOUDFINISHED_STREAM, count=200)
+        for _entry_id, fields in entries or []:
+            try:
+                parsed = wire.parse_cloudfinished(fields)
+            except ValueError:
+                continue
+            by_order.setdefault(parsed["order_id"], parsed)
+        return by_order
+
+    def settled_order(self, order_id: str) -> Optional[dict[str, str]]:
+        """The newest CLOUDFINISHED for this order, if it already has one."""
+        return self._finished_by_order().get(order_id)
+
+    def reject(self, order_id: str) -> bool:
+        """Refuse an order. Unlaunched orders finish as cancelled with no agent."""
+        order_id = str(order_id or "").strip()
+        if not order_id:
+            return False
+        if self.settled_order(order_id) is not None:
+            return False
+        agent_id = self.run_for_order(order_id)
+        if agent_id:
+            return self.cancel(agent_id)
+        self.ephemeral.xadd(
+            wire.CLOUDFINISHED_STREAM,
+            wire.cloudfinished_fields(
+                order_id=order_id, status=wire.STATUS_CANCELLED
+            ),
+        )
+        log.info("Order %s rejected", order_id)
+        return True
 
     def cancel(self, agent_id: str) -> bool:
         key = wire.cloudrun_key(agent_id)
