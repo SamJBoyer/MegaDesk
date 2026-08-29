@@ -17,7 +17,7 @@ def test_be_nodes_declare_their_launch_endpoints() -> None:
     assert mc_be().name == "machine_factory"
     assert scope_fe().backends == ("code_scope",)
     assert scope_be().name == "code_scope"
-    assert voice_fe().backends == ("voice_deck",)
+    assert voice_fe() is None
     assert voice_be().name == "voice_deck"
     assert cloud_fe().backends == ("cloud_factory",)
     assert cloud_be().name == "cloud_factory"

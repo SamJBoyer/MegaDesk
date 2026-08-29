@@ -9,8 +9,9 @@ Features:
 
 
 Individual modules:
-- MegaDesk canvas (`MegaDesk-Canvas/`): endless Dear PyGui canvas. Discovers FE nodes from `MegaDesk.nodes` via `get_fe_spec()`. Owns Supervisor (BE started on launch via `ensure_supervisor_running()`; collapsible operator panel). Dropping a node that also has a BE `XADD`s `SUPERVISOR:LAUNCHREQUEST` over Redis. Install with `pip install -e MegaDesk-Canvas` (after `pip install -e MegaDesk-Contracts`).
+- MegaDesk canvas (`MegaDesk-Canvas/`): endless Dear PyGui canvas. Discovers FE nodes from `MegaDesk.nodes` via `get_fe_spec()`. Owns Supervisor (BE started on launch via `ensure_supervisor_running()`; collapsible operator panel) and VoiceDeck (FE chrome panel that always boots; BE launched once via `ensure_voice_deck_running()`). Dropping a node that also has a BE `XADD`s `SUPERVISOR:LAUNCHREQUEST` over Redis. Install with `pip install -e MegaDesk-Canvas` (after `pip install -e MegaDesk-Contracts`).
   - Supervisor (`MegaDesk-Canvas/supervisor/`): Canvas infrastructure — process lifecycle manager (`SUPERVISOR:LAUNCHREQUEST` / `SUPERVISOR:KILLREQUEST` / `RUNNINGNODES`; Redis DB 0 streams, DB 1 persistent keys). Not a Catalog node.
+  - VoiceDeck panel (`MegaDesk-Canvas/voice_deck/`): Canvas chrome — push-to-talk / transcript strip. Not a Catalog node. The BE is still the `voice_deck` node.
 
 - Nodes (`Nodes/`): productivity nodes installed via `pip install -e Nodes/<name>` (or `.[canvas]` where noted).
   - Factories (`Nodes/Factory/`): the two nodes that deploy agents. Same three verbs, same status words, same shape — one runs them here, one runs them in the cloud, and a graph should be able to choose without the choice changing what an agent can do. See [`Nodes/Factory/README.md`](Nodes/Factory/README.md).
@@ -21,7 +22,7 @@ Individual modules:
     - WorkDispatcher: FE-only tool that lists `agent-ready` GitHub issues and publishes a WORKORDER or a CLOUDORDER.
     - AutoIntegrate: FE-only tool that lists `MERGE_FAIL` issues and orders a factory to fix that pull request on the PR's own branch.
   - CodeScope: FE + BE node — clones a repo into `Scope/` and answers questions about it with a warm local Cursor agent. The agent's own search and file-read tools are the retrieval layer, so there is no index, no embeddings, and no RAG pipeline.
-  - VoiceDeck: FE + BE node — a speech-to-speech loop (OpenAI Realtime) that calls into CodeScope and CloudFactory by tool call. Audio stays inside the BE; only transcripts and control messages cross Redis. Needs `[audio]` (PortAudio) and `OPENAI_API_KEY`.
+  - VoiceDeck: BE node + canvas chrome panel — a speech-to-speech loop (OpenAI Realtime) that calls into CodeScope and CloudFactory by tool call. The FE always boots with the canvas; the BE keeps the `voice_deck` identity and is launched once. Audio stays inside the BE; only transcripts and control messages cross Redis. Needs `[audio]` (PortAudio) and `OPENAI_API_KEY`.
   - GraphScope: FE-only node that draws a live AgentHandler work-graph run from `GRAPHRUN:<guid>` and `GRAPHEVENT`.
 
 Shared contract: installable `megadesk-contracts` package in `MegaDesk-Contracts/` (`FeSpec` / `BeSpec`, entry-point discovery, Supervisor client). Redis IPC docs live alongside it (DB 0 ephemeral / DB 1 Supervisor persistent).

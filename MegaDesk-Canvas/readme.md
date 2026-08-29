@@ -5,7 +5,10 @@ MegaDesk canvas — Dear PyGui whiteboard host for MegaDesk FE tools.
 this package). The operator UI is a right-hand pane
 (`supervisor.panel.build_supervisor_panel`), docked like the Catalog and
 collapsible the same way — Nodes and Logs tabs, not a Catalog / `MegaDesk.nodes`
-entry. Managed BE logs land under worktree `Logs/{session}/{endpoint}.md`
+entry. **VoiceDeck** is the same pattern: the FE is a collapsible strip
+(`voice_deck.panel.build_voice_deck_panel`) that always boots; the BE keeps
+its `voice_deck` identity and is launched once via `ensure_voice_deck_running()`.
+Managed BE logs land under worktree `Logs/{session}/{endpoint}.md`
 (read `Logs/CURRENT`).
 
 Install and run from this directory (after installing contracts):

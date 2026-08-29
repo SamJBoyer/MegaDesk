@@ -39,9 +39,13 @@ NODE_PADDING = (8, 8)
 SUPERVISOR_PANEL_TAG = "supervisor_panel_window"
 SUPERVISOR_BODY_TAG = "supervisor_panel_window::body"
 SUPERVISOR_TOGGLE_TAG = "supervisor_panel_window::toggle"
+VOICE_DECK_PANEL_TAG = "voice_deck_panel_window"
+VOICE_DECK_BODY_TAG = "voice_deck_panel_window::body"
+VOICE_DECK_TOGGLE_TAG = "voice_deck_panel_window::toggle"
 
 CATALOG_WIDTH = 240
 SUPERVISOR_WIDTH = 360
+VOICE_DECK_HEIGHT = 140
 COLLAPSED_PANEL_WIDTH = 22
 _WINDOW_PAD = 16
 
@@ -55,6 +59,8 @@ class DisplayEngine:
         self.catalog_expanded = True
         self.supervisor_expanded = True
         self.supervisor_enabled = False
+        self.voice_deck_expanded = True
+        self.voice_deck_enabled = False
         self.on_member_selected: Optional[Callable[[str, tuple[str, ...]], None]] = None
         self._selected_member_id: Optional[str] = None
 
@@ -329,8 +335,14 @@ class DisplayEngine:
         self.supervisor_expanded = not self.supervisor_expanded
         self.relayout_chrome()
 
+    def toggle_voice_deck(self) -> None:
+        if not self.voice_deck_enabled:
+            return
+        self.voice_deck_expanded = not self.voice_deck_expanded
+        self.relayout_chrome()
+
     def relayout_chrome(self) -> None:
-        """Size the left Catalog, editor, and right Supervisor as a single row."""
+        """Size Catalog, editor, Supervisor, and VoiceDeck as one chrome row + strip."""
         vp_w = dpg.get_viewport_client_width() or 1280
         vp_h = dpg.get_viewport_client_height() or 800
         if dpg.does_item_exist(GRAPH_WINDOW):
@@ -351,7 +363,14 @@ class DisplayEngine:
                 bar_h = int(dpg.get_item_height("graph_bar") or 0)
             except Exception:
                 bar_h = 32
-        body_h = max(120, int(vp_h) - bar_h - _WINDOW_PAD)
+        voice_h = 0
+        if self.voice_deck_enabled and dpg.does_item_exist(VOICE_DECK_PANEL_TAG):
+            voice_h = (
+                VOICE_DECK_HEIGHT
+                if self.voice_deck_expanded
+                else COLLAPSED_PANEL_WIDTH
+            )
+        body_h = max(120, int(vp_h) - bar_h - voice_h - _WINDOW_PAD)
 
         if dpg.does_item_exist(SIDEBAR_TAG):
             dpg.configure_item(SIDEBAR_TAG, width=cat_w, height=body_h)
@@ -376,6 +395,20 @@ class DisplayEngine:
             dpg.configure_item(
                 SUPERVISOR_TOGGLE_TAG,
                 label=">" if self.supervisor_expanded else "<",
+            )
+        if dpg.does_item_exist(VOICE_DECK_PANEL_TAG):
+            dpg.configure_item(
+                VOICE_DECK_PANEL_TAG,
+                width=max(160, int(vp_w) - _WINDOW_PAD),
+                height=voice_h,
+                show=self.voice_deck_enabled,
+            )
+        if dpg.does_item_exist(VOICE_DECK_BODY_TAG):
+            dpg.configure_item(VOICE_DECK_BODY_TAG, show=self.voice_deck_expanded)
+        if dpg.does_item_exist(VOICE_DECK_TOGGLE_TAG):
+            dpg.configure_item(
+                VOICE_DECK_TOGGLE_TAG,
+                label="v" if self.voice_deck_expanded else "^",
             )
 
     # --- Catalog sidebar ---

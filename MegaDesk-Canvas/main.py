@@ -31,12 +31,21 @@ from engine.display_engine import (
     SUPERVISOR_PANEL_TAG,
     SUPERVISOR_TOGGLE_TAG,
     SUPERVISOR_WIDTH,
+    VOICE_DECK_BODY_TAG,
+    VOICE_DECK_HEIGHT,
+    VOICE_DECK_PANEL_TAG,
+    VOICE_DECK_TOGGLE_TAG,
     DisplayEngine,
 )
 from engine.graph_bar import BAR_HEIGHT, GRAPH_BAR_TAG, build_graph_bar
 from engine.graph_model import GraphError, GraphModel, remember_last_graph
 from engine.megadesk_registry import discover_megadesk_frontends
 from supervisor.panel import build_supervisor_panel, show_logs_for_canvas_node
+from voice_deck.panel import (
+    build_voice_deck_panel,
+    ensure_voice_deck_running,
+    shutdown_voice_deck_panel,
+)
 
 
 def _apply_daytime_theme() -> None:
@@ -76,6 +85,7 @@ def build_canvas(
     height: int = 800,
     viewport_pos: tuple[int, int] | None = None,
     supervisor_panel: bool = True,
+    voice_deck_panel: bool = True,
     graph_bar: bool = True,
 ) -> DisplayEngine:
     """Construct the canvas UI for ``model`` and return its engine.
@@ -87,6 +97,7 @@ def build_canvas(
     """
     engine = DisplayEngine(model)
     engine.supervisor_enabled = supervisor_panel
+    engine.voice_deck_enabled = voice_deck_panel
 
     dpg.create_context()
     _apply_daytime_theme()
@@ -177,6 +188,28 @@ def build_canvas(
                         border=False,
                         no_scrollbar=False,
                     )
+        if voice_deck_panel:
+            with dpg.child_window(
+                tag=VOICE_DECK_PANEL_TAG,
+                width=-1,
+                height=VOICE_DECK_HEIGHT,
+                border=True,
+                no_scrollbar=True,
+            ):
+                with dpg.group(horizontal=True):
+                    dpg.add_button(
+                        tag=VOICE_DECK_TOGGLE_TAG,
+                        label="v",
+                        width=18,
+                        callback=lambda: engine.toggle_voice_deck(),
+                    )
+                    dpg.add_child_window(
+                        tag=VOICE_DECK_BODY_TAG,
+                        width=-1,
+                        height=-1,
+                        border=False,
+                        no_scrollbar=False,
+                    )
 
     viewport_kwargs: dict[str, object] = {}
     if viewport_pos is not None:
@@ -194,6 +227,8 @@ def build_canvas(
     if supervisor_panel:
         engine.on_member_selected = show_logs_for_canvas_node
         build_supervisor_panel(SUPERVISOR_BODY_TAG)
+    if voice_deck_panel:
+        build_voice_deck_panel(VOICE_DECK_BODY_TAG)
     engine.on_viewport_resize()
     engine.host_all_members()
 
@@ -240,6 +275,8 @@ def main() -> None:
             log.exception("DEV_FLUSH_MODE: Redis flush failed")
     if not ensure_supervisor_running():
         log.error("Supervisor BE failed to start (see Logs/CURRENT → supervisor.md)")
+    elif not ensure_voice_deck_running():
+        log.warning("VoiceDeck BE failed to start (see Logs/CURRENT → voice_deck.md)")
     _attach_canvas_log_file(log)
 
     model = GraphModel()
@@ -257,6 +294,7 @@ def main() -> None:
         dpg.render_dearpygui_frame()
 
     model.save()
+    shutdown_voice_deck_panel()
     frame_pump.reset()
     dpg.destroy_context()
 

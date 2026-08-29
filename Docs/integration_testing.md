@@ -125,6 +125,7 @@ tests/
   test_cloudfactory_flow.py
   test_codescope_flow.py
   test_voicedeck_flow.py
+  test_voice_deck_panel.py
   test_voice_contract.py
   test_workgraph_flow.py
   test_vision_board.py
@@ -134,8 +135,9 @@ tests/
 
 | Method | Behavior |
 |---|---|
-| `boot()` | `build_canvas(model)` with `GraphModel(path=<tmp>)`, off-screen viewport, no Supervisor panel |
+| `boot()` | `build_canvas(model)` with `GraphModel(path=<tmp>)`, off-screen viewport, no Supervisor panel, VoiceDeck chrome on |
 | `drop(node_name, position="auto")` | Catalog drop; returns a `NodeDriver` |
+| `voice_deck()` | Driver for the always-on VoiceDeck chrome panel |
 | `pump(n)` | `engine.sync_members()` + `render_dearpygui_frame()`, n times |
 | `wait_until(pred, timeout=10)` | Pumps until true or raises `HarnessTimeout` with a screenshot |
 | `screenshot(name)` | Into the per-test artifacts directory |
