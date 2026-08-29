@@ -1,1 +1,1 @@
-"""PRManager: scan merge_success GitHub issues, pull PRs locally, open editors."""
+"""PRManager: list mergeable PRs, pull them locally, open editors."""

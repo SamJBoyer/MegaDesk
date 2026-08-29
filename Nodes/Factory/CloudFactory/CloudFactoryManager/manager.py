@@ -12,7 +12,7 @@ memory:
 * ``poll_runs`` walks that registry, asks Cursor where each run got to, and
   either hands off (first PR URL: store it, cancel the VM, no stream entry) or
   publishes CLOUDFINISHED for a real failure. Success for a cloud order lives
-  on GitHub — merge-check files ``MERGE_SUCCESS`` / ``MERGE_FAIL`` — not on
+  on GitHub — merge-check posts a ``mergeable`` check on the PR — not on
   ``CLOUDFINISHED``.
 
 The order of the first loop is the mirror image of the machine factory's. Cursor

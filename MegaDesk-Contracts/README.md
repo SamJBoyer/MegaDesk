@@ -54,7 +54,7 @@ from megadesk_contracts import (
 | **WorkDispatcher** | Publishes `WORKORDER` or `CLOUDORDER` on DB 0 |
 | **MachineFactory / MachineFactoryManager** | Consumes `WORKORDER`; writes `AGENTHANDLER:<GUID>` on DB 0, and reaps the ones whose sandbox is gone |
 | **MachineFactory / AgentHandler** | Reads `AGENTHANDLER:<GUID>` + `WORKORDER`; publishes `FINISHED:<REPO>` (`status`, `pr_url`) on DB 0 |
-| **PRManager** | Does not speak Redis. Lists GitHub issues labeled `merge_success`, pulls the tracked PR into a local Scope, and opens it in the browser, VS Code, or Cursor. |
+| **PRManager** | Does not speak Redis. Lists open PRs whose merge-check `mergeable` status succeeded, pulls the tracked PR into a local Scope, and opens it in the browser, VS Code, or Cursor. |
 | **Supervisor** (Canvas-owned, `MegaDesk-Canvas/supervisor/`) | Consumes `SUPERVISOR:LAUNCHREQUEST` / `SUPERVISOR:KILLREQUEST` on DB 0; writes `RUNNINGNODES:<unique_id>` + singleton/alive on DB 1. Bootstrapped by canvas startup via `ensure_supervisor_running()` — not a Catalog node. |
 | **MegaDesk canvas (`MegaDesk-Canvas/`)** | On graph drop/open of a MegaDesk FE that also exposes a BE, `XADD`s `SUPERVISOR:LAUNCHREQUEST` with `FeSpec.backend_parameters` |
 | **CodeScope** | Consumes `CODEQ:ASK`, publishes `CODEQ:ANSWER` on DB 0; owns `CODESCOPE:SESSION:<id>` on DB 1 |

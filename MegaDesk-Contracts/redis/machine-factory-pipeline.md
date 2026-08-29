@@ -9,7 +9,7 @@ MachineFactory clones the named repo into a Docker sandbox, gives the agent a
 Redis **sidecar** as its `REDIS_URL`, and keeps factory IPC on
 `MEGADESK_FACTORY_REDIS_URL` (host pair). On done it hands back a PR URL as
 factory outcome on `FINISHED:<REPO>`. PRManager does not read that stream — it
-lists GitHub issues labeled `merge_success`.
+lists open PRs whose merge-check `mergeable` check succeeded.
 
 Flow:
 
@@ -36,8 +36,8 @@ WorkDispatcher
         ▼
    FINISHED:<REPO> (stream, factory outcome)
 
-GitHub issues labeled merge_success
-        │  gh issue list
+GitHub `mergeable` check (success)
+        │  gh pr list
         ▼
    PRManager (show / open PR)
 ```
@@ -123,7 +123,7 @@ Ticket payload (`ticket_name`, `instructions`, `model`, `URL`, `auto_pr`) is **n
 | Type | Stream (**not** a list) |
 | Key | `FINISHED:<REPO>` where `<REPO>` is the repo name (same as `WORKORDER.repo`) |
 | Consumer group | `merge_manager` (unused by any FE; kept as the historical group name) |
-| Primary consumer | none — PRManager reads GitHub `merge_success` issues instead |
+| Primary consumer | none — PRManager reads GitHub `mergeable` checks instead |
 | Producer | AgentHandler; MachineFactoryManager for launches that failed and for sandboxes reaped after dying without reporting |
 
 ### Fields

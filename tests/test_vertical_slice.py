@@ -3,7 +3,7 @@
 Uses the public smoke-test repo URL and one agent-ready issue. The sandbox
 boundary is still FakeAgent (no Docker, no Cursor API), but MachineFactory's
 FE is hosted and must show a live AGENTHANDLER while the agent works — the
-gap T8 left open. PRManager lists a merge_success issue on the same repo URL.
+gap T8 left open. PRManager lists a mergeable PR on the same repo URL.
 """
 
 from __future__ import annotations
@@ -59,8 +59,8 @@ def test_ticket_factory_merge_vertical_slice(
     fake_gh.add_issue(ISSUE_NUMBER, ISSUE_TITLE, ISSUE_BODY)
     fake_gh.add_merge_success(
         2,
-        "merge_success: PR #1 can merge into dev",
-        "https://github.com/SamJBoyer/SMOKETESTREPO/pull/1",
+        "PR #2 can merge into dev",
+        "https://github.com/SamJBoyer/SMOKETESTREPO/pull/2",
     )
 
     dispatcher = harness.drop("work_dispatcher")

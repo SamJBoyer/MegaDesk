@@ -21,8 +21,8 @@ WORKORDER
     → DEL AGENTHANDLER + GRAPHRUN, exits
 ```
 
-WorkDispatcher publishes orders. PRManager lists `merge_success` GitHub
-issues on the same repo URL and shows/opens the tracked PR.
+WorkDispatcher publishes orders. PRManager lists open PRs whose merge-check
+`mergeable` check succeeded on the same repo URL and shows/opens the tracked PR.
 
 ## Halves
 

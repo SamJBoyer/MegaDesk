@@ -109,8 +109,8 @@ Leftover stream entries do not start work.
 
 Stream, DB 0. Failures and operator cancel only. CloudFactory never XADD's
 `status=finished`: a PR URL is a handoff to GitHub (`CLOUDRUN.pr_url` set, VM
-cancelled, no success stream entry). Merge-check files `MERGE_SUCCESS` /
-`MERGE_FAIL`. `finished` remains a legal wire value for parsers.
+cancelled, no success stream entry). Merge-check posts a `mergeable` commit
+status on each PR head. `finished` remains a legal wire value for parsers.
 
 | Field | Meaning |
 |---|---|

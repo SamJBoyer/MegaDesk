@@ -19,7 +19,7 @@ Redis sidecar as its ``REDIS_URL`` (so MegaDesk inside the sandbox never shares
 the host live pair), and keeps factory IPC on ``MEGADESK_FACTORY_REDIS_URL`` —
 the factory process's ephemeral DB on the host. When the agent finishes it hands
 back a pull-request URL, not a worktree. PRManager does not read this stream:
-it scans GitHub issues labeled ``merge_success``.
+it scans open PRs whose merge-check ``mergeable`` check succeeded.
 
 The cloud family's counterpart is ``wire.cloud``, and the two are deliberately
 the same shape: an order stream, a hash per live run, a finished stream. They

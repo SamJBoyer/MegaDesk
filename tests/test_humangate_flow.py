@@ -1,14 +1,13 @@
-"""Human gates: a label the operator targets, and the branch a fix has to land on.
+"""Human gates: WorkDispatcher still tracks issue labels; AutoIntegrate tracks PRs.
 
 AutoIntegrate is the reason both factories learned an optional ``ref``. A merge
 conflict lives on the pull request's branch, so an order that starts from ``dev``
 produces a fix nobody can merge. These tests cross the whole path a gate uses to
-learn that branch: the markers ``.github/workflows/merge-check.yml`` writes into
-the issue body, the parser in ``megadesk_contracts.human_gate``, and the order
-that comes out the other side.
+learn that branch: the ``mergeable`` check merge-check posts, the PR
+list in ``megadesk_contracts.human_gate``, and the order that comes out the
+other side.
 
-`FakeGh` stands in for GitHub — including ``gh pr view``, which is the fallback
-for issues filed before the markers existed. Everything else is real.
+`FakeGh` stands in for GitHub. Everything else is real.
 
 Scenario numbers match the table in `Docs/integration_testing.md`.
 """
@@ -53,7 +52,7 @@ def test_h1_the_gate_offers_the_labels_the_repo_actually_has(
     fake_gh, harness
 ) -> None:
     """A gate that only ever showed its default could not be retargeted."""
-    fake_gh.labels = ["agent-ready", "MERGE_FAIL", "MERGE_SUCCESS", "docs"]
+    fake_gh.labels = ["agent-ready", "docs", "needs-a-human"]
 
     gate = connect_gate(harness, "work_dispatcher")
 
@@ -67,13 +66,14 @@ def test_h1_the_gate_offers_the_labels_the_repo_actually_has(
 def test_h1b_retargeting_the_label_changes_which_issues_are_listed(
     fake_gh, harness
 ) -> None:
+    fake_gh.labels = ["agent-ready", "docs"]
     fake_gh.add_issue(41, "add-widget-tests", "Cover the widget module.")
-    fake_gh.add_merge_fail(50, "stuck", PR_URL, branch=BRANCH)
+    fake_gh.add_issue(50, "stuck", "A docs ticket.", labels=("docs",))
 
     gate = connect_gate(harness, "work_dispatcher")
     harness.wait_for_widget(gate, "ticket_btn_41")
 
-    gate.select("label_combo", "MERGE_FAIL")
+    gate.select("label_combo", "docs")
 
     harness.wait_for_widget(gate, "ticket_btn_50")
     assert not gate.exists("ticket_btn_41"), (
@@ -81,22 +81,17 @@ def test_h1b_retargeting_the_label_changes_which_issues_are_listed(
     )
 
 
-# --- H2: issue → PR branch → order ref --------------------------------------
+# --- H2: PR → branch → order ref -------------------------------------------
 
 
 def test_h2_auto_integrate_orders_a_fix_on_the_pull_requests_branch(
     fake_gh, harness, workorders
 ) -> None:
     """The whole point: the agent has to start on the branch that is stuck."""
-    fake_gh.add_merge_fail(
-        50,
-        f"MERGE_FAIL: {BRANCH} (PR #12) does not merge into dev",
-        PR_URL,
-        branch=BRANCH,
-    )
+    fake_gh.add_merge_fail(12, "stuck", PR_URL, branch=BRANCH)
 
     gate = connect_gate(harness, "auto_integrate")
-    press_row(harness, gate, 50)
+    press_row(harness, gate, 12)
 
     entries = workorders()
     assert len(entries) == 1, f"expected one WORKORDER, got {entries}"
@@ -113,10 +108,10 @@ def test_h2_auto_integrate_orders_a_fix_on_the_pull_requests_branch(
 def test_h2b_the_cloud_factory_is_told_the_same_branch(
     fake_gh, harness, cloudorders, workorders
 ) -> None:
-    fake_gh.add_merge_fail(50, "stuck", PR_URL, branch=BRANCH)
+    fake_gh.add_merge_fail(12, "stuck", PR_URL, branch=BRANCH)
 
     gate = connect_gate(harness, "auto_integrate")
-    press_row(harness, gate, 50, factory="cloud")
+    press_row(harness, gate, 12, factory="cloud")
 
     orders = cloudorders()
     assert len(orders) == 1, f"expected one CLOUDORDER, got {orders}"
@@ -129,78 +124,66 @@ def test_h2b_the_cloud_factory_is_told_the_same_branch(
 def test_h2c_the_row_shows_the_branch_rather_than_the_issue_number(
     fake_gh, harness
 ) -> None:
-    fake_gh.add_merge_fail(50, "stuck", PR_URL, branch=BRANCH)
+    fake_gh.add_merge_fail(12, "stuck", PR_URL, branch=BRANCH)
 
     gate = connect_gate(harness, "auto_integrate")
-    harness.wait_for_widget(gate, "issue_btn_50")
+    harness.wait_for_widget(gate, "issue_btn_12")
     harness.wait_until(
-        lambda: BRANCH in gate.label("issue_btn_50"),
+        lambda: BRANCH in gate.label("issue_btn_12"),
         message="the row label to name the branch",
     )
 
 
-# --- H3: issues filed before the markers existed ----------------------------
+# --- H3: a PR with no head branch is not dispatchable ----------------------
 
 
-def test_h3_an_issue_without_branch_markers_falls_back_to_github(
+def test_h3_a_pull_request_without_a_branch_is_not_dispatchable(
     fake_gh, harness, workorders
 ) -> None:
-    """merge-check only started writing branch markers with this change."""
-    fake_gh.add_merge_fail(50, "stuck", PR_URL, branch="")
-    fake_gh.add_pull_request(12, head=BRANCH, base="dev", url=PR_URL)
+    fake_gh.add_pull_request(
+        12, head="", url=PR_URL, title="stuck", merge_check="failure"
+    )
 
     gate = connect_gate(harness, "auto_integrate")
-    press_row(harness, gate, 50)
-
-    assert fake_gh.pr_views >= 1, "the branch has to come from somewhere"
-    entries = workorders()
-    assert len(entries) == 1
-    assert entries[0][1]["ref"] == BRANCH
-
-
-def test_h3b_a_pull_request_nobody_can_resolve_is_not_dispatchable(
-    fake_gh, harness, workorders
-) -> None:
-    fake_gh.add_merge_fail(50, "stuck", PR_URL, branch="")
-
-    gate = connect_gate(harness, "auto_integrate")
-    harness.wait_for_widget(gate, "issue_btn_50")
+    harness.wait_for_widget(gate, "issue_btn_12")
     harness.pump(3)
 
-    assert not gate.enabled("issue_btn_50")
+    assert not gate.enabled("issue_btn_12")
     assert workorders() == []
 
 
-# --- H4: both merge labels read the same way --------------------------------
+# --- H4: success and failure are opposite queues ---------------------------
 
 
-def test_h4_a_merge_success_issue_carries_the_same_readable_branch(
-    fake_gh, harness, workorders
-) -> None:
-    fake_gh.add_merge_success(51, "clean", PR_URL, branch=BRANCH)
+def test_h4_a_mergeable_pr_is_not_on_auto_integrate(fake_gh, harness) -> None:
+    fake_gh.add_merge_success(12, "clean", PR_URL, branch=BRANCH)
+    fake_gh.add_merge_fail(13, "stuck", "https://github.com/acme/widgets/pull/13")
 
     gate = connect_gate(harness, "auto_integrate")
-    gate.select("label_combo", "MERGE_SUCCESS")
-    press_row(harness, gate, 51)
-
-    entries = workorders()
-    assert len(entries) == 1
-    assert entries[0][1]["ref"] == BRANCH
+    harness.wait_for_widget(gate, "issue_btn_13")
+    assert not gate.exists("issue_btn_12")
 
 
-def test_h4b_the_marker_parser_reads_what_merge_check_writes() -> None:
-    """The issue body format is a contract with the workflow, not a convention."""
+def test_h4b_list_merge_prs_splits_success_and_failure() -> None:
     from megadesk_contracts.human_gate import (
-        merge_issue_markers,
-        parse_pull_request_ref,
+        MERGE_CHECK_FAILURE,
+        MERGE_CHECK_SUCCESS,
+        list_merge_prs,
     )
+    from megadesk_contracts.testing import FakeGh
 
-    body = (
-        f"{merge_issue_markers(pr_number=12, branch=BRANCH, base='dev')}\n\n"
-        f"Branch `{BRANCH}` does not merge into `dev`.\n\n{PR_URL}\n"
-    )
-    ref = parse_pull_request_ref(body, "acme", "widgets")
-    assert (ref.number, ref.branch, ref.base, ref.url) == (12, BRANCH, "dev", PR_URL)
+    gh = FakeGh()
+    gh.add_merge_success(12, "clean", PR_URL, branch=BRANCH)
+    gh.add_merge_fail(13, "stuck", "https://github.com/acme/widgets/pull/13")
+
+    ok, success, err = list_merge_prs("acme", "widgets", MERGE_CHECK_SUCCESS, gh=gh)
+    assert ok and not err
+    assert [pr.number for pr in success] == [12]
+    assert success[0].branch == BRANCH
+
+    ok, failed, err = list_merge_prs("acme", "widgets", MERGE_CHECK_FAILURE, gh=gh)
+    assert ok and not err
+    assert [pr.number for pr in failed] == [13]
 
 
 # --- H5: the default branch stays the default -------------------------------

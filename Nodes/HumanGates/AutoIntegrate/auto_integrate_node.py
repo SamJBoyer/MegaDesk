@@ -9,14 +9,14 @@ from megadesk_contracts import BeSpec, FeSpec, load_parameter_names, normalize_p
 
 from auto_integrate_app import build_ui, read_parameters
 
-# Names this node recognizes, declared in parameters.yaml: GIT_URL, ISSUE_LABEL.
+# Names this node recognizes, declared in parameters.yaml: GIT_URL.
 PARAMETERS = load_parameter_names(__file__)
 
 
 def get_fe_spec(
     parameters: Optional[Mapping[str, str]] = None,
 ) -> FeSpec | None:
-    """FE spec, seeded with the repo and target label a graph saved for this member."""
+    """FE spec, seeded with the repo URL a graph saved for this member."""
     values = normalize_parameters(parameters, PARAMETERS)
 
     def build(parent: str, **kwargs: object) -> None:

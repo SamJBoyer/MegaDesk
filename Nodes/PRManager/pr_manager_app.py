@@ -1,4 +1,4 @@
-"""PRManager — show and open PRs from GitHub issues labeled merge_success."""
+"""PRManager — show and open PRs whose merge-check status succeeded."""
 
 from __future__ import annotations
 
@@ -16,19 +16,17 @@ from typing import Mapping, Optional
 import dearpygui.dearpygui as dpg
 from megadesk_contracts import coerce_parameters, frame_pump
 from megadesk_contracts.human_gate import (
-    LABEL_MERGE_SUCCESS,
+    MERGE_CHECK_SUCCESS,
     check_repo,
-    list_labeled_issues,
+    list_merge_prs,
     normalize_repo_url,
     parse_github_repo,
-    parse_pull_request_ref,
     run_gh,
 )
 from megadesk_contracts.repo import CloneError, is_clone, safe_repo_name
 
 POLL_INTERVAL_SEC = 3.0
 GIT_TIMEOUT_SEC = 300
-MERGE_SUCCESS_LABEL = LABEL_MERGE_SUCCESS
 PARAM_GIT_URL = "GIT_URL"
 ENV_SCOPE_ROOT = "PR_SCOPE_ROOT"
 
@@ -45,19 +43,9 @@ _LIVE: dict[str, "PRManager"] = {}
 class MergeIssue:
     id: int
     name: str
-    body: str
     pr_url: str
     row_tag: str = field(default="")
     clone_path: Optional[Path] = None
-
-
-def pr_url_from_issue(body: str, owner: str, repo: str) -> str:
-    """Pull the tracked PR URL out of a merge-check issue body.
-
-    merge-check writes the PR link into the body, plus a
-    ``<!-- megadesk:merge-check:pr-N -->`` marker as a fallback.
-    """
-    return parse_pull_request_ref(body, owner, repo).url
 
 
 def short_pr_url(url: str) -> str:
@@ -194,6 +182,7 @@ class PRManager:
         values = coerce_parameters(parameters)
         self._current_repo_url = values.get(PARAM_GIT_URL, "").strip()
         self._items: dict[int, MergeIssue] = {}
+        self._dismissed: set[int] = set()
         self._jobs: queue.Queue[tuple[int, Optional[str]]] = queue.Queue()
         self._root_tag = "primary"
         self._frame_registered = False
@@ -276,12 +265,11 @@ class PRManager:
                 self._ui_queue.put(
                     (
                         "status",
-                        f"Connected — {len(issues)} merge_success issue(s)",
+                        f"Connected — {len(issues)} mergeable PR(s)",
                         COLOR_OK,
                     )
                 )
-                for issue in issues:
-                    self._ui_queue.put(("issue", issue))
+                self._ui_queue.put(("sync", issues))
 
     def _fetch_merge_success(
         self, owner: str, repo: str
@@ -290,20 +278,19 @@ class PRManager:
         if not ok:
             return False, [], err
 
-        ok, listed, err = list_labeled_issues(
-            owner, repo, MERGE_SUCCESS_LABEL, gh=run_gh
+        ok, listed, err = list_merge_prs(
+            owner, repo, MERGE_CHECK_SUCCESS, gh=run_gh
         )
         if not ok:
             return False, [], err
 
         issues = [
             MergeIssue(
-                id=issue.number,
-                name=issue.title,
-                body=issue.body,
-                pr_url=pr_url_from_issue(issue.body, owner, repo),
+                id=pr.number,
+                name=pr.title or f"PR #{pr.number}",
+                pr_url=pr.url,
             )
-            for issue in listed
+            for pr in listed
         ]
         return True, issues, None
 
@@ -318,10 +305,24 @@ class PRManager:
                 self._set_conn_light(COLOR_OK if msg[1] else COLOR_ERR)
             elif kind == "status":
                 self._set_status(msg[1], msg[2])
-            elif kind == "issue":
-                self._add_row(msg[1])
+            elif kind == "sync":
+                self._sync_rows(msg[1])
             elif kind == "pulled":
                 self._on_pulled(msg[1], msg[2], msg[3])
+
+    def _sync_rows(self, issues: list[MergeIssue]) -> None:
+        live_ids = {issue.id for issue in issues}
+        self._dismissed &= live_ids
+        visible = [issue for issue in issues if issue.id not in self._dismissed]
+        seen = {issue.id for issue in visible}
+        for rid in list(self._items):
+            if rid not in seen:
+                dropped = self._items.pop(rid)
+                if dropped.row_tag and dpg.does_item_exist(dropped.row_tag):
+                    dpg.delete_item(dropped.row_tag)
+        for issue in visible:
+            self._add_row(issue)
+        self._resize_issue_scroll()
 
     def _row_label(self, item: MergeIssue) -> str:
         bits = [item.name]
@@ -495,27 +496,10 @@ class PRManager:
             ok, msg = open_in_editor(then_open, path)
             self._set_status(msg, COLOR_OK if ok else COLOR_ERR)
 
-    def _close_issue(self, issue_id: int) -> tuple[bool, str]:
-        with self._url_lock:
-            url = self._current_repo_url
-        parsed = parse_github_repo(url)
-        if not parsed:
-            return False, "Unsupported URL (GitHub https or SSH required)"
-        owner, repo = parsed
-        ok, _, err = run_gh(
-            "issue", "close", str(issue_id), "--repo", f"{owner}/{repo}"
-        )
-        if not ok:
-            return False, err or f"Failed to close #{issue_id}"
-        return True, f"Dismissed #{issue_id}"
-
     def _on_dismiss_row(self, _sender: str, _app_data: object, issue_id: int) -> None:
         item = self._items.get(issue_id)
         name = item.name if item else str(issue_id)
-        ok, msg = self._close_issue(issue_id)
-        if not ok:
-            self._set_status(msg, COLOR_ERR)
-            return
+        self._dismissed.add(issue_id)
         dropped = self._items.pop(issue_id, item)
         if dropped is not None and dropped.row_tag and dpg.does_item_exist(dropped.row_tag):
             dpg.delete_item(dropped.row_tag)

@@ -2,9 +2,9 @@ name: Merge check
 
 on:
   # Conflicting PRs have no merge ref, so GitHub skips `pull_request`.
-  # This event runs from the default branch (main), so merge-check.yml must
-  # exist on main. Do not execute PR code: checkout the base, fetch the PR
-  # head as a ref, and detect conflicts with merge-tree.
+  # This event runs the workflow from the PR base (`dev`), not the head.
+  # Do not execute PR code: checkout the base, fetch the PR head as a ref,
+  # and detect conflicts with merge-tree.
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [dev]
@@ -14,14 +14,14 @@ on:
 permissions:
   contents: read
   pull-requests: read
-  issues: write
+  checks: write
 
 concurrency:
   group: ${{ github.event.pull_request.number && format('merge-check-pr-{0}', github.event.pull_request.number) || 'merge-check-dev' }}
   cancel-in-progress: true
 
 jobs:
-  mergeable:
+  report:
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -42,66 +42,31 @@ jobs:
         run: |
           set -euo pipefail
 
-          LABEL_OK="MERGE_SUCCESS"
-          LABEL_FAIL="MERGE_FAIL"
+          # Must match megadesk_contracts.human_gate.MERGE_CHECK_CONTEXT.
+          # Posted onto each PR head so a push to dev updates the PR's own
+          # check. This job is named `report` so its always-green Actions
+          # check cannot masquerade as that signal.
+          CONTEXT="mergeable"
 
-          find_issue() {
-            local pr="$1"
-            local label n
-            for label in "${LABEL_OK}" "${LABEL_FAIL}"; do
-              n="$(gh issue list \
-                --label "${label}" \
-                --state open \
-                --limit 100 \
-                --json number,body \
-                --jq "[.[] | select(.body | contains(\"megadesk:merge-check:pr-${pr} -->\") or contains(\"megadesk:merge_success:pr-${pr} -->\") or contains(\"megadesk:failed-merge:pr-${pr} -->\")) | .number][0] // empty")"
-              if [ -n "${n}" ]; then
-                echo "${n}"
-                return 0
-              fi
-            done
-          }
-
-          # The markers are read back by MegaDesk (AutoIntegrate, PRManager) and
-          # are spelled once in megadesk_contracts.human_gate. The head branch
-          # also goes in the title: "PR #12" alone says nothing about which
-          # branch is stuck.
-          upsert_issue() {
-            local pr="$1"
-            local base="$2"
-            local label="$3"
-            local other="$4"
-            local phrase="$5"
-            local pr_url head title body existing
-            pr_url="$(gh pr view "${pr}" --json url --jq .url)"
-            head="$(gh pr view "${pr}" --json headRefName --jq .headRefName)"
-            title="${label}: ${head} (PR #${pr}) ${phrase} ${base}"
-            body="$(printf '%s\n' \
-              "<!-- megadesk:merge-check:pr-${pr} -->" \
-              "<!-- megadesk:pr-branch:${head} -->" \
-              "<!-- megadesk:pr-base:${base} -->" \
-              "" \
-              "Branch \`${head}\` ${phrase} \`${base}\`." \
-              "" \
-              "${pr_url}" \
-              "" \
-              "Workflow run: ${RUN_URL}")"
-            existing="$(find_issue "${pr}")"
-
-            if [ -n "${existing}" ]; then
-              gh issue edit "${existing}" \
-                --title "${title}" \
-                --body "${body}" \
-                --add-label "${label}"
-              gh issue edit "${existing}" --remove-label "${other}" 2>/dev/null || true
-              echo "Issue #${existing} → ${label} for PR #${pr} (${head})"
-              return 0
-            fi
-
-            gh issue create \
-              --title "${title}" \
-              --label "${label}" \
-              --body "${body}"
+          post_check() {
+            local sha="$1"
+            local conclusion="$2"
+            local title="$3"
+            jq -n \
+              --arg name "${CONTEXT}" \
+              --arg sha "${sha}" \
+              --arg conclusion "${conclusion}" \
+              --arg url "${RUN_URL}" \
+              --arg title "${title}" \
+              --arg summary "${title}" \
+              '{
+                name: $name,
+                head_sha: $sha,
+                status: "completed",
+                conclusion: $conclusion,
+                details_url: $url,
+                output: {title: $title, summary: $summary}
+              }' | gh api --method POST "repos/${GITHUB_REPOSITORY}/check-runs" --input -
           }
 
           if [ "${EVENT}" = "pull_request" ] || [ "${EVENT}" = "pull_request_target" ]; then
@@ -119,24 +84,18 @@ jobs:
 
           git fetch --no-tags origin "${BASE}"
 
-          failed=0
           for pr in ${PRS}; do
             git fetch --no-tags origin "refs/pull/${pr}/head:refs/heads/pr-${pr}"
+            sha="$(git rev-parse "pr-${pr}")"
             if git merge-tree --write-tree "origin/${BASE}" "pr-${pr}" >/tmp/merge-tree.out; then
-              echo "PR #${pr} merges into ${BASE}"
-              upsert_issue "${pr}" "${BASE}" "${LABEL_OK}" "${LABEL_FAIL}" \
-                "merges into"
+              echo "PR #${pr} merges into ${BASE} (${sha})"
+              post_check "${sha}" success "PR #${pr} merges into ${BASE}"
             else
-              echo "PR #${pr} does not merge into ${BASE}"
+              echo "PR #${pr} does not merge into ${BASE} (${sha})"
               cat /tmp/merge-tree.out || true
-              upsert_issue "${pr}" "${BASE}" "${LABEL_FAIL}" "${LABEL_OK}" \
-                "does not merge into"
-              failed=1
+              post_check "${sha}" failure "PR #${pr} does not merge into ${BASE}"
             fi
           done
-          if [ "${EVENT}" = "push" ]; then
-            # MegaDesk reads MERGE_* issues, not branch status. A stale open
-            # PR must not paint dev red after an unrelated merge lands.
-            exit 0
-          fi
-          exit "${failed}"
+          # Checks land on each PR head. This job must stay green on a
+          # push to dev so a stale open PR does not paint the branch red.
+          exit 0

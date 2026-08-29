@@ -7,29 +7,29 @@ one, now*.
 Two of them live here. They are separate nodes because what pressing a row means
 is genuinely different, not because the panel is:
 
-| Node | Tracks (default) | Pressing a row |
-|------|------------------|----------------|
-| WorkDispatcher | `agent-ready` issues | orders a factory to do that ticket |
-| AutoIntegrate | `MERGE_FAIL` issues | orders a factory to fix that pull request, on the PR's own branch |
+| Node | Tracks | Pressing a row |
+|------|--------|----------------|
+| WorkDispatcher | `agent-ready` issues (or whichever label the operator picks) | orders a factory to do that ticket |
+| AutoIntegrate | open PRs whose merge-check `mergeable` status failed | orders a factory to fix that pull request, on the PR's own branch |
 
 ## What they share
 
-The panel, and only the panel: a repo URL with a connection lamp, a **target
-label** dropdown filled from the labels that actually exist on the connected
-repo, and a list of the open issues carrying that label. The label is the gate's
-target, saved into the graph as `ISSUE_LABEL`, so a graph reopens pointed at the
-same queue.
+A repo URL with a connection lamp, and a list of tickets. WorkDispatcher also
+has a **target label** dropdown filled from the labels that actually exist on
+the connected repo, saved into the graph as `ISSUE_LABEL`. AutoIntegrate has no
+label: merge-check's fail signal *is* its queue.
 
-The reading half is shared code — `megadesk_contracts.human_gate` — because
-"which labels does this repo have" and "which issues carry this one" should have
-one answer. The deciding half is not shared, and there is no base class: these
-are the same idea wearing two different backends, and forcing them through one
+The GitHub reading half is shared code — `megadesk_contracts.human_gate` —
+because "which labels does this repo have", "which issues carry this one", and
+"which PRs did merge-check mark mergeable / conflicting" should each have one
+answer. The deciding half is not shared, and there is no base class: these are
+the same idea wearing two different backends, and forcing them through one
 would only move the difference somewhere less visible.
 
 ```text
 Nodes/HumanGates/
   WorkDispatcher/   agent-ready issue  → WORKORDER / CLOUDORDER (ref: default)
-  AutoIntegrate/    MERGE_FAIL issue   → WORKORDER / CLOUDORDER (ref: the PR branch)
+  AutoIntegrate/    mergeable=failure  → WORKORDER / CLOUDORDER (ref: the PR branch)
 ```
 
 Each is its own installable node with its own `MegaDesk.nodes` entry point
@@ -44,10 +44,8 @@ the order and fall back to `dev` when it is absent — see
 `megadesk_contracts.wire.factory.DEFAULT_STARTING_REF`. WorkDispatcher never
 sets it; AutoIntegrate always does.
 
-AutoIntegrate learns the branch from the issue itself.
-`.github/workflows/merge-check.yml` writes the pull request number, its head
-branch and its base into the issue body as markers, and puts the branch in the
-title so the issue is readable at a glance. The markers are spelled once, in
-`megadesk_contracts.human_gate`, and read back by AutoIntegrate and PRManager.
-An issue filed before those markers existed still works: the gate asks GitHub
-for the head branch of the PR number it did find.
+AutoIntegrate learns the branch from the PR itself.
+`.github/workflows/merge-check.yml` posts a check named
+`mergeable` onto each PR head (and re-posts when `dev` moves).
+`list_merge_prs` in `megadesk_contracts.human_gate` is how AutoIntegrate and
+PRManager both read that signal.

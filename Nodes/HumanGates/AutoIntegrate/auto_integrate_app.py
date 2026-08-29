@@ -1,10 +1,9 @@
 """Auto Integrate — a human gate that sends an agent at a pull request that stopped merging.
 
-The gate tracks one issue label (``MERGE_FAIL`` by default, whatever the repo
-has). Each row is a pull request merge-check has filed an issue about; pressing
-it orders a factory to fix that PR *on its own branch*, which is the whole
-reason the order carries a ``ref``: starting from ``dev`` would produce a fix
-that never reaches the branch it is meant to unblock.
+The gate lists open PRs whose merge-check (``mergeable``) failed.
+Pressing a row orders a factory to fix that PR *on its own branch*, which is
+the whole reason the order carries a ``ref``: starting from ``dev`` would
+produce a fix that never reaches the branch it is meant to unblock.
 """
 
 from __future__ import annotations
@@ -24,15 +23,11 @@ from megadesk_contracts import (
     resolve_redis_url,
 )
 from megadesk_contracts.human_gate import (
-    LABEL_MERGE_FAIL,
-    PullRequestRef,
+    MERGE_CHECK_FAILURE,
     check_repo,
-    list_labeled_issues,
-    list_repo_labels,
+    list_merge_prs,
     normalize_repo_url,
     parse_github_repo,
-    parse_pull_request_ref,
-    resolve_pull_request_ref,
     run_gh,
 )
 from megadesk_contracts.wire.cloud import (
@@ -53,11 +48,9 @@ POLL_INTERVAL_SEC = 3.0
 MODEL_OPTIONS = ("auto", "grok-4.6", "claude-opus-5")
 FACTORY_OPTIONS = ("machine", "cloud")
 DEFAULT_FACTORY = "machine"
-DEFAULT_LABEL = LABEL_MERGE_FAIL
 
 # Graph parameters this node recognizes; declared in parameters.yaml.
 PARAM_GIT_URL = "GIT_URL"
-PARAM_ISSUE_LABEL = "ISSUE_LABEL"
 
 COLOR_GREEN = (80, 200, 80, 255)
 COLOR_RED = (220, 70, 70, 255)
@@ -80,8 +73,9 @@ _LIVE: dict[str, "AutoIntegrate"] = {}
 class GateRow:
     id: int
     name: str
-    body: str
-    ref: PullRequestRef
+    url: str
+    branch: str
+    base: str
 
 
 class AutoIntegrate:
@@ -92,12 +86,7 @@ class AutoIntegrate:
         self._state_lock = threading.Lock()
         values = coerce_parameters(parameters)
         self._current_repo_url = values.get(PARAM_GIT_URL, "").strip()
-        self._label = values.get(PARAM_ISSUE_LABEL, "").strip() or DEFAULT_LABEL
-        self._labels_for = ""
         self._rows: dict[int, GateRow] = {}
-        # Branches already resolved, keyed by (repo, issue). Owned by the poll
-        # thread, so a row that needed GitHub to name its branch only asks once.
-        self._refs: dict[tuple[str, int], PullRequestRef] = {}
         self._redis: Optional[redis.Redis] = None
         self.redis_url = resolve_redis_url()
         self._root_tag = "primary"
@@ -163,18 +152,9 @@ class AutoIntegrate:
                         tag=self._tag("conn_light"),
                     )
 
-            with dpg.group(horizontal=True):
-                dpg.add_combo(
-                    items=[self._label],
-                    default_value=self._label,
-                    width=150,
-                    height_mode=dpg.mvComboHeight_Small,
-                    tag=self._tag("label_combo"),
-                    callback=self._on_label_changed,
-                )
-                dpg.add_text(
-                    "Idle", tag=self._tag("status_text"), color=(160, 160, 160)
-                )
+            dpg.add_text(
+                "Idle", tag=self._tag("status_text"), color=(160, 160, 160)
+            )
             dpg.add_child_window(
                 tag=self._tag("issue_scroll"),
                 width=-1,
@@ -232,19 +212,16 @@ class AutoIntegrate:
         self._sync_url_from_input()
         self._ui_queue.put(("status", "Checking remote…", (180, 180, 100)))
 
-    def _on_label_changed(self, sender, app_data, user_data=None) -> None:
-        chosen = (app_data or "").strip() or DEFAULT_LABEL
-        with self._state_lock:
-            self._label = chosen
-        self._clear_rows()
-        self._ui_queue.put(("status", f"Tracking {chosen}…", (180, 180, 100)))
-
-    def _clear_rows(self) -> None:
-        for issue_id in list(self._rows):
-            row = self._tag(f"issue_row_{issue_id}")
-            if dpg.does_item_exist(row):
-                dpg.delete_item(row)
-        self._rows.clear()
+    def _sync_rows(self, rows: list[GateRow]) -> None:
+        seen = {row.id for row in rows}
+        for rid in list(self._rows):
+            if rid not in seen:
+                tag = self._tag(f"issue_row_{rid}")
+                if dpg.does_item_exist(tag):
+                    dpg.delete_item(tag)
+                self._rows.pop(rid, None)
+        for row in rows:
+            self._ensure_row(row)
         self._resize_scroll()
 
     # --- polling ---
@@ -253,7 +230,6 @@ class AutoIntegrate:
         while not self._stop.is_set():
             with self._state_lock:
                 url = self._current_repo_url
-                label = self._label
 
             if not url:
                 self._ui_queue.put(("conn", False))
@@ -277,58 +253,46 @@ class AutoIntegrate:
                 continue
 
             owner, repo = parsed
-            ok, rows, err = self._fetch_rows(owner, repo, label)
+            ok, rows, err = self._fetch_rows(owner, repo)
             if not ok:
                 self._ui_queue.put(("conn", False))
                 self._ui_queue.put(("status", err or "Connection failed", COLOR_RED))
             else:
                 self._ui_queue.put(("conn", True))
                 self._ui_queue.put(
-                    ("status", f"Connected — {len(rows)} {label} PR(s)", COLOR_GREEN)
+                    (
+                        "status",
+                        f"Connected — {len(rows)} conflicting PR(s)",
+                        COLOR_GREEN,
+                    )
                 )
-                for row in rows:
-                    self._ui_queue.put(("row", row))
+                self._ui_queue.put(("sync", rows))
 
             self._stop.wait(POLL_INTERVAL_SEC)
 
-    def _refresh_labels(self, owner: str, repo: str) -> None:
-        slug = f"{owner}/{repo}"
-        if self._labels_for == slug:
-            return
-        ok, labels, _err = list_repo_labels(owner, repo, gh=run_gh)
-        if not ok:
-            return
-        self._labels_for = slug
-        self._ui_queue.put(("labels", labels))
-
     def _fetch_rows(
-        self, owner: str, repo: str, label: str
+        self, owner: str, repo: str
     ) -> tuple[bool, list[GateRow], Optional[str]]:
         ok, err = check_repo(owner, repo, gh=run_gh)
         if not ok:
             return False, [], err
 
-        self._refresh_labels(owner, repo)
-
-        ok, issues, err = list_labeled_issues(owner, repo, label, gh=run_gh)
+        ok, prs, err = list_merge_prs(
+            owner, repo, MERGE_CHECK_FAILURE, gh=run_gh
+        )
         if not ok:
             return False, [], err
 
-        rows: list[GateRow] = []
-        for issue in issues:
-            key = (f"{owner}/{repo}", issue.number)
-            ref = self._refs.get(key)
-            if ref is None:
-                ref = parse_pull_request_ref(issue.body, owner, repo)
-                if ref.number and not ref.branch:
-                    # Issues filed before merge-check wrote the branch markers
-                    # only carry a number; GitHub still knows the head branch.
-                    ref = resolve_pull_request_ref(ref, owner, repo, gh=run_gh)
-                if ref.branch:
-                    self._refs[key] = ref
-            rows.append(
-                GateRow(id=issue.number, name=issue.title, body=issue.body, ref=ref)
+        rows = [
+            GateRow(
+                id=pr.number,
+                name=pr.title,
+                url=pr.url,
+                branch=pr.branch,
+                base=pr.base,
             )
+            for pr in prs
+        ]
         return True, rows, None
 
     # --- rendering ---
@@ -344,26 +308,14 @@ class AutoIntegrate:
                 self._set_conn_light(COLOR_GREEN if msg[1] else COLOR_RED)
             elif kind == "status":
                 self._set_status(msg[1], msg[2])
-            elif kind == "labels":
-                self._set_label_items(msg[1])
-            elif kind == "row":
-                self._ensure_row(msg[1])
+            elif kind == "sync":
+                self._sync_rows(msg[1])
 
     def _set_status(self, text: str, color: tuple[int, int, int, int]) -> None:
         tag = self._tag("status_text")
         if dpg.does_item_exist(tag):
             dpg.set_value(tag, text)
             dpg.configure_item(tag, color=color)
-
-    def _set_label_items(self, labels: list[str]) -> None:
-        tag = self._tag("label_combo")
-        if not dpg.does_item_exist(tag):
-            return
-        items = list(labels)
-        if self._label not in items:
-            items.insert(0, self._label)
-        dpg.configure_item(tag, items=items)
-        dpg.set_value(tag, self._label)
 
     def _resize_scroll(self) -> None:
         scroll = self._tag("issue_scroll")
@@ -377,8 +329,8 @@ class AutoIntegrate:
 
     def _row_label(self, row: GateRow) -> str:
         """The branch is what the operator is deciding about, so lead with it."""
-        if row.ref.branch:
-            return f"#{row.ref.number} {row.ref.branch}"
+        if row.branch:
+            return f"#{row.id} {row.branch}"
         return row.name
 
     def _ensure_row(self, row: GateRow) -> None:
@@ -388,7 +340,7 @@ class AutoIntegrate:
             btn = self._tag(f"issue_btn_{row.id}")
             if dpg.does_item_exist(btn):
                 dpg.configure_item(
-                    btn, label=self._row_label(row), enabled=bool(row.ref.branch)
+                    btn, label=self._row_label(row), enabled=bool(row.branch)
                 )
             self._set_row_light(row)
             return
@@ -415,7 +367,7 @@ class AutoIntegrate:
                 tag=self._tag(f"issue_btn_{row.id}"),
                 user_data=row.id,
                 callback=self._on_row_pressed,
-                enabled=bool(row.ref.branch),
+                enabled=bool(row.branch),
             )
             dpg.bind_item_theme(btn, self._tag("gate_theme"))
             dpg.add_combo(
@@ -433,13 +385,12 @@ class AutoIntegrate:
                 tag=self._tag(f"issue_model_{row.id}"),
             )
         self._set_row_light(row)
-        self._resize_scroll()
 
     def _set_row_light(self, row: GateRow) -> None:
         tag = self._tag(f"issue_light_{row.id}")
         if not dpg.does_item_exist(tag):
             return
-        color = COLOR_GREEN if row.ref.branch else COLOR_RED
+        color = COLOR_GREEN if row.branch else COLOR_RED
         dpg.configure_item(tag, fill=color, color=color)
 
     # --- dispatch ---
@@ -450,11 +401,11 @@ class AutoIntegrate:
         if row is None:
             return
 
-        branch = row.ref.branch
+        branch = row.branch
         if not branch:
             self._set_status(f"No PR branch on #{issue_id}", COLOR_RED)
             return
-        base = row.ref.base or DEFAULT_STARTING_REF
+        base = row.base or DEFAULT_STARTING_REF
 
         with self._state_lock:
             url = self._current_repo_url
@@ -477,12 +428,12 @@ class AutoIntegrate:
         if dpg.does_item_exist(factory_tag):
             factory = (dpg.get_value(factory_tag) or "").strip() or DEFAULT_FACTORY
 
-        ticket_name = f"merge-fix-pr-{row.ref.number}"
+        ticket_name = f"merge-fix-pr-{row.id}"
         instructions = FIX_INSTRUCTIONS.format(
-            pr=row.ref.number,
+            pr=row.id,
             branch=branch,
             base=base,
-            detail=(row.body or row.name).strip(),
+            detail=(row.name or "").strip(),
         )
 
         try:
@@ -557,16 +508,7 @@ def read_parameters(tag_prefix: str) -> dict[str, str]:
     url_tag = f"{tag_prefix}::git_url"
     if not dpg.does_item_exist(url_tag):
         return {}
-    label_tag = f"{tag_prefix}::label_combo"
-    label = (
-        (dpg.get_value(label_tag) or "").strip()
-        if dpg.does_item_exist(label_tag)
-        else ""
-    )
-    return {
-        PARAM_GIT_URL: (dpg.get_value(url_tag) or "").strip(),
-        PARAM_ISSUE_LABEL: label or DEFAULT_LABEL,
-    }
+    return {PARAM_GIT_URL: (dpg.get_value(url_tag) or "").strip()}
 
 
 def main() -> None:

@@ -4,15 +4,10 @@ A **human gate** is a node where a person decides that a step may proceed:
 WorkDispatcher hands an agent-ready ticket to a factory, AutoIntegrate sends an
 agent at a pull request that stopped merging. What pressing the button means is
 different enough that the two are separate nodes with separate wiring — see
-``Nodes/HumanGates/README.md``. What they read is the same: which labels the
-connected repo has, and which open issues carry the label this gate targets.
-
-The merge-check markers are the other half of that reading, and they are a
-contract with ``.github/workflows/merge-check.yml``. That workflow writes the
-pull request number, its head branch and its base into the issue body; PRManager
-and AutoIntegrate read them back. Both sides spell them from here, because an
-issue that says which PR it is about is only useful while the two spellings
-agree.
+``Nodes/HumanGates/README.md``. WorkDispatcher still reads issue labels.
+AutoIntegrate and PRManager read the ``mergeable`` check
+``.github/workflows/merge-check.yml`` posts on each PR head: failure is
+AutoIntegrate's queue, success is PRManager's.
 
 ``gh`` is injected rather than called directly by the list helpers, so a caller
 that has swapped its own module-level ``run_gh`` (the integration suite does)
@@ -28,50 +23,42 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 from urllib.parse import urlparse
 
+from megadesk_contracts.wire.factory import DEFAULT_STARTING_REF
+
 GH_TIMEOUT_SEC = 15
 ISSUE_LIST_LIMIT = 100
 
 LABEL_AGENT_READY = "agent-ready"
-LABEL_MERGE_SUCCESS = "MERGE_SUCCESS"
-LABEL_MERGE_FAIL = "MERGE_FAIL"
 
-# Written as HTML comments so they are invisible on the issue page and exact for
-# whoever parses them. The first one is also what merge-check greps for when it
-# looks for the issue it already filed about a PR.
-PR_MARKER = "megadesk:merge-check:pr-{number}"
-BRANCH_MARKER = "megadesk:pr-branch:{branch}"
-BASE_MARKER = "megadesk:pr-base:{base}"
+# Check name merge-check posts, and the only name AutoIntegrate / PRManager
+# look for on ``statusCheckRollup``. Spelled again in
+# ``.github/workflows/merge-check.yml``.
+MERGE_CHECK_CONTEXT = "mergeable"
+MERGE_CHECK_SUCCESS = "success"
+MERGE_CHECK_FAILURE = "failure"
 
-_PR_MARKER_RE = re.compile(
-    r"megadesk:(?:merge-check|merge_success|failed-merge):pr-(\d+)"
-)
-_BRANCH_MARKER_RE = re.compile(r"megadesk:pr-branch:([^\s>]+)")
-_BASE_MARKER_RE = re.compile(r"megadesk:pr-base:([^\s>]+)")
-_PR_URL_RE = re.compile(
-    r"https://github\.com/[^/\s]+/[^/\s]+/pull/(\d+)", re.IGNORECASE
-)
+_SUCCESS_STATES = frozenset({"SUCCESS"})
+_FAILURE_STATES = frozenset({"FAILURE", "ERROR", "TIMED_OUT"})
 
 GhRunner = Callable[..., tuple[bool, str, str]]
 
 __all__ = [
-    "BASE_MARKER",
-    "BRANCH_MARKER",
+    "DEFAULT_STARTING_REF",
     "GH_TIMEOUT_SEC",
     "GateIssue",
+    "GatePullRequest",
     "ISSUE_LIST_LIMIT",
     "LABEL_AGENT_READY",
-    "LABEL_MERGE_FAIL",
-    "LABEL_MERGE_SUCCESS",
-    "PR_MARKER",
-    "PullRequestRef",
+    "MERGE_CHECK_CONTEXT",
+    "MERGE_CHECK_FAILURE",
+    "MERGE_CHECK_SUCCESS",
     "check_repo",
     "list_labeled_issues",
+    "list_merge_prs",
     "list_repo_labels",
-    "merge_issue_markers",
+    "merge_check_verdict",
     "normalize_repo_url",
     "parse_github_repo",
-    "parse_pull_request_ref",
-    "resolve_pull_request_ref",
     "run_gh",
 ]
 
@@ -86,22 +73,14 @@ class GateIssue:
 
 
 @dataclass
-class PullRequestRef:
-    """The pull request an issue is about, as far as the issue says.
+class GatePullRequest:
+    """One open PR merge-check has posted a ``mergeable`` status on."""
 
-    ``branch`` is the PR's head — the branch an agent has to stand on to fix it.
-    ``base`` is what it failed to merge into. Either can be empty on an issue
-    filed before merge-check wrote the markers; ``resolve_pull_request_ref``
-    fills those in from GitHub.
-    """
-
-    number: int = 0
-    url: str = ""
-    branch: str = ""
-    base: str = ""
-
-    def __bool__(self) -> bool:
-        return bool(self.number or self.url)
+    number: int
+    title: str
+    url: str
+    branch: str
+    base: str
 
 
 def run_gh(*args: str) -> tuple[bool, str, str]:
@@ -231,82 +210,85 @@ def list_labeled_issues(
     return True, issues, ""
 
 
-def merge_issue_markers(*, pr_number: Any, branch: str, base: str) -> str:
-    """The marker block merge-check writes at the top of an issue body."""
-    return "\n".join(
-        (
-            f"<!-- {PR_MARKER.format(number=pr_number)} -->",
-            f"<!-- {BRANCH_MARKER.format(branch=branch)} -->",
-            f"<!-- {BASE_MARKER.format(base=base)} -->",
-        )
-    )
+def merge_check_verdict(rollup: Any) -> Optional[str]:
+    """Latest ``mergeable`` signal on a PR: ``success``, ``failure``, or None.
 
-
-def parse_pull_request_ref(
-    body: str, owner: str = "", repo: str = ""
-) -> PullRequestRef:
-    """Read the PR an issue is about out of its body.
-
-    The number comes from the marker or, failing that, from the PR link
-    merge-check also writes; the branches only ever come from markers.
+    GitHub's Actions job on a PR does not re-run when ``dev`` moves, so
+    merge-check posts a check named ``mergeable`` onto the PR head. A later
+    check on the same SHA is a new run; the newest timestamp wins. The
+    rollup can still contain a stale job named ``report``; only
+    ``MERGE_CHECK_CONTEXT`` counts.
     """
-    text = body or ""
-    number = 0
-    marker = _PR_MARKER_RE.search(text)
-    if marker:
-        number = int(marker.group(1))
-
-    url = ""
-    link = _PR_URL_RE.search(text)
-    if link:
-        url = link.group(0)
-        number = number or int(link.group(1))
-    elif number and owner and repo:
-        url = f"https://github.com/{owner}/{repo}/pull/{number}"
-
-    branch = _BRANCH_MARKER_RE.search(text)
-    base = _BASE_MARKER_RE.search(text)
-    return PullRequestRef(
-        number=number,
-        url=url,
-        branch=branch.group(1) if branch else "",
-        base=base.group(1) if base else "",
-    )
+    chosen: Optional[tuple[str, str]] = None
+    for item in rollup or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or item.get("context") or "")
+        if name != MERGE_CHECK_CONTEXT:
+            continue
+        raw = str(item.get("conclusion") or item.get("state") or "").upper()
+        if raw in _SUCCESS_STATES:
+            verdict = MERGE_CHECK_SUCCESS
+        elif raw in _FAILURE_STATES:
+            verdict = MERGE_CHECK_FAILURE
+        else:
+            continue
+        when = str(item.get("completedAt") or item.get("startedAt") or "")
+        if chosen is None or when >= chosen[0]:
+            chosen = (when, verdict)
+    return chosen[1] if chosen else None
 
 
-def resolve_pull_request_ref(
-    ref: PullRequestRef,
+def list_merge_prs(
     owner: str,
     repo: str,
+    verdict: str,
     *,
     gh: GhRunner = run_gh,
-) -> PullRequestRef:
-    """Fill in a missing head or base branch by asking GitHub about the PR.
+    base: str = DEFAULT_STARTING_REF,
+    limit: int = ISSUE_LIST_LIMIT,
+) -> tuple[bool, list[GatePullRequest], str]:
+    """Open PRs into ``base`` whose latest ``mergeable`` status is ``verdict``."""
+    wanted = (verdict or "").strip().lower()
+    if wanted not in (MERGE_CHECK_SUCCESS, MERGE_CHECK_FAILURE):
+        return False, [], f"Unknown merge-check verdict {verdict!r}"
 
-    Issues filed before merge-check wrote the branch markers carry only a
-    number, and a gate that refused those would be blind to every PR opened
-    before this workflow shipped.
-    """
-    if not ref.number or (ref.branch and ref.base):
-        return ref
-    ok, stdout, _err = gh(
+    ok, stdout, err = gh(
         "pr",
-        "view",
-        str(ref.number),
+        "list",
         "--repo",
         f"{owner}/{repo}",
+        "--base",
+        base,
+        "--state",
+        "open",
+        "--limit",
+        str(limit),
         "--json",
-        "url,headRefName,baseRefName",
+        "number,title,url,headRefName,baseRefName,statusCheckRollup",
     )
     if not ok:
-        return ref
+        return False, [], err or "Failed to list pull requests"
     try:
-        payload = json.loads(stdout or "{}")
-    except json.JSONDecodeError:
-        return ref
-    return PullRequestRef(
-        number=ref.number,
-        url=ref.url or str(payload.get("url") or ""),
-        branch=ref.branch or str(payload.get("headRefName") or ""),
-        base=ref.base or str(payload.get("baseRefName") or ""),
-    )
+        payload = json.loads(stdout or "[]")
+    except json.JSONDecodeError as exc:
+        return False, [], f"Invalid gh JSON: {exc}"
+
+    prs: list[GatePullRequest] = []
+    for item in payload:
+        number = item.get("number")
+        if number is None:
+            continue
+        if merge_check_verdict(item.get("statusCheckRollup")) != wanted:
+            continue
+        prs.append(
+            GatePullRequest(
+                number=int(number),
+                title=item.get("title") or f"PR #{number}",
+                url=str(item.get("url") or "")
+                or f"https://github.com/{owner}/{repo}/pull/{int(number)}",
+                branch=str(item.get("headRefName") or ""),
+                base=str(item.get("baseRefName") or base),
+            )
+        )
+    return True, prs, ""

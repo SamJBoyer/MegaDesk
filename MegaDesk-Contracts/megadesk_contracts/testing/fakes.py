@@ -52,12 +52,12 @@ from megadesk_contracts.wire import factory as factory_wire
 
 from megadesk_contracts.human_gate import (
     LABEL_AGENT_READY,
-    LABEL_MERGE_FAIL,
-    LABEL_MERGE_SUCCESS,
-    merge_issue_markers,
+    MERGE_CHECK_CONTEXT,
+    MERGE_CHECK_FAILURE,
+    MERGE_CHECK_SUCCESS,
 )
 
-DEFAULT_REPO_LABELS = (LABEL_AGENT_READY, LABEL_MERGE_SUCCESS, LABEL_MERGE_FAIL)
+DEFAULT_REPO_LABELS = (LABEL_AGENT_READY,)
 
 
 @dataclass
@@ -71,12 +71,15 @@ class Issue:
 
 @dataclass
 class PullRequest:
-    """What ``gh pr view`` knows about a PR, for gates that ask about a branch."""
+    """What ``gh pr list`` / ``gh pr view`` know about a PR."""
 
     number: int
     head: str
     base: str = "dev"
     url: str = ""
+    title: str = ""
+    state: str = "open"
+    merge_check: str = ""
 
 
 def _flag(args: tuple[str, ...], name: str) -> str:
@@ -93,9 +96,11 @@ class FakeGh:
     """Canned replacement for ``run_gh`` on the human gates and PRManager.
 
     Answers ``gh repo view``, ``gh label list``, ``gh issue list --label …``,
-    ``gh issue close`` and ``gh pr view``, and fails loudly on anything else so a
-    changed argv surfaces as a test failure rather than a hang. ``issue list``
-    filters by ``--label`` and ``--state`` the way the real CLI does.
+    ``gh issue close``, ``gh pr list`` and ``gh pr view``, and fails loudly on
+    anything else so a changed argv surfaces as a test failure rather than a
+    hang. ``issue list`` filters by ``--label`` and ``--state`` the way the real
+    CLI does; ``pr list`` filters by ``--base`` / ``--state`` and returns a
+    ``statusCheckRollup`` matching merge-check's ``mergeable`` check.
     """
 
     def __init__(
@@ -140,85 +145,62 @@ class FakeGh:
     def add_merge_success(
         self,
         number: int,
-        title: str,
-        pr_url: str,
+        title: str = "",
+        pr_url: str = "",
         *,
-        pr_number: int | None = None,
         branch: str = "",
         base: str = "dev",
-    ) -> Issue:
-        """File the issue merge-check would open after a clean PR merge-tree."""
-        return self._add_merge_issue(
+    ) -> PullRequest:
+        """Register an open PR whose ``mergeable`` status succeeded."""
+        return self.add_pull_request(
             number,
-            title,
-            pr_url,
-            label=LABEL_MERGE_SUCCESS,
-            phrase="merges into",
-            pr_number=pr_number,
-            branch=branch,
+            head=branch or None,
             base=base,
+            url=pr_url,
+            title=title,
+            merge_check=MERGE_CHECK_SUCCESS,
         )
 
     def add_merge_fail(
         self,
         number: int,
-        title: str,
-        pr_url: str,
+        title: str = "",
+        pr_url: str = "",
         *,
-        pr_number: int | None = None,
         branch: str = "",
         base: str = "dev",
-    ) -> Issue:
-        """File the issue merge-check would open for a PR that stopped merging."""
-        return self._add_merge_issue(
+    ) -> PullRequest:
+        """Register an open PR whose ``mergeable`` status failed."""
+        return self.add_pull_request(
             number,
-            title,
-            pr_url,
-            label=LABEL_MERGE_FAIL,
-            phrase="does not merge into",
-            pr_number=pr_number,
-            branch=branch,
+            head=branch or None,
             base=base,
+            url=pr_url,
+            title=title,
+            merge_check=MERGE_CHECK_FAILURE,
         )
-
-    def _add_merge_issue(
-        self,
-        number: int,
-        title: str,
-        pr_url: str,
-        *,
-        label: str,
-        phrase: str,
-        pr_number: int | None,
-        branch: str,
-        base: str,
-    ) -> Issue:
-        """The body merge-check writes: markers first, then the readable part.
-
-        ``branch=""`` reproduces an issue filed before the branch markers
-        existed, which a gate has to survive by asking GitHub instead.
-        """
-        pr = pr_number
-        if pr is None:
-            match = re.search(r"/pull/(\d+)", pr_url)
-            pr = int(match.group(1)) if match else number
-        if branch:
-            markers = merge_issue_markers(pr_number=pr, branch=branch, base=base)
-        else:
-            markers = f"<!-- megadesk:merge-check:pr-{pr} -->"
-        body = (
-            f"{markers}\n\n"
-            f"Branch `{branch or '?'}` {phrase} `{base}`.\n\n"
-            f"{pr_url}\n"
-        )
-        if branch:
-            self.add_pull_request(pr, head=branch, base=base, url=pr_url)
-        return self.add_issue(number, title, body, labels=(label,))
 
     def add_pull_request(
-        self, number: int, *, head: str, base: str = "dev", url: str = ""
+        self,
+        number: int,
+        *,
+        head: Optional[str] = None,
+        base: str = "dev",
+        url: str = "",
+        title: str = "",
+        merge_check: str = "",
+        state: str = "open",
     ) -> PullRequest:
-        pr = PullRequest(number=int(number), head=head, base=base, url=url)
+        n = int(number)
+        pr = PullRequest(
+            number=n,
+            head=f"pr-{n}" if head is None else head,
+            base=base,
+            url=url or f"https://github.com/acme/widgets/pull/{n}",
+            title=title or f"PR #{n}",
+            state=state,
+            merge_check=(merge_check or "").strip().lower(),
+        )
         self.pull_requests = [p for p in self.pull_requests if p.number != pr.number]
         self.pull_requests.append(pr)
         return pr
@@ -243,6 +225,24 @@ class FakeGh:
     def pr_views(self) -> int:
         return sum(1 for call in self.calls if call[:2] == ("pr", "view"))
 
+    @property
+    def pr_lists(self) -> int:
+        return sum(1 for call in self.calls if call[:2] == ("pr", "list"))
+
+    def _status_rollup(self, pr: PullRequest) -> list[dict[str, Any]]:
+        state = (pr.merge_check or "").strip().upper()
+        if not state:
+            return []
+        return [
+            {
+                "__typename": "CheckRun",
+                "name": MERGE_CHECK_CONTEXT,
+                "conclusion": state,
+                "status": "COMPLETED",
+                "completedAt": "2026-01-01T00:00:00Z",
+            }
+        ]
+
     def __call__(self, *args: str) -> tuple[bool, str, str]:
         self.calls.append(tuple(args))
         if args[:2] == ("repo", "view"):
@@ -254,6 +254,24 @@ class FakeGh:
             if self.repo_error:
                 return False, "", self.repo_error
             return True, json.dumps([{"name": name} for name in self.labels]), ""
+        if args[:2] == ("pr", "list"):
+            if self.issue_error:
+                return False, "", self.issue_error
+            base = _flag(args, "--base") or "dev"
+            state = _flag(args, "--state") or "open"
+            payload = [
+                {
+                    "number": pr.number,
+                    "title": pr.title,
+                    "url": pr.url,
+                    "headRefName": pr.head,
+                    "baseRefName": pr.base,
+                    "statusCheckRollup": self._status_rollup(pr),
+                }
+                for pr in self.pull_requests
+                if pr.base == base and pr.state == state
+            ]
+            return True, json.dumps(payload), ""
         if args[:2] == ("pr", "view"):
             try:
                 number = int(args[2])
@@ -268,6 +286,8 @@ class FakeGh:
                                 "url": pr.url,
                                 "headRefName": pr.head,
                                 "baseRefName": pr.base,
+                                "title": pr.title,
+                                "statusCheckRollup": self._status_rollup(pr),
                             }
                         ),
                         "",
