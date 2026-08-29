@@ -53,14 +53,15 @@ def test_both_fakes_satisfy_the_protocol() -> None:
 
 
 def test_a_caller_can_drive_either_fake_with_one_code_path() -> None:
-    """The point of the protocol, exercised: launch, poll to terminal, read result.
+    """The point of the protocol, exercised: launch, poll, read result.
 
-    ``settle`` is where the two honestly differ, and it is not the caller's code: a
-    cloud run ends when Cursor says so, while a container ends when it exits. Both
-    are the world moving on, not a branch the graph has to write.
+    ``settle`` is where the two honestly differ, and it is not the caller's code:
+    a cloud run hands back a PR URL while still ``running`` (GitHub owns done),
+    while a container ends when it exits. Both are the world moving on, not a
+    branch the graph has to write.
     """
 
-    def run_to_completion(fac: AgentFactory, order: dict, settle) -> RunStatus:
+    def run_until(fac: AgentFactory, order: dict, settle, done) -> RunStatus:
         handle = fac.launch(order)
         assert isinstance(handle, RunHandle)
         assert handle.run_key
@@ -68,13 +69,13 @@ def test_a_caller_can_drive_either_fake_with_one_code_path() -> None:
             state = fac.poll(handle.run_key)
             assert isinstance(state, RunStatus)
             assert state.status in factory_wire.RUN_STATUSES
-            if factory_wire.is_terminal(state.status):
+            if done(state):
                 return state
             settle(handle.run_key)
-        raise AssertionError(f"{type(fac).__name__} never reached a terminal status")
+        raise AssertionError(f"{type(fac).__name__} never reached the expected state")
 
     machine_fake = FakeMachineFactory()
-    machine = run_to_completion(
+    machine = run_until(
         machine_fake,
         {
             "run_key": "guid-001",
@@ -86,12 +87,13 @@ def test_a_caller_can_drive_either_fake_with_one_code_path() -> None:
             "instructions": "Cover the widget module with tests.",
         },
         settle=machine_fake.stop,
+        done=lambda state: factory_wire.is_terminal(state.status),
     )
     assert machine_fake.launches[0]["URL"].endswith("widgets.git")
     assert machine_fake.launches[0]["auto_pr"] is True
     assert "wt" not in machine_fake.launches[0]
     assert "agent_dir" not in machine_fake.launches[0]
-    cloud = run_to_completion(
+    cloud = run_until(
         FakeCloudFactory(polls_before_finish=0),
         {
             "repo_url": "https://github.com/acme/widgets",
@@ -99,10 +101,12 @@ def test_a_caller_can_drive_either_fake_with_one_code_path() -> None:
             "instructions": "Explain why the frame pump needs a reset.",
         },
         settle=lambda _run_key: None,
+        done=lambda state: bool(state.result),
     )
 
     assert machine.status == factory_wire.STATUS_FINISHED
-    assert cloud.status == factory_wire.STATUS_FINISHED
+    assert cloud.status == factory_wire.STATUS_RUNNING
+    assert cloud.status != factory_wire.STATUS_FINISHED
     assert cloud.result.startswith("https://"), "the cloud's result is its PR"
 
 

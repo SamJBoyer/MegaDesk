@@ -1,7 +1,11 @@
 name: Merge check
 
 on:
-  pull_request:
+  # GitHub skips `pull_request` when the PR cannot merge (no merge ref).
+  # `pull_request_target` still runs, from the base branch even then.
+  # This job must not execute PR code: checkout the base, fetch the PR
+  # head as a ref, and detect conflicts with merge-tree.
+  pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [dev]
@@ -25,7 +29,8 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          # Default ref is the PR base (pull_request_target) or the push SHA.
+          # Do not set ref to github.event.pull_request.head.sha.
 
       - name: Check pull requests are mergeable
         env:
@@ -90,7 +95,7 @@ jobs:
               --body "${body}"
           }
 
-          if [ "${EVENT}" = "pull_request" ]; then
+          if [ "${EVENT}" = "pull_request" ] || [ "${EVENT}" = "pull_request_target" ]; then
             BASE="${BASE_REF}"
             PRS="${PR_NUMBER}"
           else

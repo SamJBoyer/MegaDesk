@@ -642,7 +642,9 @@ class FakeCloudFactory:
 
     Models both failure modes a factory has to keep apart: ``startup_error``
     raises before an agent id exists, while ``run_error`` produces a real agent
-    that finishes badly.
+    that finishes badly. The completing poll returns ``running`` with that URL
+    in ``result`` — not MegaDesk ``finished``. After ``cancel()``, polls report
+    ``cancelled``.
     """
 
     def __init__(
@@ -693,7 +695,7 @@ class FakeCloudFactory:
             return RunStatus(status=factory_wire.STATUS_ERROR, detail=self.run_error)
         index = run_key.rsplit("fake", 1)[-1].lstrip("0") or "1"
         return RunStatus(
-            status=factory_wire.STATUS_FINISHED,
+            status=factory_wire.STATUS_RUNNING,
             result=self.pr_url_template.format(n=index),
         )
 
