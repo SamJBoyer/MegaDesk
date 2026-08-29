@@ -33,6 +33,7 @@ sys.path[:0] = [
         "Nodes/Factory/CloudFactory",
         "Nodes/GraphScope",
         "Nodes/VisionBoard",
+        "Nodes/Notepad",
     )
 ]
 
@@ -93,6 +94,7 @@ CODESCOPE_SESSION_CANONICAL_FIELDS = frozenset(
 )
 VOICE_CONTROL_CANONICAL_FIELDS = frozenset({"action", "value"})
 VOICE_EVENT_CANONICAL_FIELDS = frozenset({"kind", "text", "session_id"})
+NOTEPAD_COMMAND_CANONICAL_FIELDS = frozenset({"action", "title", "text"})
 CLOUDORDER_CANONICAL_FIELDS = frozenset(
     {"order_id", "repo_url", "ref", "title", "instructions", "model", "auto_pr"}
 )
@@ -282,6 +284,7 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
     from code_scope_frontend import app as code_scope_app
     from graph_scope_frontend import app as graph_scope_app
     from machine_factory_frontend import app as machine_factory_app
+    from notepad_frontend import app as notepad_app
     from voice_deck_frontend import app as voice_deck_app
 
     for module in (
@@ -293,6 +296,7 @@ def fast_polling(monkeypatch: pytest.MonkeyPatch) -> None:
         cloud_factory_app,
         machine_factory_app,
         graph_scope_app,
+        notepad_app,
     ):
         monkeypatch.setattr(module, "POLL_INTERVAL_SEC", FAST_POLL_SEC)
 

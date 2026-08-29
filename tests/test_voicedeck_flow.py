@@ -28,10 +28,13 @@ from megadesk_contracts.wire import voice as wire
 from VoiceDeckManager.tools import (
     ANSWER_PREFIX,
     INSTRUCTIONS,
+    TOOL_ADD_TEXT,
     TOOL_ASK_CODEBASE,
     TOOL_DISPATCH_DOC_AGENT,
     TOOL_END_SESSION,
+    TOOL_NEW_DOCUMENT,
     TOOL_SET_REPO,
+    TOOL_SWITCH_DOCUMENT,
     is_farewell,
     tool_schemas,
 )
@@ -335,6 +338,36 @@ def test_set_repo_for_something_unloaded_names_the_alternatives(
     assert result["available"] == ["widgets"]
 
 
+def test_notepad_tools_publish_commands_and_return_immediately(
+    voice_session, fake_realtime, redis_client, read_stream
+) -> None:
+    from megadesk_contracts.wire import notepad as notepad_wire
+
+    voice_session.start()
+    created = fake_realtime.call_tool(TOOL_NEW_DOCUMENT, {"title": "standup"})
+    voice_session.pump_events()
+    assert fake_realtime.result_for(created) == {"status": "ok", "title": "standup"}
+
+    added = fake_realtime.call_tool(
+        TOOL_ADD_TEXT, {"text": "ship the node", "title": "standup"}
+    )
+    voice_session.pump_events()
+    assert fake_realtime.result_for(added)["status"] == "ok"
+
+    switched = fake_realtime.call_tool(TOOL_SWITCH_DOCUMENT, {"title": "standup"})
+    voice_session.pump_events()
+    assert fake_realtime.result_for(switched) == {"status": "ok", "title": "standup"}
+
+    entries = [fields for _id, fields in read_stream(notepad_wire.COMMAND_STREAM)]
+    assert [row["action"] for row in entries] == [
+        notepad_wire.ACTION_CREATE,
+        notepad_wire.ACTION_APPEND,
+        notepad_wire.ACTION_SWITCH,
+    ]
+    assert entries[1]["text"] == "ship the node"
+    assert all(set(row) == {"action", "title", "text"} for row in entries)
+
+
 def test_an_unknown_tool_still_gets_a_result(
     voice_session, fake_realtime, redis_client
 ) -> None:
@@ -574,6 +607,9 @@ def test_the_session_hands_turn_taking_to_the_server() -> None:
         TOOL_DISPATCH_DOC_AGENT,
         TOOL_SET_REPO,
         TOOL_END_SESSION,
+        TOOL_NEW_DOCUMENT,
+        TOOL_ADD_TEXT,
+        TOOL_SWITCH_DOCUMENT,
     }
 
 

@@ -16,6 +16,13 @@ from __future__ import annotations
 
 import re
 
+from megadesk_contracts.wire.notepad import (
+    TOOL_ADD_TEXT,
+    TOOL_NEW_DOCUMENT,
+    TOOL_SWITCH_DOCUMENT,
+    tool_schemas as notepad_tool_schemas,
+)
+
 TOOL_ASK_CODEBASE = "ask_codebase"
 TOOL_DISPATCH_DOC_AGENT = "dispatch_doc_agent"
 TOOL_SET_REPO = "set_repo"
@@ -65,6 +72,10 @@ Before calling {TOOL_DISPATCH_DOC_AGENT}, say the title and the gist of the \
 instructions back to the user and wait for them to agree. Dispatching sends an \
 agent to write code and open a pull request, so it is not something to do on a \
 guess.
+
+The notepad is for notes. Call {TOOL_NEW_DOCUMENT} to start a tab, \
+{TOOL_ADD_TEXT} to write into the current (or named) document, and \
+{TOOL_SWITCH_DOCUMENT} to change the target. Those return immediately.
 
 Keep every reply to one or two spoken sentences. No markdown, no lists, no code \
 read aloud character by character. If you do not know, say so."""
@@ -156,4 +167,5 @@ def tool_schemas() -> list[dict]:
             ),
             "parameters": {"type": "object", "properties": {}},
         },
+        *notepad_tool_schemas(),
     ]

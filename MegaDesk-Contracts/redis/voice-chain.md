@@ -137,9 +137,20 @@ leaves a visible run rather than an order that silently launched nothing. A non-
 back `cancelled` must not write a stream entry. `CLOUDFINISHED` is then only for
 runs that never started, ran and failed, or the operator cancelled.
 
+## NOTEPAD:COMMAND
+
+VoiceDeck notepad tools (`new_document`, `add_text`, `switch_document`) publish here
+and return immediately. The notepad FE applies the command to the open pad.
+
+| Field | Required | Notes |
+|---|---|---|
+| `action` | yes | `create`, `append`, or `switch` |
+| `title` | create / switch | Document / tab name |
+| `text` | append | Text to append; optional on create |
+
 ## Code references
 
-- `MegaDesk-Contracts/megadesk_contracts/wire/{code_scope,voice,cloud,factory}.py` — the definitions
+- `MegaDesk-Contracts/megadesk_contracts/wire/{code_scope,voice,cloud,factory,notepad}.py` — the definitions
 - `Nodes/CodeScope/CodeScopeManager/manager.py`, `Nodes/CodeScope/code_scope_frontend/app.py`
 - `Nodes/VoiceDeck/VoiceDeckManager/session.py`, `Nodes/VoiceDeck/voice_deck_frontend/app.py`, `MegaDesk-Canvas/voice_deck/panel.py`
 - `Nodes/Factory/CloudFactory/CloudFactoryManager/{manager,runtime}.py`, `Nodes/Factory/CloudFactory/cloud_factory_frontend/app.py`

@@ -28,6 +28,8 @@ def test_fe_only_nodes_do_not_launch_a_backend() -> None:
     from auto_integrate_node import get_fe_spec as ai_fe
     from graph_scope_node import get_be_spec as gs_be
     from graph_scope_node import get_fe_spec as gs_fe
+    from notepad_node import get_be_spec as np_be
+    from notepad_node import get_fe_spec as np_fe
     from pr_manager_node import get_be_spec as pm_be
     from pr_manager_node import get_fe_spec as pm_fe
     from work_dispatcher_node import get_be_spec as wd_be
@@ -48,3 +50,8 @@ def test_fe_only_nodes_do_not_launch_a_backend() -> None:
     assert gs_fe().backends == ()
     assert gs_fe().name == "graph_scope"
     assert gs_be() is None
+    assert np_fe().backends == ()
+    assert np_fe().name == "notepad"
+    assert np_fe().parameters == ("GIT_URL",)
+    assert np_fe().read_parameters is not None
+    assert np_be() is None

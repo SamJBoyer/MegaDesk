@@ -33,14 +33,18 @@ from megadesk_contracts import resolve_ephemeral_db, resolve_persistent_db, redi
 from megadesk_contracts.repo import CloneError, remote_url
 from megadesk_contracts.wire import cloud as cloud_wire
 from megadesk_contracts.wire import code_scope as scope_wire
+from megadesk_contracts.wire import notepad as notepad_wire
 from megadesk_contracts.wire import voice as wire
 
 from VoiceDeckManager.tools import (
     ANSWER_PREFIX,
+    TOOL_ADD_TEXT,
     TOOL_ASK_CODEBASE,
     TOOL_DISPATCH_DOC_AGENT,
     TOOL_END_SESSION,
+    TOOL_NEW_DOCUMENT,
     TOOL_SET_REPO,
+    TOOL_SWITCH_DOCUMENT,
     is_farewell,
 )
 
@@ -236,6 +240,9 @@ class VoiceSession:
             TOOL_DISPATCH_DOC_AGENT: self._tool_dispatch_doc_agent,
             TOOL_SET_REPO: self._tool_set_repo,
             TOOL_END_SESSION: self._tool_end_session,
+            TOOL_NEW_DOCUMENT: self._tool_new_document,
+            TOOL_ADD_TEXT: self._tool_add_text,
+            TOOL_SWITCH_DOCUMENT: self._tool_switch_document,
         }
         handler = handlers.get(name)
         if handler is None:
@@ -338,6 +345,41 @@ class VoiceSession:
         self.target_repo = repo
         self._publish(wire.KIND_TARGET, repo)
         return {"status": "ok", "repo": repo}
+
+    def _publish_notepad(self, *, action: str, title: str = "", text: str = "") -> dict:
+        self.ephemeral.xadd(
+            notepad_wire.COMMAND_STREAM,
+            notepad_wire.command_fields(action=action, title=title, text=text),
+        )
+        return {"status": "ok", "title": title}
+
+    def _tool_new_document(self, arguments: dict, call_id: str) -> dict:
+        title = str(arguments.get("title") or "").strip()
+        if not title:
+            return {"status": "error", "detail": "no title was provided"}
+        result = self._publish_notepad(action=notepad_wire.ACTION_CREATE, title=title)
+        result["title"] = title
+        return result
+
+    def _tool_add_text(self, arguments: dict, call_id: str) -> dict:
+        text = str(arguments.get("text") or "")
+        if not str(text).strip():
+            return {"status": "error", "detail": "no text was provided"}
+        title = str(arguments.get("title") or "").strip()
+        result = self._publish_notepad(
+            action=notepad_wire.ACTION_APPEND, title=title, text=text
+        )
+        if title:
+            result["title"] = title
+        else:
+            result.pop("title", None)
+        return result
+
+    def _tool_switch_document(self, arguments: dict, call_id: str) -> dict:
+        title = str(arguments.get("title") or "").strip()
+        if not title:
+            return {"status": "error", "detail": "no title was provided"}
+        return self._publish_notepad(action=notepad_wire.ACTION_SWITCH, title=title)
 
     def _tool_end_session(self, arguments: dict, call_id: str) -> dict:
         """Close only on an explicit goodbye, never as a follow-up to a search."""

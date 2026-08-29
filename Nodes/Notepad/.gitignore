@@ -1,0 +1,15 @@
+# Local clones and unsaved pads (override with NOTEPAD_ROOT)
+Pad/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/

@@ -10,7 +10,7 @@ Three families share that pair:
 
 1. **MachineFactory pipeline** (pub/sub order signal, reference streams + short-lived hashes on **ephemeral**) — WorkDispatcher, MachineFactory
 2. **Supervisor** (streams on **ephemeral**; RUNNINGNODES / singleton / alive on **persistent**) — Canvas-owned Supervisor BE and launched BE nodes
-3. **Voice chain** (streams on **ephemeral**; session / run hashes on **persistent**) — CodeScope, VoiceDeck, CloudFactory
+3. **Voice chain** (streams on **ephemeral**; session / run hashes on **persistent**) — CodeScope, VoiceDeck, CloudFactory, Notepad
 
 Families 1 and 3 carry the two factories, and they are the same shape on purpose:
 an order stream, one hash per live run, a finished stream. See
@@ -71,6 +71,7 @@ Default Redis has indexes 0–15. Live MegaDesk never leaves 0/1. MachineFactory
 | `CODEQ:ANSWER` | stream | `CODEQ:ANSWER` | 0 | [voice-chain.md](voice-chain.md#codeqanswer) |
 | `VOICE:CONTROL` | stream | `VOICE:CONTROL` | 0 | [voice-chain.md](voice-chain.md#voicecontrol) |
 | `VOICE:EVENT` | stream | `VOICE:EVENT` | 0 | [voice-chain.md](voice-chain.md#voiceevent) |
+| `NOTEPAD:COMMAND` | stream | `NOTEPAD:COMMAND` | 0 | [voice-chain.md](voice-chain.md#notepadcommand) |
 | `CLOUDORDER` | pub/sub + stream | `CLOUDORDER` | 0 | [voice-chain.md](voice-chain.md#cloudorder) |
 | `CLOUDFINISHED` | stream | `CLOUDFINISHED` | 0 | [voice-chain.md](voice-chain.md#cloudfinished) |
 | CodeScope session | hash | `CODESCOPE:SESSION:<id>` | 1 | [voice-chain.md](voice-chain.md#hashes-db-1) |
@@ -87,6 +88,7 @@ there. A node shipping its own `redis_packets.py` is a bug, not a shortcut:
 - `MegaDesk-Contracts/megadesk_contracts/wire/cloud.py` — `CLOUDORDER`, `CLOUDFINISHED`, `CLOUDRUN`
 - `MegaDesk-Contracts/megadesk_contracts/wire/code_scope.py`
 - `MegaDesk-Contracts/megadesk_contracts/wire/voice.py`
+- `MegaDesk-Contracts/megadesk_contracts/wire/notepad.py`
 
 Supervisor keys/streams (Canvas-owned BE):
 

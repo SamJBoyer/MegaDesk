@@ -1,0 +1,1 @@
+"""Notepad front-end package."""
