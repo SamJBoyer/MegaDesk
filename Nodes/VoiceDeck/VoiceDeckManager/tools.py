@@ -19,6 +19,9 @@ import re
 TOOL_ASK_CODEBASE = "ask_codebase"
 TOOL_DISPATCH_DOC_AGENT = "dispatch_doc_agent"
 TOOL_SET_REPO = "set_repo"
+TOOL_CREATE_NOTE = "create_note"
+TOOL_ADD_NOTE_TEXT = "add_note_text"
+TOOL_SWITCH_NOTE = "switch_note"
 TOOL_END_SESSION = "end_session"
 
 # Prefix on the injected conversation item, so the model can tell a retrieved
@@ -65,6 +68,10 @@ Before calling {TOOL_DISPATCH_DOC_AGENT}, say the title and the gist of the \
 instructions back to the user and wait for them to agree. Dispatching sends an \
 agent to write code and open a pull request, so it is not something to do on a \
 guess.
+
+When the user asks you to write something down, use {TOOL_CREATE_NOTE}, \
+{TOOL_ADD_NOTE_TEXT}, and {TOOL_SWITCH_NOTE}. Those tools update the notepad \
+on the canvas. They return immediately.
 
 Keep every reply to one or two spoken sentences. No markdown, no lists, no code \
 read aloud character by character. If you do not know, say so."""
@@ -143,6 +150,65 @@ def tool_schemas() -> list[dict]:
                     "repo": {"type": "string", "description": "Repository name."}
                 },
                 "required": ["repo"],
+            },
+        },
+        {
+            "type": "function",
+            "name": TOOL_CREATE_NOTE,
+            "description": (
+                "Create a notepad document and make it the current target. "
+                "Optional text becomes the starting body."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Document name, used as the tab and the .txt file.",
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "Optional starting text.",
+                    },
+                },
+                "required": ["title"],
+            },
+        },
+        {
+            "type": "function",
+            "name": TOOL_ADD_NOTE_TEXT,
+            "description": (
+                "Append text to a notepad document. Omitting title writes to "
+                "the current target."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "Text to add.",
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Document to write to. Defaults to the current one.",
+                    },
+                },
+                "required": ["text"],
+            },
+        },
+        {
+            "type": "function",
+            "name": TOOL_SWITCH_NOTE,
+            "description": "Switch which notepad document later additions go to.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Document name to make current.",
+                    }
+                },
+                "required": ["title"],
             },
         },
         {

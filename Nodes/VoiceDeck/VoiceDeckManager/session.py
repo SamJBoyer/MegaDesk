@@ -33,14 +33,18 @@ from megadesk_contracts import resolve_ephemeral_db, resolve_persistent_db, redi
 from megadesk_contracts.repo import CloneError, remote_url
 from megadesk_contracts.wire import cloud as cloud_wire
 from megadesk_contracts.wire import code_scope as scope_wire
+from megadesk_contracts.wire import notepad as notepad_wire
 from megadesk_contracts.wire import voice as wire
 
 from VoiceDeckManager.tools import (
     ANSWER_PREFIX,
+    TOOL_ADD_NOTE_TEXT,
     TOOL_ASK_CODEBASE,
+    TOOL_CREATE_NOTE,
     TOOL_DISPATCH_DOC_AGENT,
     TOOL_END_SESSION,
     TOOL_SET_REPO,
+    TOOL_SWITCH_NOTE,
     is_farewell,
 )
 
@@ -235,6 +239,9 @@ class VoiceSession:
             TOOL_ASK_CODEBASE: self._tool_ask_codebase,
             TOOL_DISPATCH_DOC_AGENT: self._tool_dispatch_doc_agent,
             TOOL_SET_REPO: self._tool_set_repo,
+            TOOL_CREATE_NOTE: self._tool_create_note,
+            TOOL_ADD_NOTE_TEXT: self._tool_add_note_text,
+            TOOL_SWITCH_NOTE: self._tool_switch_note,
             TOOL_END_SESSION: self._tool_end_session,
         }
         handler = handlers.get(name)
@@ -338,6 +345,44 @@ class VoiceSession:
         self.target_repo = repo
         self._publish(wire.KIND_TARGET, repo)
         return {"status": "ok", "repo": repo}
+
+    def _tool_create_note(self, arguments: dict, call_id: str) -> dict:
+        title = str(arguments.get("title") or "").strip()
+        if not title:
+            return {"status": "error", "detail": "no title was provided"}
+        text = str(arguments.get("text") or "")
+        self.ephemeral.xadd(
+            notepad_wire.CMD_STREAM,
+            notepad_wire.command_fields(
+                action=notepad_wire.ACTION_CREATE, title=title, text=text
+            ),
+        )
+        return {"status": "ok", "title": title}
+
+    def _tool_add_note_text(self, arguments: dict, call_id: str) -> dict:
+        text = str(arguments.get("text") or "")
+        if not str(text).strip():
+            return {"status": "error", "detail": "no text was provided"}
+        title = str(arguments.get("title") or "").strip()
+        self.ephemeral.xadd(
+            notepad_wire.CMD_STREAM,
+            notepad_wire.command_fields(
+                action=notepad_wire.ACTION_APPEND, title=title, text=text
+            ),
+        )
+        return {"status": "ok", "title": title or "current"}
+
+    def _tool_switch_note(self, arguments: dict, call_id: str) -> dict:
+        title = str(arguments.get("title") or "").strip()
+        if not title:
+            return {"status": "error", "detail": "no title was provided"}
+        self.ephemeral.xadd(
+            notepad_wire.CMD_STREAM,
+            notepad_wire.command_fields(
+                action=notepad_wire.ACTION_SWITCH, title=title
+            ),
+        )
+        return {"status": "ok", "title": title}
 
     def _tool_end_session(self, arguments: dict, call_id: str) -> dict:
         """Close only on an explicit goodbye, never as a follow-up to a search."""

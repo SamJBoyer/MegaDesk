@@ -28,10 +28,13 @@ from megadesk_contracts.wire import voice as wire
 from VoiceDeckManager.tools import (
     ANSWER_PREFIX,
     INSTRUCTIONS,
+    TOOL_ADD_NOTE_TEXT,
     TOOL_ASK_CODEBASE,
+    TOOL_CREATE_NOTE,
     TOOL_DISPATCH_DOC_AGENT,
     TOOL_END_SESSION,
     TOOL_SET_REPO,
+    TOOL_SWITCH_NOTE,
     is_farewell,
     tool_schemas,
 )
@@ -573,6 +576,9 @@ def test_the_session_hands_turn_taking_to_the_server() -> None:
         TOOL_ASK_CODEBASE,
         TOOL_DISPATCH_DOC_AGENT,
         TOOL_SET_REPO,
+        TOOL_CREATE_NOTE,
+        TOOL_ADD_NOTE_TEXT,
+        TOOL_SWITCH_NOTE,
         TOOL_END_SESSION,
     }
 

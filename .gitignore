@@ -68,6 +68,10 @@ Nodes/CodeScope/Scope/
 # PRManager disposable PR checkouts (override with PR_SCOPE_ROOT)
 Nodes/PRManager/Scope/
 
+# Notepad clones and local scratch (notes inside a GIT_URL clone are the real files)
+Nodes/Notepad/Scope/
+Nodes/Notepad/notes/
+
 # Local clone of the public smoke-test repo (not part of MegaDesk)
 SMOKETESTREPO/
 

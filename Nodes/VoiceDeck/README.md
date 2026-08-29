@@ -46,6 +46,9 @@ wait for the user to speak again.
 | `ask_codebase(question)` | `CODEQ:ASK` to CodeScope; returns `searching` |
 | `dispatch_doc_agent(title, instructions, target)` | Publishes `CLOUDORDER` to CloudFactory |
 | `set_repo(repo)` | Switch which loaded repo questions are about |
+| `create_note(title, text)` | `NOTEPAD:CMD` create; opens a document on the notepad |
+| `add_note_text(text, title)` | `NOTEPAD:CMD` append to a document, or the current target |
+| `switch_note(title)` | `NOTEPAD:CMD` switch the notepad's current document |
 | `end_session()` | Close the socket |
 
 `dispatch_doc_agent` publishes a `CLOUDORDER` the same way WorkDispatcher does.
