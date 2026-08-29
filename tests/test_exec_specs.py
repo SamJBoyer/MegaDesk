@@ -17,6 +17,8 @@ def test_be_nodes_declare_their_launch_endpoints() -> None:
 
     assert mc_fe().backends == ("machine_factory",)
     assert mc_be().name == "machine_factory"
+    assert mc_fe().default_width <= 420
+    assert mc_fe().default_height <= 120
     assert scope_fe().backends == ("code_scope",)
     assert scope_be().name == "code_scope"
     assert voice_fe() is None

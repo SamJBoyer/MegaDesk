@@ -434,6 +434,9 @@ def test_the_monitor_shows_orders_live_agents_and_sandboxes_not_logs(
         ),
     )
     fe = harness.drop("machine_factory")
+    hosted = harness.model.members[fe.member_id]
+    assert hosted.height <= 120
+    assert hosted.width <= 420
 
     assert fe.exists("queue_list")
     assert fe.exists("live_list")

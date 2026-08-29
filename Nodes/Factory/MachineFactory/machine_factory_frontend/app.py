@@ -260,12 +260,12 @@ class MachineFactoryFE:
         *,
         tag_prefix: str,
         width: int = 420,
-        height: int = 180,
+        height: int = 120,
     ) -> None:
         """Fill the host content parent with MachineFactory monitor widgets."""
         self._root_tag = tag_prefix
         _ = width, height
-        col_w = 190
+        col_w = 128
 
         with dpg.group(parent=parent):
             with dpg.group(horizontal=True):
@@ -283,6 +283,14 @@ class MachineFactoryFE:
                         items=["(loading…)"],
                         tag=self._tag("live_list"),
                         num_items=2,
+                        width=col_w,
+                    )
+                with dpg.group():
+                    dpg.add_text("Docker", color=COLOR_DIM)
+                    dpg.add_listbox(
+                        items=["(loading…)"],
+                        tag=self._tag("docker_list"),
+                        num_items=2,
                         width=-1,
                     )
                 with dpg.drawlist(width=16, height=16):
@@ -293,14 +301,6 @@ class MachineFactoryFE:
                         color=COLOR_ERR,
                         tag=self._tag("error_lamp"),
                     )
-
-            dpg.add_text("Docker", color=COLOR_DIM)
-            dpg.add_listbox(
-                items=["(loading…)"],
-                tag=self._tag("docker_list"),
-                num_items=2,
-                width=-1,
-            )
 
         dpg.set_item_user_data(parent, self.shutdown)
         self._poll(force=True)
@@ -327,7 +327,7 @@ def build_ui(
     *,
     tag_prefix: str,
     width: int = 420,
-    height: int = 180,
+    height: int = 120,
 ) -> None:
     """Module-level builder for FeSpec / MegaDesk canvas hosting."""
     MachineFactoryFE().build_ui(

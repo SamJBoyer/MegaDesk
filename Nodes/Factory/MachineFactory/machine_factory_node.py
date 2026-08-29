@@ -26,7 +26,7 @@ def get_fe_spec() -> FeSpec | None:
         description="Run agents in local sandboxes — queued orders, live agents, sandboxes.",
         icon=icon,
         default_width=420,
-        default_height=180,
+        default_height=120,
         build=build_ui,
         backends=(NODE_NAME,),
     )
