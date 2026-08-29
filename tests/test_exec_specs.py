@@ -48,3 +48,48 @@ def test_fe_only_nodes_do_not_launch_a_backend() -> None:
     assert gs_fe().backends == ()
     assert gs_fe().name == "graph_scope"
     assert gs_be() is None
+
+
+def test_nodes_with_voice_tools_declare_them() -> None:
+    from code_scope_node import get_tool_spec as scope_tools
+    from voice_deck_node import get_tool_spec as voice_tools
+    from work_dispatcher_node import get_tool_spec as wd_tools
+    from work_dispatcher_node import get_fe_spec as wd_fe
+
+    code = scope_tools()
+    tickets = wd_tools()
+    session = voice_tools()
+    assert code is not None and tickets is not None and session is not None
+    assert code.name == "code_scope"
+    assert {schema["name"] for schema in code.schemas} == {
+        "ask_codebase",
+        "dispatch_doc_agent",
+        "set_repo",
+    }
+    assert tickets.name == wd_fe().name
+    assert {schema["name"] for schema in tickets.schemas} == {
+        "list_tickets",
+        "choose_ticket",
+        "set_dispatch",
+        "send_ticket",
+    }
+    assert session.name == "voice_deck"
+    assert {schema["name"] for schema in session.schemas} == {"end_session"}
+    assert set(code.handlers) == {schema["name"] for schema in code.schemas}
+    assert set(tickets.handlers) == {schema["name"] for schema in tickets.schemas}
+
+
+def test_nodes_without_voice_tools_do_not_declare_them() -> None:
+    import auto_integrate_node
+    import graph_scope_node
+    import machine_factory_node
+    import pr_manager_node
+
+    for mod in (
+        auto_integrate_node,
+        graph_scope_node,
+        machine_factory_node,
+        pr_manager_node,
+    ):
+        fn = getattr(mod, "get_tool_spec", None)
+        assert fn is None or fn() is None

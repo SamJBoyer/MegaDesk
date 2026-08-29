@@ -2,14 +2,15 @@
 
 Canonical reference for how Nodes are discovered, launched, hosted on the canvas, and torn down. Glossary: [`Docs/glossary.md`](glossary.md). Redis Supervisor streams: [`MegaDesk-Contracts/redis/supervisor.md`](../MegaDesk-Contracts/redis/supervisor.md). Canvas-package layout and DPG chrome: [`MegaDesk-Canvas/docs/canvas.md`](../MegaDesk-Canvas/docs/canvas.md).
 
-A **node** is a modular tool inside MegaDesk. Nodes can expose a front-end (FE), a back-end (BE), or both. Discovery and launch are driven by packaging entry points.
+A **node** is a modular tool inside MegaDesk. Nodes can expose a front-end (FE), a back-end (BE), voice tools, or any combination. Discovery and launch are driven by packaging entry points.
 
 | Half | What it is | Who uses it |
 |------|------------|-------------|
 | **FE** | Always Dear PyGui. Integrated into the MegaDesk canvas shell. | MegaDesk canvas (`MegaDesk-Canvas/`) via `get_fe_spec()` → `FeSpec` |
 | **BE** | Long-lived process (argv + optional cwd). Managed as a subprocess. | Canvas-owned Supervisor BE via `get_be_spec()` → `BeSpec` |
+| **Tools** | Optional voice tools (schemas, instructions, handlers). | Canvas VoiceDeck via `get_tool_spec()` → `ToolSpec` |
 
-Shared contract lives in the installable `megadesk-contracts` package (`MegaDesk-Contracts/`): `FeSpec`, `BeSpec`, entry-point discovery, `SupervisorClient`, `frame_pump`, and logging helpers.
+Shared contract lives in the installable `megadesk-contracts` package (`MegaDesk-Contracts/`): `FeSpec`, `BeSpec`, `ToolSpec`, entry-point discovery, `SupervisorClient`, `frame_pump`, and logging helpers.
 
 **Supervisor** is Canvas infrastructure (`MegaDesk-Canvas/supervisor/`), not a Catalog / `MegaDesk.nodes` entry. The BE starts on canvas launch via `megadesk_contracts.ensure_supervisor_running()` (`python -m supervisor`). The operator UI is a right-hand collapsible pane with Nodes and Logs tabs (`supervisor.panel.build_supervisor_panel`), matching the left Catalog — not a droppable FE.
 
@@ -24,7 +25,8 @@ Each productivity node is its own installable Python project under `Nodes/<Name>
 ```text
 Nodes/<Name>/
   pyproject.toml          # REQUIRED — registers MegaDesk.nodes
-  <name>_node.py          # REQUIRED — get_fe_spec() / get_be_spec()
+  <name>_node.py          # REQUIRED — get_fe_spec() / get_be_spec() / get_tool_spec()
+  <name>_tools/           # optional — voice tools returned by get_tool_spec()
   parameters.yaml         # optional — declared graph parameter names
   …                       # app / package code for FE and/or BE
   Etc/Artwork/…           # optional icon for the Catalog palette
@@ -34,9 +36,9 @@ Nodes/<Name>/
 
 1. Nodes **must** ship a `pyproject.toml` with a `[project.entry-points."MegaDesk.nodes"]` entry.
 2. Nodes are always installed into the **MegaDesk conda env** (`pip install -e Nodes/<Name>`). Undiscoverable packages are invisible to FE and BE.
-3. Depend on `megadesk-contracts` so the node can import `FeSpec` / `BeSpec`.
-4. FE-only, BE-only, and FE+BE are all valid. Return `None` for the mode you do not support.
-5. `get_fe_spec` / `get_be_spec` must return a ready-to-use launch description — the caller should not need extra setup beyond what the installed package already provides.
+3. Depend on `megadesk-contracts` so the node can import `FeSpec` / `BeSpec` / `ToolSpec`.
+4. FE-only, BE-only, FE+BE, and tools-only combinations are all valid. Return `None` (or omit the function) for a mode you do not support.
+5. `get_fe_spec` / `get_be_spec` / `get_tool_spec` must return a ready-to-use description — the caller should not need extra setup beyond what the installed package already provides.
 
 ---
 
@@ -49,7 +51,7 @@ my_tool = "my_tool_node"
 
 - The **entry-point name** (`my_tool`) is the package’s discovery key.
 - Prefer making `FeSpec.name` / `BeSpec.name` match that key so FE drop and BE `LAUNCHREQUEST` use the same nickname.
-- The value is the node module. Discovery loads it and calls `get_fe_spec()` / `get_be_spec()`. One entry point serves both halves.
+- The value is the node module. Discovery loads it and calls `get_fe_spec()` / `get_be_spec()` / `get_tool_spec()`. One entry point serves all three.
 
 Examples in-repo:
 
@@ -58,10 +60,10 @@ Examples in-repo:
 | MachineFactory (`Nodes/Factory/MachineFactory`) | `machine_factory` | FE + BE |
 | CloudFactory (`Nodes/Factory/CloudFactory`) | `cloud_factory` | FE + BE |
 | PRManager | `pr_manager` | FE only |
-| WorkDispatcher (`Nodes/HumanGates/WorkDispatcher`) | `work_dispatcher` | FE only |
+| WorkDispatcher (`Nodes/HumanGates/WorkDispatcher`) | `work_dispatcher` | FE + tools |
 | AutoIntegrate (`Nodes/HumanGates/AutoIntegrate`) | `auto_integrate` | FE only |
-| CodeScope | `code_scope` | FE + BE |
-| VoiceDeck | `voice_deck` | BE only (FE is canvas chrome) |
+| CodeScope | `code_scope` | FE + BE + tools |
+| VoiceDeck | `voice_deck` | BE + tools (FE is canvas chrome) |
 | GraphScope | `graph_scope` | FE only |
 | VisionBoard | `vision_board` | FE only |
 
@@ -72,7 +74,7 @@ the two factories as siblings, `Nodes/HumanGates/` the two gates — and
 
 ---
 
-## Required methods: `get_fe_spec()` / `get_be_spec()`
+## Required methods: `get_fe_spec()` / `get_be_spec()` / `get_tool_spec()`
 
 Every node module pointed at by the entry point exports:
 
@@ -82,9 +84,12 @@ def get_fe_spec(parameters: Mapping[str, str] | None = None) -> FeSpec | None:
 
 def get_be_spec() -> BeSpec | None:
     ...
+
+def get_tool_spec() -> ToolSpec | None:
+    ...
 ```
 
-Nodes that do not take parameters may keep a zero-argument `get_fe_spec()`; the caller only passes `parameters=` when the function accepts it.
+Nodes that do not take parameters may keep a zero-argument `get_fe_spec()`; the caller only passes `parameters=` when the function accepts it. Nodes with no voice tools omit `get_tool_spec` or return `None`.
 
 `parameters` are the string kvps a **graph** saved for this member (see *Graph parameters* below). `get_fe_spec` folds them into the returned spec — `build` closes over them, `backend_parameters` is the subset (or rewrite) to drop onto `SUPERVISOR:LAUNCHREQUEST`. The host still calls `build(parent, *, tag_prefix, width, height)` with no parameters kwarg.
 
@@ -182,6 +187,19 @@ def get_fe_spec():
 
 FE+BE example: `get_fe_spec()` returns an `FeSpec` with `backends=(name,)`; `get_be_spec()` returns the `BeSpec` (see `Nodes/Factory/MachineFactory/machine_factory_node.py`).
 
+### `ToolSpec`
+
+Voice-tool description for the canvas VoiceDeck. Live in the node's `<name>_tools/` folder; `get_tool_spec()` returns them.
+
+| Field | Type | Role |
+|-------|------|------|
+| `name` | `str` | Node nickname (matches `FeSpec.name` / entry-point name) |
+| `instructions` | `str` | Prompt text folded into the voice session |
+| `schemas` | `tuple[dict, ...]` | OpenAI realtime `session.tools` entries |
+| `handlers` | `Mapping[str, callable]` | Tool name → `(arguments, host) -> dict` |
+
+Canvas discovers these with `discover_tools()` (via `engine.megadesk_registry`) the same way it discovers FEs. VoiceDeck's BE routes a tool call to the matching handler. Nodes without voice tools omit `get_tool_spec`.
+
 ---
 
 ## Discovery API (`megadesk_contracts`)
@@ -192,8 +210,10 @@ Installed entry points are scanned via `importlib.metadata` group `MegaDesk.node
 |----------|---------|
 | `discover_frontends()` | `dict[str, FeSpec]` — every node that returns an `FeSpec` |
 | `discover_backends()` | `dict[str, BeSpec]` — every node that returns a `BeSpec` |
+| `discover_tools()` | `dict[str, ToolSpec]` — every node that returns a `ToolSpec` |
 | `load_fe_spec(name, parameters=None)` | One FE spec, rebuilt with graph parameters when given |
 | `load_be_spec(name)` | One BE spec (matches entry-point name or `BeSpec.name`) |
+| `load_tool_spec(name)` | One tool spec (matches entry-point name or `ToolSpec.name`) |
 | `get_backend(name)` | `BeSpec \| None` by nickname (also resolves via discovery keys / `BeSpec.name`) |
 
 Keys prefer `spec.name`, falling back to the entry-point name.
@@ -204,7 +224,7 @@ Related public helpers (same package): `SupervisorClient`, `ensure_supervisor_ru
 
 ## How the FE uses nodes (MegaDesk graph)
 
-1. On startup, MegaDesk-Canvas calls `ensure_supervisor_running()` so the Supervisor BE (`python -m supervisor`) is up before UI drop can request BE launches, then `ensure_voice_deck_running()` so the VoiceDeck BE (`voice_deck`) is launched once (skipped if already in RUNNINGNODES). Then it calls `discover_frontends()` (via `engine.megadesk_registry.discover_megadesk_frontends`) and fills the Catalog palette (`megadesk:<name>`). Icons come from `FeSpec.icon`. A **graph bar** sits above the Catalog so the operator can pick, save, save-as, Capture, or delete a graph. The Supervisor operator UI is a right-hand collapsible pane (Nodes / Logs tabs) via `build_supervisor_panel` — it is not a Catalog entry. Selecting a hosted node on the board shows that node's session log in the Logs tab. The VoiceDeck operator UI is a collapsible strip under the canvas row via `build_voice_deck_panel` — also not a Catalog entry.
+1. On startup, MegaDesk-Canvas calls `ensure_supervisor_running()` so the Supervisor BE (`python -m supervisor`) is up before UI drop can request BE launches, then `ensure_voice_deck_running()` so the VoiceDeck BE (`voice_deck`) is launched once (skipped if already in RUNNINGNODES). Then it calls `discover_frontends()` and `discover_tools()` (via `engine.megadesk_registry.discover_megadesk_frontends`) and fills the Catalog palette (`megadesk:<name>`). Icons come from `FeSpec.icon`. Tool specs are handed to VoiceDeck so the model can call each node's tools. A **graph bar** sits above the Catalog so the operator can pick, save, save-as, Capture, or delete a graph. The Supervisor operator UI is a right-hand collapsible pane (Nodes / Logs tabs) via `build_supervisor_panel` — it is not a Catalog entry. Selecting a hosted node on the board shows that node's session log in the Logs tab. The VoiceDeck operator UI is a collapsible strip under the canvas row via `build_voice_deck_panel` — also not a Catalog entry.
 2. Dropping a node places a graph member (`type: "megadesk"`, `node_name` in the open `.json`) and hosts the FE as a native `dpg.node` inside the graph `node_editor` via `FeSpec.build`. Graph parameters for that member are passed into `get_fe_spec(parameters=…)`.
 3. Nodes on the board are always the live FE (no placard / closed state). Middle-mouse pans the editor; there is no graph zoom. Delete removes the selected node(s).
 4. After drop **and** when a saved graph is opened, the host reads `FeSpec.backends` and `XADD`s one `SUPERVISOR:LAUNCHREQUEST` per endpoint with `parameters` set to `FeSpec.backend_parameters` (skipped if that BE is already alive, Redis is down, or Supervisor is not up).
@@ -320,7 +340,7 @@ Typical Redis path after an FE drop that also has a BE:
 ## Minimal checklist for a new node
 
 1. Create `Nodes/<Name>/` with `pyproject.toml` depending on `megadesk-contracts`.
-2. Add `<name>_node.py` with `get_fe_spec()` / `get_be_spec()` returning `FeSpec` and/or `BeSpec`.
+2. Add `<name>_node.py` with `get_fe_spec()` / `get_be_spec()` / optional `get_tool_spec()` returning `FeSpec`, `BeSpec`, and/or `ToolSpec`.
 3. Register `[project.entry-points."MegaDesk.nodes"]`.
 4. `pip install -e Nodes/<Name>` (add `[canvas]` / Dear PyGui if the node has an FE), or run `python scripts/refresh_nodes.py`, which picks the new node up automatically.
 5. Restart MegaDesk so entry points are re-scanned (Supervisor BE starts with the canvas).

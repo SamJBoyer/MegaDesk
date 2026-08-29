@@ -33,4 +33,4 @@ voice_deck = "voice_deck_node"
 py-modules = ["voice_deck_node"]
 
 [tool.setuptools.packages.find]
-include = ["VoiceDeckManager*", "voice_deck_frontend*"]
+include = ["VoiceDeckManager*", "voice_deck_frontend*", "voice_deck_tools*"]

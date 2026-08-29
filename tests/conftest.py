@@ -350,6 +350,10 @@ def fake_gh(
     gh = FakeGh()
     for module in (work_dispatcher_module, auto_integrate_module, pr_manager_module):
         monkeypatch.setattr(module, "run_gh", gh)
+    import work_dispatcher_tools
+
+    monkeypatch.setattr(work_dispatcher_tools, "run_gh", gh)
+    work_dispatcher_tools.reset_draft()
     return gh
 
 
