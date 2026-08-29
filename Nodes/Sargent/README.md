@@ -1,13 +1,15 @@
 # Sargent
 
-A chat window that takes a rough human prompt and returns a clearer, better-structured
-version of the same request. One OpenAI Chat Completions call — not a Cursor agent.
+A two-column prompt rewriter: the left box is a rough human prompt, the right
+box is a clearer, better-structured version of the same request. Enter or send
+publishes the ask; copy puts both panels on the clipboard. One OpenAI Chat
+Completions call — not a Cursor agent.
 
 ## Halves
 
 | Half | What it does |
 |------|--------------|
-| FE (`sargent_frontend/app.py`) | Compact chat: type a prompt, show the rewrite |
+| FE (`sargent_frontend/app.py`) | Left prompt / right rewrite, send + copy |
 | BE (`SargentManager/`) | Consumes `SARGENT:ASK`, calls OpenAI, publishes `SARGENT:ANSWER` |
 
 ## Wire

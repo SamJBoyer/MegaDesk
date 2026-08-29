@@ -1,6 +1,6 @@
 """MegaDesk.nodes entry point for Sargent (FE + BE).
 
-FE: Dear PyGui chat window (requires ``[canvas]``).
+FE: Dear PyGui two-column prompt / rewrite (requires ``[canvas]``).
 BE: SargentManager, which rewrites SARGENT:ASK with one OpenAI call.
 """
 
@@ -22,8 +22,8 @@ def get_fe_spec() -> FeSpec | None:
         name=NODE_NAME,
         description="Rewrite a rough prompt into a clearer one.",
         icon=None,
-        default_width=420,
-        default_height=240,
+        default_width=560,
+        default_height=280,
         build=build_ui,
         backends=(NODE_NAME,),
     )

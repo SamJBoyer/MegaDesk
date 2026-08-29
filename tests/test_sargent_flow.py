@@ -13,9 +13,11 @@ Two seams get their own tests because they fail independently:
 
 from __future__ import annotations
 
+import dearpygui.dearpygui as dpg
 import pytest
 from conftest import SARGENT_ANSWER_CANONICAL_FIELDS, SARGENT_ASK_CANONICAL_FIELDS
 from megadesk_contracts.wire import sargent as wire
+from sargent_frontend.app import format_both_panels
 from SargentManager.openai_client import OpenAIError
 
 ROUGH = "i need a node that take my prompt and make it beter spelling grammer etc"
@@ -67,6 +69,10 @@ def test_answer_rejects_a_status_outside_the_vocabulary() -> None:
         )
 
 
+def test_copied_text_joins_both_panels() -> None:
+    assert format_both_panels(ROUGH, REWRITE) == f"{ROUGH}\n\n{REWRITE}"
+
+
 # --- FE -------------------------------------------------------------------
 
 
@@ -83,8 +89,8 @@ def test_sending_publishes_a_canonical_ask_and_shows_the_rewrite(
     _entry_id, ask = asks[0]
     assert set(ask) == set(SARGENT_ASK_CANONICAL_FIELDS)
     assert ask["prompt"] == ROUGH
-    assert sargent.get("prompt") == "", "the input should clear once the ask is sent"
-    assert sargent.get("qa_q_1") == ROUGH
+    assert sargent.get("prompt") == ROUGH, "the left panel keeps the prompt"
+    assert sargent.get("output") == "…"
     assert sargent.get("status_text") == "Rewriting…"
 
     redis_client.xadd(
@@ -96,10 +102,12 @@ def test_sending_publishes_a_canonical_ask_and_shows_the_rewrite(
         ),
     )
     harness.wait_until(
-        lambda: sargent.get("qa_a_1") == REWRITE,
-        message="the rewrite to reach the chat",
+        lambda: sargent.get("output") == REWRITE,
+        message="the rewrite to reach the right panel",
     )
     assert sargent.get("status_text") == "Ready"
+    sargent.click("copy_btn")
+    assert dpg.get_clipboard_text() == format_both_panels(ROUGH, REWRITE)
 
 
 @pytest.mark.canvas
@@ -132,7 +140,19 @@ def test_a_failed_rewrite_is_surfaced_rather_than_swallowed(
         lambda: sargent.get("status_text") == "Rewrite failed",
         message="the FE to report the failed rewrite",
     )
-    assert "OPENAI_API_KEY" in sargent.get("qa_a_1")
+    assert "OPENAI_API_KEY" in sargent.get("output")
+
+
+@pytest.mark.canvas
+@pytest.mark.redis
+def test_the_send_button_publishes_the_prompt(harness, redis_client, read_stream) -> None:
+    sargent = harness.drop("sargent")
+    sargent.set("prompt", ROUGH)
+    sargent.click("send_btn")
+    asks = read_stream(wire.ASK_STREAM)
+    assert len(asks) == 1
+    assert asks[0][1]["prompt"] == ROUGH
+    assert sargent.get("status_text") == "Rewriting…"
 
 
 # --- BE -------------------------------------------------------------------

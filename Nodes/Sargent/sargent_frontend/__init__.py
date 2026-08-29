@@ -1,1 +1,1 @@
-"""Sargent FE: a compact chat window that publishes prompts and shows rewrites."""
+"""Sargent FE: two-column prompt / rewrite that publishes asks and shows answers."""
