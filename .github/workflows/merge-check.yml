@@ -1,14 +1,10 @@
 name: Merge check
 
 on:
-  # Same-repo PRs into dev: GitHub runs workflows present on the base branch.
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    branches: [dev]
   # Conflicting PRs have no merge ref, so GitHub skips `pull_request`.
-  # `pull_request_target` still runs, but only if this file also exists on
-  # the repo default branch (main). Do not execute PR code: checkout the
-  # base, fetch the PR head as a ref, and detect conflicts with merge-tree.
+  # This event runs from the default branch (main), so merge-check.yml must
+  # exist on main. Do not execute PR code: checkout the base, fetch the PR
+  # head as a ref, and detect conflicts with merge-tree.
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
     branches: [dev]
