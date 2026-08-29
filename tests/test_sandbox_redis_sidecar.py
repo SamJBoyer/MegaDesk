@@ -44,3 +44,29 @@ def test_factory_redis_url_for_container_defaults_live_pair(
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.delenv("REDIS_URL_CONTAINER", raising=False)
     assert factory_redis_url_for_container() == "redis://host.docker.internal:6379/0"
+
+
+def test_list_redis_sidecars_reads_run_keys_from_labels() -> None:
+    from unittest.mock import patch
+
+    from MachineFactoryManager import pool
+
+    with patch.object(pool, "_docker") as docker:
+        docker.return_value.returncode = 0
+        docker.return_value.stdout = "guid-1\nguid-2\n"
+        assert pool.list_redis_sidecars() == ["guid-1", "guid-2"]
+        args = docker.call_args[0][0]
+        assert args[0] == "ps"
+        assert f"label={pool.REDIS_RUN_LABEL}" in args
+        assert f'.Label "{pool.REDIS_RUN_LABEL}"' in args[-1]
+
+
+def test_list_redis_sidecars_empty_when_docker_fails() -> None:
+    from unittest.mock import patch
+
+    from MachineFactoryManager import pool
+
+    with patch.object(pool, "_docker") as docker:
+        docker.return_value.returncode = 1
+        docker.return_value.stdout = ""
+        assert pool.list_redis_sidecars() == []

@@ -887,6 +887,11 @@ class FakeMachineFactory:
         """No-op stand-in for dropping a Redis sidecar after a run ends."""
         self.released.append(run_key)
 
+    def list_sidecars(self) -> list[str]:
+        """Run keys whose Redis sidecar has not been released yet."""
+        done = set(self.released)
+        return [item["run_key"] for item in self.launches if item["run_key"] not in done]
+
     def stop(self, run_key: str) -> None:
         """Make a sandbox vanish the way a crashed container does: silently."""
         self.running.discard(run_key)

@@ -50,7 +50,8 @@ its hash on the way out. `poll_runs` covers the case where it never got the
 chance, which would otherwise leave a hash claiming a run that stopped existing.
 A sandbox is only treated as lost once it has been missing for longer than
 `orphan_grace`, because there is a real moment between publishing `FINISHED` and
-deleting the hash.
+deleting the hash. `poll_sidecars` reaps Redis sidecars when the agent sandbox is
+gone.
 
 ## Prerequisites
 
@@ -154,3 +155,5 @@ registry and the real FINISHED payloads without a container. Its mirror is
 - AgentHandler exits when the job finishes; `--rm` removes the container.
 - Containers are labelled `megadesk.run_key=<guid>`, which is how `poll` and
   `cancel` find one again after a manager restart.
+- Redis sidecars (`megadesk.redis_for=<guid>`) are reaped when the agent sandbox
+  is gone.
