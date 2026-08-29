@@ -1,6 +1,8 @@
 """Sargent FE — type a rough prompt, read the rewrite.
 
-The FE never calls OpenAI itself. It publishes ``SARGENT:ASK`` and reads
+Two columns: the left box is the prompt, the right box is the rewrite.
+Enter or the send button publishes ``SARGENT:ASK``. The copy button puts both
+panels on the clipboard. The FE never calls OpenAI itself; it reads
 ``SARGENT:ANSWER`` with a plain ``XREAD`` so a later consumer can share the
 stream without a group stealing entries.
 """
@@ -30,12 +32,14 @@ ANSWER_BATCH = 50
 COLOR_GREEN = (80, 200, 80, 255)
 COLOR_RED = (220, 70, 70, 255)
 COLOR_BLUE = (70, 140, 230, 255)
-COLOR_AMBER = (215, 170, 70, 255)
 COLOR_DIM = (90, 90, 90, 255)
-COLOR_TEXT_Q = (150, 175, 215, 255)
-COLOR_TEXT_A = (205, 205, 205, 255)
 
 _LIVE: dict[str, "Sargent"] = {}
+
+
+def format_both_panels(prompt: str, output: str) -> str:
+    """Clipboard payload: the left panel, a blank line, then the right panel."""
+    return f"{prompt}\n\n{output}"
 
 
 class Sargent:
@@ -46,18 +50,20 @@ class Sargent:
         self._stop = threading.Event()
         self._worker: Optional[threading.Thread] = None
         self._last_answer_id = "$"
-        self._prompts: dict[str, int] = {}
-        self._rewrites: dict[str, str] = {}
+        self._pending_prompt_id: Optional[str] = None
         self._root_tag = "primary"
         self._frame_registered = False
-        self._row_h = 22
-        self._scroll_max: Optional[int] = None
-        self._wrap = 380
         self._redis: Optional[redis.Redis] = None
         self._connect_redis()
 
     def _tag(self, suffix: str) -> str:
         return f"{self._root_tag}::{suffix}"
+
+    def _widget_text(self, suffix: str) -> str:
+        tag = self._tag(suffix)
+        if not dpg.does_item_exist(tag):
+            return ""
+        return dpg.get_value(tag) or ""
 
     def _connect_redis(self) -> None:
         try:
@@ -75,38 +81,49 @@ class Sargent:
         parent: str,
         *,
         tag_prefix: str,
-        width: int = 420,
-        height: int = 240,
+        width: int = 560,
+        height: int = 280,
     ) -> None:
         self._root_tag = tag_prefix
-        self._wrap = max(160, width - 28)
-        # Status + input row is ~48px; the log takes the rest and starts at two
-        # rows so an empty node stays small.
-        self._scroll_max = max(self._row_h * 2, height - 48) if height else None
+        gutter = 8
+        col_w = max(120, (int(width) - gutter) // 2)
+        body_h = max(72, int(height) - 48)
 
         with dpg.group(parent=parent):
-            dpg.add_text("Idle", tag=self._tag("status_text"), color=COLOR_DIM)
-            dpg.add_child_window(
-                tag=self._tag("chat_scroll"),
-                width=-1,
-                height=self._row_h * 2,
-                border=True,
-            )
             with dpg.group(horizontal=True):
                 dpg.add_input_text(
                     tag=self._tag("prompt"),
-                    width=-48,
+                    multiline=True,
+                    width=col_w,
+                    height=body_h,
                     hint="rough prompt",
                     callback=self._on_prompt,
                     on_enter=True,
+                    ctrl_enter_for_new_line=True,
                 )
+                dpg.add_input_text(
+                    tag=self._tag("output"),
+                    multiline=True,
+                    width=col_w,
+                    height=body_h,
+                    readonly=True,
+                )
+            with dpg.group(horizontal=True):
                 dpg.add_button(
-                    label="go",
-                    width=40,
+                    label="send",
+                    width=48,
                     height=22,
                     tag=self._tag("send_btn"),
                     callback=self._on_prompt,
                 )
+                dpg.add_button(
+                    label="copy",
+                    width=48,
+                    height=22,
+                    tag=self._tag("copy_btn"),
+                    callback=self._on_copy,
+                )
+                dpg.add_text("Idle", tag=self._tag("status_text"), color=COLOR_DIM)
 
         dpg.set_item_user_data(parent, self.shutdown)
         self._start_services()
@@ -138,8 +155,7 @@ class Sargent:
         _LIVE.pop(self._root_tag, None)
 
     def _on_prompt(self, sender=None, app_data=None, user_data=None) -> None:
-        tag = self._tag("prompt")
-        prompt = (dpg.get_value(tag) or "").strip() if dpg.does_item_exist(tag) else ""
+        prompt = self._widget_text("prompt").strip()
         if not prompt:
             return
         if self._redis is None:
@@ -161,9 +177,19 @@ class Sargent:
             self._redis = None
             return
 
-        self._add_qa_row(prompt_id, prompt)
-        dpg.set_value(tag, "")
+        self._pending_prompt_id = prompt_id
+        self._set_output("…")
         self._status("Rewriting…", COLOR_BLUE)
+
+    def _on_copy(self, sender=None, app_data=None, user_data=None) -> None:
+        dpg.set_clipboard_text(
+            format_both_panels(self._widget_text("prompt"), self._widget_text("output"))
+        )
+
+    def _set_output(self, text: str) -> None:
+        tag = self._tag("output")
+        if dpg.does_item_exist(tag):
+            dpg.set_value(tag, text)
 
     def _worker_loop(self) -> None:
         while not self._stop.is_set():
@@ -225,64 +251,23 @@ class Sargent:
             dpg.set_value(tag, text)
             dpg.configure_item(tag, color=color)
 
-    def _add_qa_row(self, prompt_id: str, prompt: str) -> None:
-        index = len(self._prompts) + 1
-        self._prompts[prompt_id] = index
-        self._rewrites[prompt_id] = ""
-        scroll = self._tag("chat_scroll")
-        if not dpg.does_item_exist(scroll):
-            return
-        dpg.add_text(
-            prompt,
-            parent=scroll,
-            wrap=self._wrap,
-            color=COLOR_TEXT_Q,
-            tag=self._tag(f"qa_q_{index}"),
-        )
-        dpg.add_text(
-            "…",
-            parent=scroll,
-            wrap=self._wrap,
-            color=COLOR_TEXT_A,
-            tag=self._tag(f"qa_a_{index}"),
-        )
-        self._resize_scroll()
-
     def _apply_answer(self, answer: dict) -> None:
-        prompt_id = answer["prompt_id"]
-        index = self._prompts.get(prompt_id)
-        if index is None:
+        if answer["prompt_id"] != self._pending_prompt_id:
             return
         text = (answer["rewrite"] or "").strip() or "(empty)"
-        self._rewrites[prompt_id] = text
-        tag = self._tag(f"qa_a_{index}")
-        if dpg.does_item_exist(tag):
-            dpg.set_value(tag, text)
-            failed = answer["status"] == wire.STATUS_ERROR
-            dpg.configure_item(tag, color=COLOR_RED if failed else COLOR_TEXT_A)
+        self._set_output(text)
         if answer["status"] == wire.STATUS_ERROR:
             self._apply_status("Rewrite failed", COLOR_RED)
         else:
             self._apply_status("Ready", COLOR_GREEN)
-        self._resize_scroll()
-
-    def _resize_scroll(self) -> None:
-        scroll = self._tag("chat_scroll")
-        if not dpg.does_item_exist(scroll):
-            return
-        rows = max(2, 2 * len(self._prompts))
-        height = rows * self._row_h
-        if self._scroll_max is not None:
-            height = min(height, self._scroll_max)
-        dpg.configure_item(scroll, height=height)
 
 
 def build_ui(
     parent: str,
     *,
     tag_prefix: str,
-    width: int = 420,
-    height: int = 240,
+    width: int = 560,
+    height: int = 280,
 ) -> None:
     """Module-level builder for FeSpec / MegaDesk canvas hosting."""
     Sargent().build_ui(parent, tag_prefix=tag_prefix, width=width, height=height)
