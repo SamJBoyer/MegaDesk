@@ -104,6 +104,7 @@ Leftover stream entries do not start work.
 | `instructions` | What to change; the agent has no other context |
 | `model` | Model id, or `auto` |
 | `auto_pr` | `"true"` opens a PR when the work lands |
+| `pictures` | JSON list of image URLs for agent context; default `[]` |
 
 ## CLOUDFINISHED
 

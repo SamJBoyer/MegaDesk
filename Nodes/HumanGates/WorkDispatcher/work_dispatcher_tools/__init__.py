@@ -9,6 +9,7 @@ from megadesk_contracts import ToolSpec
 from megadesk_contracts.human_gate import (
     LABEL_AGENT_READY,
     check_repo,
+    extract_issue_pictures,
     list_labeled_issues,
     normalize_repo_url,
     parse_github_repo,
@@ -231,6 +232,7 @@ def handle_send_ticket(arguments: dict, host: Any) -> dict:
             repo_name = repo_name[:-4]
 
     instructions = ticket.body or ticket.name
+    pictures = extract_issue_pictures(ticket.body)
     try:
         if factory == "machine":
             stream = WORKORDER_STREAM
@@ -241,6 +243,7 @@ def handle_send_ticket(arguments: dict, host: Any) -> dict:
                 instructions=instructions,
                 model=model,
                 auto_pr=True,
+                pictures=pictures,
             )
         else:
             stream = CLOUDORDER_STREAM
@@ -251,6 +254,7 @@ def handle_send_ticket(arguments: dict, host: Any) -> dict:
                 instructions=instructions,
                 model=model,
                 auto_pr=True,
+                pictures=pictures,
             )
     except ValueError as exc:
         return {"status": "error", "detail": str(exc)}

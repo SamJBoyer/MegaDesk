@@ -11,6 +11,8 @@ convincing itself the work was good, and it read like it.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 _DIFF_LIMIT = 6000
 
 
@@ -42,6 +44,7 @@ def workhorse_prompt(
     ticket_name: str,
     instructions: str,
     pathfinder_report: str = "",
+    pictures: Sequence[str] = (),
 ) -> str:
     lines = [f"Ticket: {ticket_name}", "", instructions.strip()]
     if pathfinder_report.strip():
@@ -49,6 +52,12 @@ def workhorse_prompt(
             "",
             "A survey of this sandbox clone was done before you started:",
             pathfinder_report.strip(),
+        ]
+    if pictures:
+        lines += [
+            "",
+            f"{len(tuple(pictures))} reference image(s) are attached."
+            " Use them as visual context.",
         ]
     lines += [
         "",

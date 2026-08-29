@@ -30,6 +30,7 @@ a Docker daemon or a paid Cursor VM; see ``megadesk_contracts.testing.fakes``.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Mapping, Protocol, runtime_checkable
 
@@ -71,3 +72,24 @@ class AgentFactory(Protocol):
     def poll(self, run_key: str) -> RunStatus: ...
 
     def cancel(self, run_key: str) -> None: ...
+
+
+def prompt_payload(text: str, pictures: Sequence[str] = ()) -> Any:
+    """What ``agent.send`` receives: a string, or text plus image URLs.
+
+    A bare string stays the payload when the order has no pictures, so
+    existing callers and test fakes keep working. Cursor accepts a
+    ``UserMessage`` (or a dict with ``images``) when reference pictures
+    need to travel with the prompt.
+    """
+    urls = [str(url).strip() for url in pictures if str(url).strip()]
+    if not urls:
+        return text
+    try:
+        from cursor_sdk import SDKImage, UserMessage
+    except ImportError:
+        return {"text": text, "images": [{"url": url} for url in urls]}
+    builder = getattr(SDKImage, "url_image", None)
+    if callable(builder):
+        return UserMessage(text=text, images=[builder(url) for url in urls])
+    return {"text": text, "images": [{"url": url} for url in urls]}

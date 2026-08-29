@@ -341,7 +341,14 @@ def test_list_tickets_reports_how_many_are_waiting(
 def test_choose_set_and_send_writes_a_workorder(
     voice_session, fake_realtime, fake_gh, redis_client, read_stream
 ) -> None:
-    fake_gh.add_issue(41, "add-widget-tests", "Cover the widget module with tests.")
+    from megadesk_contracts.wire.machine import parse_workorder
+
+    shot = "https://github.com/user-attachments/assets/voice-shot"
+    fake_gh.add_issue(
+        41,
+        "add-widget-tests",
+        f"Cover the widget module with tests. ![shot]({shot})",
+    )
     voice_session.start()
     _list_and_choose(voice_session, fake_realtime)
 
@@ -367,6 +374,7 @@ def test_choose_set_and_send_writes_a_workorder(
     assert orders[0][1]["ticket_name"] == "add-widget-tests"
     assert orders[0][1]["model"] == "grok-4.6"
     assert orders[0][1]["URL"] == TICKET_REPO
+    assert parse_workorder(orders[0][1])["pictures"] == [shot]
     assert read_stream(cloud_wire.CLOUDORDER_STREAM) == []
 
 

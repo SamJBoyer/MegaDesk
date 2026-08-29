@@ -98,7 +98,7 @@ Writers emit canonical field names only. Tests assert that set — see
 [`tests/test_wire_contract.py`](../tests/test_wire_contract.py).
 
 `WORKORDER` fields: `repo`, `URL`, `ref`, `ticket_name`, `instructions`,
-`model`, `auto_pr`. `FINISHED:<REPO>` fields: `ticket_name`, `ticket_id`,
+`model`, `auto_pr`, `pictures`. `FINISHED:<REPO>` fields: `ticket_name`, `ticket_id`,
 `status`, `pr_url`. PRManager shows and opens PRs whose merge-check `mergeable`
 status succeeded; it does not consume `FINISHED`.
 
