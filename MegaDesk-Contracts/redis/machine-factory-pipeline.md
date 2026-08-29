@@ -75,6 +75,7 @@ order is dropped — leftover tickets cannot re-run after a restart.
 | `instructions` | yes | Agent prompt body |
 | `model` | no | Model id; default `"auto"` |
 | `auto_pr` | no | `"true"` / `"false"`; default `"true"` |
+| `pictures` | no | JSON list of image URLs for agent context; default `[]` |
 
 ### Stream id as ticket id
 

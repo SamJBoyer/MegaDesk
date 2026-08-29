@@ -9,7 +9,8 @@ diagnosed cheaply.
 
 from __future__ import annotations
 
-from typing import Any, Iterable, Mapping
+import json
+from typing import Any, Iterable, Mapping, Sequence
 
 BOOL_TRUE = "true"
 BOOL_FALSE = "false"
@@ -56,3 +57,39 @@ def one_of(kind: str, field: str, value: str, allowed: frozenset[str]) -> str:
             f"{kind} {field}={value!r} is not one of {', '.join(sorted(allowed))}"
         )
     return value
+
+
+def parse_pictures(value: Any) -> list[str]:
+    """Image URLs from a wire field: a JSON list, a list, or one URL."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        raw_items: Sequence[Any] = value
+    else:
+        text = str(value).strip()
+        if not text:
+            return []
+        if text.startswith("["):
+            try:
+                loaded = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"pictures is not a JSON list: {exc}") from exc
+            if not isinstance(loaded, list):
+                raise ValueError("pictures must be a JSON list")
+            raw_items = loaded
+        else:
+            raw_items = [text]
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in raw_items:
+        url = stripped(item)
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        out.append(url)
+    return out
+
+
+def pictures_field(value: Any = "") -> str:
+    """JSON array of image URLs. Empty means the order has no pictures."""
+    return json.dumps(parse_pictures(value), separators=(",", ":"))

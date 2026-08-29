@@ -6,7 +6,7 @@
 
 (STREAM, db0) CLOUDORDER
   - reference store written by the factory after it receives the signal
-  - order_id, repo_url, ref, title, instructions, model, auto_pr
+  - order_id, repo_url, ref, title, instructions, model, auto_pr, pictures
 
 (STREAM, db0) CLOUDFINISHED
   - agent_id, order_id, status, pr_url
@@ -39,6 +39,8 @@ from megadesk_contracts.wire._fields import (
     bool_field,
     is_true,
     one_of,
+    parse_pictures,
+    pictures_field,
     require,
     stripped,
     text_field,
@@ -144,6 +146,7 @@ def cloudorder_fields(
     model: str = DEFAULT_MODEL,
     auto_pr: bool = True,
     ref: str = "",
+    pictures: Any = "",
 ) -> dict[str, str]:
     fields = {
         "order_id": stripped(order_id),
@@ -153,6 +156,7 @@ def cloudorder_fields(
         "instructions": text_field(instructions),
         "model": stripped(model) or DEFAULT_MODEL,
         "auto_pr": bool_field(auto_pr),
+        "pictures": pictures_field(pictures),
     }
     require(
         "CLOUDORDER", fields, ("order_id", "repo_url", "title", "instructions")
@@ -169,6 +173,7 @@ def parse_cloudorder(fields: Mapping[str, Any]) -> dict[str, Any]:
         "instructions": text_field(fields.get("instructions")),
         "model": stripped(fields.get("model")) or DEFAULT_MODEL,
         "auto_pr": is_true(fields.get("auto_pr", True)),
+        "pictures": parse_pictures(fields.get("pictures")),
     }
     require(
         "CLOUDORDER", parsed, ("order_id", "repo_url", "title", "instructions")

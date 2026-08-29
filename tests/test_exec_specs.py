@@ -10,8 +10,8 @@ def test_be_nodes_declare_their_launch_endpoints() -> None:
     from code_scope_node import get_fe_spec as scope_fe
     from machine_factory_node import get_be_spec as mc_be
     from machine_factory_node import get_fe_spec as mc_fe
-    from sargent_node import get_be_spec as sargent_be
-    from sargent_node import get_fe_spec as sargent_fe
+    from sargent_node import get_be_spec as promptimprover_be
+    from sargent_node import get_fe_spec as promptimprover_fe
     from voice_deck_node import get_be_spec as voice_be
     from voice_deck_node import get_fe_spec as voice_fe
 
@@ -25,8 +25,8 @@ def test_be_nodes_declare_their_launch_endpoints() -> None:
     assert voice_be().name == "voice_deck"
     assert cloud_fe().backends == ("cloud_factory",)
     assert cloud_be().name == "cloud_factory"
-    assert sargent_fe().backends == ("sargent",)
-    assert sargent_be().name == "sargent"
+    assert promptimprover_fe().backends == ("promptimprover",)
+    assert promptimprover_be().name == "promptimprover"
 
 
 def test_fe_only_nodes_do_not_launch_a_backend() -> None:
@@ -68,6 +68,7 @@ def test_fe_only_nodes_do_not_launch_a_backend() -> None:
 def test_nodes_with_voice_tools_declare_them() -> None:
     from code_scope_node import get_tool_spec as scope_tools
     from notepad_node import get_tool_spec as notepad_tools
+    from sargent_node import get_tool_spec as promptimprover_tools
     from voice_deck_node import get_tool_spec as voice_tools
     from work_dispatcher_node import get_tool_spec as wd_tools
     from work_dispatcher_node import get_fe_spec as wd_fe
@@ -75,11 +76,13 @@ def test_nodes_with_voice_tools_declare_them() -> None:
     code = scope_tools()
     tickets = wd_tools()
     notes = notepad_tools()
+    rewrite = promptimprover_tools()
     session = voice_tools()
     assert (
         code is not None
         and tickets is not None
         and notes is not None
+        and rewrite is not None
         and session is not None
     )
     assert code.name == "code_scope"
@@ -101,6 +104,9 @@ def test_nodes_with_voice_tools_declare_them() -> None:
         "add_note_text",
         "switch_note",
     }
+    assert rewrite.name == "promptimprover"
+    assert {schema["name"] for schema in rewrite.schemas} == {"revise_my_prompt"}
+    assert set(rewrite.handlers) == {schema["name"] for schema in rewrite.schemas}
     assert session.name == "voice_deck"
     assert {schema["name"] for schema in session.schemas} == {"end_session"}
     assert set(code.handlers) == {schema["name"] for schema in code.schemas}

@@ -67,10 +67,16 @@ class FakeRun:
 class FakeCursorAgent:
     """Records every prompt. Fails when the prompt contains ``fail_needle``."""
 
-    def __init__(self, recorder: list[str], fail_needle: str = "") -> None:
+    def __init__(
+        self,
+        recorder: list[str],
+        fail_needle: str = "",
+        images: list[list[Any]] | None = None,
+    ) -> None:
         self.agent_id = "ag-1"
         self._recorder = recorder
         self._fail_needle = fail_needle
+        self._images = images if images is not None else []
 
     def __enter__(self) -> "FakeCursorAgent":
         return self
@@ -78,18 +84,32 @@ class FakeCursorAgent:
     def __exit__(self, *exc: Any) -> bool:
         return False
 
-    def send(self, instruction: str) -> FakeRun:
-        self._recorder.append(instruction)
-        if self._fail_needle and self._fail_needle in instruction:
+    def send(self, payload: Any) -> FakeRun:
+        if isinstance(payload, dict):
+            text = str(payload.get("text") or "")
+            self._images.append(list(payload.get("images") or []))
+        else:
+            text = payload if isinstance(payload, str) else str(
+                getattr(payload, "text", payload)
+            )
+            images = getattr(payload, "images", None)
+            self._images.append(list(images or []))
+        self._recorder.append(text)
+        if self._fail_needle and self._fail_needle in text:
             return FakeRun(status="error", result="")
         return FakeRun(status="finished", result="ok")
 
     @classmethod
-    def bind(cls, recorder: list[str], fail_needle: str = "") -> type:
+    def bind(
+        cls,
+        recorder: list[str],
+        fail_needle: str = "",
+        images: list[list[Any]] | None = None,
+    ) -> type:
         class Bound(cls):  # type: ignore[valid-type,misc]
             @classmethod
             def create(inner_cls, **kwargs: Any) -> "FakeCursorAgent":
-                return FakeCursorAgent(recorder, fail_needle)
+                return FakeCursorAgent(recorder, fail_needle, images)
 
         return Bound
 
@@ -112,6 +132,7 @@ def _seed_order(
     guid: str,
     workspace: Path,
     ticket_name: str = "add-widget-tests",
+    pictures: list[str] | None = None,
 ) -> str:
     ticket_id = redis_client.xadd(
         machine_wire.WORKORDER_STREAM,
@@ -121,6 +142,7 @@ def _seed_order(
             ticket_name=ticket_name,
             instructions="Create harness-smoke.txt with the text ok",
             model="auto",
+            pictures=pictures or [],
         ),
     )
     redis_client.hset(
@@ -250,6 +272,41 @@ def test_work_graph_happy_path_publishes_finished_and_clears_hashes(
     assert "When you commit your work" not in joined
     assert "Commit the work already present" in joined
     assert "Names the ticket" in joined
+
+
+@pytest.mark.git
+def test_work_graph_attaches_order_pictures_to_the_workhorse(
+    redis_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from AgentHandler.graph import run_work_graph
+
+    shot = "https://github.com/user-attachments/assets/work-shot"
+    guid = "wg-pictures"
+    workspace = tmp_path / "wt"
+    _seed_order(redis_client, guid=guid, workspace=workspace, pictures=[shot])
+    _init_dirty_repo(workspace)
+
+    prompts: list[str] = []
+    images: list[list[Any]] = []
+    monkeypatch.setattr(
+        "AgentHandler.handler.Agent", FakeCursorAgent.bind(prompts, images=images)
+    )
+
+    audit = AgentAuditLog(guid, path=tmp_path / "audit.md", repo="widgets")
+    try:
+        final = run_work_graph(
+            _context(redis_client, guid=guid, workspace=workspace, audit=audit)
+        )
+    finally:
+        audit.close()
+
+    assert final.get("status") == machine_wire.STATUS_FINISHED
+    workhorse = next(
+        payload for payload, prompt in zip(images, prompts) if "Ticket:" in prompt
+    )
+    assert workhorse
+    assert any(shot in str(item) for item in workhorse)
+    assert "reference image(s) are attached" in "\n".join(prompts)
 
 
 def test_work_graph_prepares_repo_on_startup_and_restores_on_teardown(

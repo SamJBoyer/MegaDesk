@@ -1,29 +1,13 @@
 {
   "members": {
-    "48e5ab77-69b4-421a-a48e-ed464a7603f1": {
-      "member_id": "48e5ab77-69b4-421a-a48e-ed464a7603f1",
-      "type": "megadesk",
-      "nickname": "machine_factory",
-      "node_name": "machine_factory",
-      "position": [
-        927.0,
-        -188.0
-      ],
-      "parameters": {},
-      "data": {
-        "width": 520.0,
-        "height": 400.0,
-        "node_name": "machine_factory"
-      }
-    },
     "2dcff599-6995-4179-bdd0-b7c2cbb391b0": {
       "member_id": "2dcff599-6995-4179-bdd0-b7c2cbb391b0",
       "type": "megadesk",
       "nickname": "work_dispatcher",
       "node_name": "work_dispatcher",
       "position": [
-        414.0,
-        -185.0
+        -640.0,
+        -733.0
       ],
       "parameters": {
         "GIT_URL": "https://github.com/SamJBoyer/MegaDesk.git",
@@ -41,8 +25,8 @@
       "nickname": "pr_manager",
       "node_name": "pr_manager",
       "position": [
-        932.0,
-        284.0
+        920.0,
+        68.0
       ],
       "parameters": {
         "GIT_URL": "https://github.com/SamJBoyer/MegaDesk.git"
@@ -59,14 +43,62 @@
       "nickname": "graph_scope",
       "node_name": "graph_scope",
       "position": [
-        409.0,
-        53.0
+        304.0,
+        115.0
       ],
       "parameters": {},
       "data": {
         "width": 480.0,
         "height": 240.0,
         "node_name": "graph_scope"
+      }
+    },
+    "522f8728-eb3a-4c2e-bd41-248c68fdb479": {
+      "member_id": "522f8728-eb3a-4c2e-bd41-248c68fdb479",
+      "type": "megadesk",
+      "nickname": "machine_factory",
+      "node_name": "machine_factory",
+      "position": [
+        884.0,
+        -225.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 420.0,
+        "height": 180.0,
+        "node_name": "machine_factory"
+      }
+    },
+    "93cc185a-8d5d-414f-9d22-a59b107c3dbe": {
+      "member_id": "93cc185a-8d5d-414f-9d22-a59b107c3dbe",
+      "type": "megadesk",
+      "nickname": "auto_integrate",
+      "node_name": "auto_integrate",
+      "position": [
+        920.0,
+        305.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 520.0,
+        "height": 160.0,
+        "node_name": "auto_integrate"
+      }
+    },
+    "a25c250d-476c-43cd-bd4b-00af34bd9765": {
+      "member_id": "a25c250d-476c-43cd-bd4b-00af34bd9765",
+      "type": "megadesk",
+      "nickname": "work_dispatcher",
+      "node_name": "work_dispatcher",
+      "position": [
+        375.0,
+        265.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 960.0,
+        "height": 160.0,
+        "node_name": "work_dispatcher"
       }
     }
   }

@@ -73,6 +73,59 @@ def test_workorder_round_trips_through_the_parser(machine_wire) -> None:
     assert parsed["auto_pr"] is True
     assert parsed["URL"] == "https://github.com/acme/widgets"
     assert parsed["model"] == "grok-4.5"
+    assert parsed["pictures"] == []
+
+
+def test_prompt_payload_stays_a_string_without_pictures() -> None:
+    from megadesk_contracts.factory import prompt_payload
+
+    assert prompt_payload("do the work") == "do the work"
+
+
+def test_pictures_round_trip_on_both_order_families(machine_wire) -> None:
+    from megadesk_contracts.human_gate import extract_issue_pictures
+    from megadesk_contracts.wire import cloud
+
+    urls = [
+        "https://github.com/user-attachments/assets/aaaa",
+        "https://example.com/mock.png",
+    ]
+    body = (
+        "See ![one](https://github.com/user-attachments/assets/aaaa) "
+        "and <img src=\"https://example.com/mock.png\">."
+    )
+    assert extract_issue_pictures(body) == urls
+
+    machine = machine_wire.parse_workorder(
+        machine_wire.workorder_fields(**WORKORDER_SAMPLE, pictures=urls)
+    )
+    assert machine["pictures"] == urls
+
+    cloud_parsed = cloud.parse_cloudorder(
+        cloud.cloudorder_fields(
+            order_id="order-1",
+            repo_url="https://github.com/acme/widgets",
+            title="add-widget-tests",
+            instructions="Cover the widget module.",
+            pictures=urls,
+        )
+    )
+    assert cloud_parsed["pictures"] == urls
+    assert extract_issue_pictures("no images here") == []
+
+
+def test_workorder_parser_accepts_a_legacy_entry_without_pictures(machine_wire) -> None:
+    parsed = machine_wire.parse_workorder(
+        {
+            "repo": "widgets",
+            "URL": "https://github.com/acme/widgets",
+            "ticket_name": "add-widget-tests",
+            "instructions": "Cover the widget module.",
+            "model": "auto",
+            "auto_pr": "true",
+        }
+    )
+    assert parsed["pictures"] == []
 
 
 def test_finished_round_trips_through_the_parser(machine_wire) -> None:

@@ -77,7 +77,16 @@ def _isolate_megadesk_logs(tmp_path, monkeypatch):
 
 # Canonical wire format. Every writer emits these names; parsers require them.
 WORKORDER_CANONICAL_FIELDS = frozenset(
-    {"repo", "URL", "ref", "ticket_name", "instructions", "model", "auto_pr"}
+    {
+        "repo",
+        "URL",
+        "ref",
+        "ticket_name",
+        "instructions",
+        "model",
+        "auto_pr",
+        "pictures",
+    }
 )
 FINISHED_CANONICAL_FIELDS = frozenset(
     {"ticket_name", "ticket_id", "status", "pr_url"}
@@ -97,7 +106,16 @@ CODESCOPE_SESSION_CANONICAL_FIELDS = frozenset(
 VOICE_CONTROL_CANONICAL_FIELDS = frozenset({"action", "value"})
 VOICE_EVENT_CANONICAL_FIELDS = frozenset({"kind", "text", "session_id"})
 CLOUDORDER_CANONICAL_FIELDS = frozenset(
-    {"order_id", "repo_url", "ref", "title", "instructions", "model", "auto_pr"}
+    {
+        "order_id",
+        "repo_url",
+        "ref",
+        "title",
+        "instructions",
+        "model",
+        "auto_pr",
+        "pictures",
+    }
 )
 CLOUDFINISHED_CANONICAL_FIELDS = frozenset(
     {"agent_id", "order_id", "status", "pr_url"}

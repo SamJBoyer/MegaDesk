@@ -81,7 +81,7 @@ def test_copied_text_joins_both_panels() -> None:
 def test_sending_publishes_a_canonical_ask_and_shows_the_rewrite(
     harness, redis_client, read_stream
 ) -> None:
-    sargent = harness.drop("sargent")
+    sargent = harness.drop("promptimprover")
     sargent.type_into("prompt", ROUGH)
 
     asks = read_stream(wire.ASK_STREAM)
@@ -113,7 +113,7 @@ def test_sending_publishes_a_canonical_ask_and_shows_the_rewrite(
 @pytest.mark.canvas
 @pytest.mark.redis
 def test_an_empty_prompt_is_not_published(harness, redis_client, read_stream) -> None:
-    sargent = harness.drop("sargent")
+    sargent = harness.drop("promptimprover")
     sargent.type_into("prompt", "   ")
     assert read_stream(wire.ASK_STREAM) == []
     assert sargent.get("status_text") == "Idle"
@@ -124,7 +124,7 @@ def test_an_empty_prompt_is_not_published(harness, redis_client, read_stream) ->
 def test_a_failed_rewrite_is_surfaced_rather_than_swallowed(
     harness, redis_client, read_stream
 ) -> None:
-    sargent = harness.drop("sargent")
+    sargent = harness.drop("promptimprover")
     sargent.type_into("prompt", ROUGH)
     _entry_id, ask = read_stream(wire.ASK_STREAM)[0]
     redis_client.xadd(
@@ -146,7 +146,7 @@ def test_a_failed_rewrite_is_surfaced_rather_than_swallowed(
 @pytest.mark.canvas
 @pytest.mark.redis
 def test_the_send_button_publishes_the_prompt(harness, redis_client, read_stream) -> None:
-    sargent = harness.drop("sargent")
+    sargent = harness.drop("promptimprover")
     sargent.set("prompt", ROUGH)
     sargent.click("send_btn")
     asks = read_stream(wire.ASK_STREAM)

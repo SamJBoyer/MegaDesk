@@ -121,6 +121,27 @@ def test_t1c_dispatch_to_cloud_writes_a_canonical_cloudorder(
     assert workorders() == []
 
 
+def test_t1d_issue_pictures_travel_on_the_workorder(
+    redis_client, fake_gh, harness, workorders
+) -> None:
+    from megadesk_contracts.wire.machine import parse_workorder
+
+    shot = "https://github.com/user-attachments/assets/demo-shot"
+    fake_gh.add_issue(
+        41,
+        "match-the-mock",
+        f"Build this. ![mock]({shot})",
+    )
+
+    dispatcher = connect_dispatcher(harness)
+    dispatch(harness, dispatcher, 41)
+
+    entries = workorders()
+    assert len(entries) == 1
+    parsed = parse_workorder(entries[0][1])
+    assert parsed["pictures"] == [shot]
+
+
 def test_t1b_issue_without_a_body_falls_back_to_its_title(
     redis_client, fake_gh, harness, workorders
 ) -> None:

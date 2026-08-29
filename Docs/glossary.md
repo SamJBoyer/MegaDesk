@@ -23,7 +23,7 @@ Work graph: the LangGraph AgentHandler runs inside a sandbox. Five nodes in a st
 
 GraphScope: FE-only canvas node that draws a live work-graph run from `GRAPHRUN:<guid>` and `GRAPHEVENT`.
 
-Sargent: FE + BE canvas node that rewrites a rough prompt through one OpenAI chat-completions call (`SARGENT:ASK` / `SARGENT:ANSWER`).
+PromptImprover: FE + BE + tools canvas node that rewrites a rough prompt through one OpenAI chat-completions call (`SARGENT:ASK` / `SARGENT:ANSWER`). VoiceDeck can call `revise_my_prompt` and speak the rewrite.
 
 Run: one agent doing one order. A Factory tracks it by a **run key** (a sandbox guid locally, a `bc-` agent id in the cloud) and reports one of `queued`, `running`, `finished`, `error`, `cancelled`, `startup_error`.
 
