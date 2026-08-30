@@ -86,7 +86,7 @@ there. A node shipping its own `redis_packets.py` is a bug, not a shortcut:
 
 - `MegaDesk-Contracts/megadesk_contracts/wire/factory.py` — status vocabulary shared by both factories
 - `MegaDesk-Contracts/megadesk_contracts/wire/machine.py` — `WORKORDER`, `AGENTHANDLER`, `FINISHED`
-- `MegaDesk-Contracts/megadesk_contracts/wire/graph.py` — `GRAPHRUN`, `GRAPHEVENT`, `WORK_GRAPH`
+- `MegaDesk-Contracts/megadesk_contracts/wire/graph.py` — `GRAPHRUN`, `GRAPHEVENT`, `WORK_GRAPH`, `MASSIVE_PROJECT_GRAPH`
 - `MegaDesk-Contracts/megadesk_contracts/wire/cloud.py` — `CLOUDORDER`, `CLOUDFINISHED`, `CLOUDRUN`
 - `MegaDesk-Contracts/megadesk_contracts/wire/code_scope.py`
 - `MegaDesk-Contracts/megadesk_contracts/wire/sargent.py`

@@ -4,9 +4,12 @@ Runs agents on this machine. **MachineFactoryManager** reads Redis stream
 `WORKORDER`, starts a one-shot **AgentHandler** Docker sandbox that clones the
 named repo, and gives the agent a Redis **sidecar** as `REDIS_URL`. Factory IPC
 (WORKORDER / AGENTHANDLER / FINISHED) stays on `MEGADESK_FACTORY_REDIS_URL` (the
-host pair). AgentHandler runs a LangGraph work graph — startup, pathfinder,
-workhorse, git, teardown — then publishes `FINISHED:<repo>` with `status` +
-`pr_url` and deletes its hashes.
+host pair). AgentHandler runs a LangGraph work graph selected by `WORKORDER.graph`
+(`work` by default, or `massive` for a ticket too big for one workhorse).
+`work` is startup → pathfinder → workhorse → git → teardown. `massive` is
+startup → orchestrator → dispatcher → ralph (one commit per card) → test →
+teardown. Then it publishes `FINISHED:<repo>` with `status` + `pr_url` and
+deletes its hashes.
 
 The cloud counterpart is [CloudFactory](../CloudFactory/README.md); what the two
 share, and where they honestly differ, is in [Factory](../README.md).
@@ -16,7 +19,7 @@ WORKORDER
     → HSET AGENTHANDLER:<guid> {ticket_id, status, error}
     → Docker sandbox + Redis sidecar (clone URL into workspace)
     → AgentHandler loads WORKORDER via ticket_id
-    → work graph: startup → pathfinder → workhorse → git → teardown
+    → work graph (`work` or `massive`, from WORKORDER.graph)
     → XADD FINISHED:<repo> {ticket_name, ticket_id, status, pr_url}
     → DEL AGENTHANDLER + GRAPHRUN, exits
 ```
@@ -110,7 +113,7 @@ Per-node progress is a second family, `megadesk_contracts.wire.graph`
 
 | Where | Key | Carries |
 |-------|-----|---------|
-| db 0 stream | `WORKORDER` | `repo`, `URL`, `ticket_name`, `instructions`, `model`, `auto_pr`, `pictures`, `issue` |
+| db 0 stream | `WORKORDER` | `repo`, `URL`, `ticket_name`, `instructions`, `model`, `auto_pr`, `pictures`, `issue`, `graph` |
 | db 0 hash | `AGENTHANDLER:<guid>` | `ticket_id`, `status`, `error` |
 | db 0 hash | `GRAPHRUN:<guid>` | live work-graph progress (`spec`, `nodes`, `current`, …) |
 | db 0 stream | `GRAPHEVENT` | per-node timeline (`guid`, `node`, `status`, `detail`, `ts`) |
@@ -126,7 +129,7 @@ repo's outcomes. Inside the sandbox, `REDIS_URL` points at the Redis
 sidecar; `MEGADESK_FACTORY_REDIS_URL` is the factory bus on the host pair.
 
 ```powershell
-redis-cli XADD WORKORDER * repo Helmsman URL https://github.com/SamJBoyer/Helmsman.git ticket_name 1 instructions "Create harness-smoke.txt with the text ok" model auto auto_pr true
+redis-cli XADD WORKORDER * repo Helmsman URL https://github.com/SamJBoyer/Helmsman.git ticket_name 1 instructions "Create harness-smoke.txt with the text ok" model auto auto_pr true graph work
 redis-cli XRANGE FINISHED:Helmsman - +
 ```
 

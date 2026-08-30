@@ -6,7 +6,8 @@
 
 (STREAM, db0) WORKORDER
   - reference store written by the factory after it receives the signal
-  - repo, URL, ref, ticket_name, instructions, model, auto_pr, pictures, issue
+  - repo, URL, ref, ticket_name, instructions, model, auto_pr, pictures, issue,
+    graph
 
 (HASH, db0) AGENTHANDLER:<guid>
   - ticket_id, status, error
@@ -54,6 +55,7 @@ from megadesk_contracts.wire._fields import (
     stripped,
     text_field,
 )
+from megadesk_contracts.wire.graph import DEFAULT_GRAPH, GRAPH_NAMES
 from megadesk_contracts.wire.signal import publish_fields
 from megadesk_contracts.wire.factory import (
     DEFAULT_MODEL,
@@ -161,6 +163,7 @@ def workorder_fields(
     ref: str = "",
     pictures: Any = "",
     issue: str = "",
+    graph: str = "",
 ) -> dict[str, str]:
     """Build a WORKORDER stream entry.
 
@@ -169,7 +172,11 @@ def workorder_fields(
     ``DEFAULT_STARTING_REF``. ``pictures`` is a JSON list of image URLs the
     agent should see as context; empty means none. ``issue`` is the GitHub
     issue number when the order came from a labeled ticket; empty otherwise.
+    ``graph`` names the AgentHandler work graph (``work`` or ``massive``);
+    empty means ``DEFAULT_GRAPH``.
     """
+    chosen = stripped(graph) or DEFAULT_GRAPH
+    one_of("WORKORDER", "graph", chosen, GRAPH_NAMES)
     fields = {
         "repo": stripped(repo),
         "URL": stripped(url),
@@ -180,6 +187,7 @@ def workorder_fields(
         "auto_pr": bool_field(auto_pr),
         "pictures": pictures_field(pictures),
         "issue": stripped(issue),
+        "graph": chosen,
     }
     require(
         "WORKORDER",
@@ -201,7 +209,9 @@ def parse_workorder(fields: Mapping[str, Any]) -> dict[str, Any]:
         "auto_pr": is_true(fields.get("auto_pr", True)),
         "pictures": parse_pictures(fields.get("pictures")),
         "issue": stripped(fields.get("issue")),
+        "graph": stripped(fields.get("graph")) or DEFAULT_GRAPH,
     }
+    one_of("WORKORDER", "graph", parsed["graph"], GRAPH_NAMES)
     require(
         "WORKORDER",
         parsed,

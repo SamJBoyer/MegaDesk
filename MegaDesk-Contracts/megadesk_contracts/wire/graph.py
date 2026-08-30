@@ -79,9 +79,14 @@ __all__ = [
     "STATUS_QUEUED",
     "STATUS_RUNNING",
     "TERMINAL_STATUSES",
+    "DEFAULT_GRAPH",
+    "GRAPH_NAMES",
+    "MASSIVE_PROJECT_GRAPH",
     "WORK_GRAPH",
+    "WORK_GRAPHS",
     "GraphSpec",
     "GraphNodeSpec",
+    "resolve_graph",
     "decode_nodes",
     "decode_spec",
     "encode_nodes",
@@ -209,6 +214,75 @@ WORK_GRAPH = GraphSpec(
         ("git_node", "teardown_node"),
     ),
 ).validate()
+
+
+MASSIVE_PROJECT_GRAPH = GraphSpec(
+    name="massive",
+    nodes=(
+        GraphNodeSpec(
+            name="startup_node",
+            kind=KIND_SCRIPT,
+            label="startup",
+            description="Read the run handshake, load the order, and clone the repo.",
+        ),
+        GraphNodeSpec(
+            name="orchestrator_node",
+            kind=KIND_AGENT,
+            label="orchestrate",
+            description="Turn the ticket and repo into an in-depth implementation plan.",
+        ),
+        GraphNodeSpec(
+            name="dispatcher_node",
+            kind=KIND_AGENT,
+            label="dispatch",
+            description="Break the plan into a ranked kanban board.",
+        ),
+        GraphNodeSpec(
+            name="ralph_node",
+            kind=KIND_AGENT,
+            label="ralph",
+            description="Do the highest-priority card and commit; loop until the board is empty.",
+        ),
+        GraphNodeSpec(
+            name="test_node",
+            kind=KIND_AGENT,
+            label="test",
+            description="Run the project's tests after all cards are done.",
+        ),
+        GraphNodeSpec(
+            name="teardown_node",
+            kind=KIND_SCRIPT,
+            label="teardown",
+            description="Push the branch, open a PR, publish the outcome, and stop.",
+        ),
+    ),
+    edges=(
+        ("startup_node", "orchestrator_node"),
+        ("orchestrator_node", "dispatcher_node"),
+        ("dispatcher_node", "ralph_node"),
+        ("ralph_node", "test_node"),
+        ("test_node", "teardown_node"),
+    ),
+).validate()
+
+
+DEFAULT_GRAPH = "work"
+WORK_GRAPHS: dict[str, GraphSpec] = {
+    WORK_GRAPH.name: WORK_GRAPH,
+    MASSIVE_PROJECT_GRAPH.name: MASSIVE_PROJECT_GRAPH,
+}
+GRAPH_NAMES = frozenset(WORK_GRAPHS)
+
+
+def resolve_graph(name: str) -> GraphSpec:
+    """Pick a compiled work-graph spec by WORKORDER.graph name."""
+    key = stripped(name) or DEFAULT_GRAPH
+    spec = WORK_GRAPHS.get(key)
+    if spec is None:
+        raise ValueError(
+            f"unknown work graph {key!r}; known: {', '.join(sorted(GRAPH_NAMES))}"
+        )
+    return spec
 
 
 def encode_spec(spec: GraphSpec) -> str:

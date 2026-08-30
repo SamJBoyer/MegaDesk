@@ -43,6 +43,8 @@ from megadesk_contracts.wire.machine import (
 POLL_INTERVAL_SEC = 3.0
 FACTORY_OPTIONS = ("machine", "cloud")
 DEFAULT_FACTORY = "machine"
+GRAPH_OPTIONS = ("work", "massive")
+DEFAULT_GRAPH = "work"
 DEFAULT_LABEL = LABEL_AGENT_READY
 
 MODEL_LEVELS = ("low", "medium", "high")
@@ -70,6 +72,7 @@ TICKET_H = 36
 ISSUE_W = 50
 FACTORY_W = 92
 MODEL_W = 84
+GRAPH_W = 80
 DEFAULT_DEPTH = 2
 DEFAULT_WIDTH = 960
 DEFAULT_HEIGHT = HEADER_H + DEFAULT_DEPTH * TICKET_H + 10
@@ -161,7 +164,7 @@ class WorkDispatcher:
         return self._max_depth * self._row_h
 
     def _name_width(self) -> int:
-        return max(64, self._col_w - ISSUE_W - FACTORY_W - MODEL_W - 40)
+        return max(64, self._col_w - ISSUE_W - FACTORY_W - MODEL_W - GRAPH_W - 40)
 
     def build_ui(
         self,
@@ -613,6 +616,13 @@ class WorkDispatcher:
                     height_mode=dpg.mvComboHeight_Small,
                     tag=self._tag(f"ticket_model_{ticket.id}"),
                 )
+                dpg.add_combo(
+                    items=list(GRAPH_OPTIONS),
+                    default_value=DEFAULT_GRAPH,
+                    width=GRAPH_W,
+                    height_mode=dpg.mvComboHeight_Small,
+                    tag=self._tag(f"ticket_graph_{ticket.id}"),
+                )
             self._attach_drag(row_tag, ticket, "row")
             self._attach_drag(num, ticket, "num")
             self._attach_drag(btn, ticket, "btn")
@@ -645,6 +655,7 @@ class WorkDispatcher:
             "ticket_num_",
             "ticket_factory_",
             "ticket_model_",
+            "ticket_graph_",
         ):
             if self._is_hovered(f"{kind}{ticket_id}"):
                 return True
@@ -747,6 +758,11 @@ class WorkDispatcher:
         if dpg.does_item_exist(factory_tag):
             factory = (dpg.get_value(factory_tag) or "").strip() or DEFAULT_FACTORY
 
+        graph = DEFAULT_GRAPH
+        graph_tag = self._tag(f"ticket_graph_{issue_id}")
+        if dpg.does_item_exist(graph_tag):
+            graph = (dpg.get_value(graph_tag) or "").strip() or DEFAULT_GRAPH
+
         status = self._tag("status_text")
         instructions = ticket.body or ticket.name
         pictures = extract_issue_pictures(ticket.body)
@@ -763,6 +779,7 @@ class WorkDispatcher:
                     auto_pr=True,
                     pictures=pictures,
                     issue=issue,
+                    graph=graph,
                 )
                 publish = publish_workorder
             elif factory == "cloud":

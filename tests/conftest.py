@@ -88,6 +88,7 @@ WORKORDER_CANONICAL_FIELDS = frozenset(
         "auto_pr",
         "pictures",
         "issue",
+        "graph",
     }
 )
 FINISHED_CANONICAL_FIELDS = frozenset(

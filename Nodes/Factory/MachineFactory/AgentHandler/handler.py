@@ -21,13 +21,16 @@ from cursor_sdk import Agent, CursorAgentError, LocalAgentOptions
 from megadesk_contracts import redis_connect, resolve_ephemeral_db, resolve_factory_redis_url
 from megadesk_contracts.factory import prompt_payload
 from megadesk_contracts.agent_audit import AgentAuditLog
-from megadesk_contracts.wire.graph import WORK_GRAPH
+from megadesk_contracts.wire.graph import WORK_GRAPH, resolve_graph
 from megadesk_contracts.wire.machine import (
     DEFAULT_STARTING_REF,
     STATUS_ERROR,
     agent_handler_fields,
+    agent_handler_key,
     finished_fields,
     finished_stream,
+    load_workorder,
+    parse_agent_handler,
 )
 from redis import Redis
 from redis.exceptions import ConnectionError as RedisConnectionError
@@ -229,10 +232,11 @@ class AgentHandler:
         """Assemble this run's context and hand it to the graph."""
         from AgentHandler.graph import GraphReporter, RunContext, run_work_graph
 
+        spec = spec_for_order(redis, self.guid, self.env_ticket_id)
         reporter = GraphReporter(
             redis,
             guid=self.guid,
-            spec=WORK_GRAPH,
+            spec=spec,
             audit=audit,
             ticket_id=self.env_ticket_id,
             ticket_name=self.ticket,
@@ -253,7 +257,29 @@ class AgentHandler:
             env_ticket_id=self.env_ticket_id,
             default_model=self.model,
         )
-        return run_work_graph(context)
+        return run_work_graph(context, spec=spec)
+
+
+def spec_for_order(redis: Redis, guid: str, env_ticket_id: str = "") -> Any:
+    """Read WORKORDER.graph before the graph is compiled.
+
+    Startup still loads the full order. This peek exists only so the reporter
+    and the compiled graph are the same spec the ticket asked for. A missing
+    or unreadable order falls back to the default work graph; startup will
+    fail that run the usual way.
+    """
+    ticket_id = (env_ticket_id or "").strip()
+    if not ticket_id:
+        try:
+            parsed = parse_agent_handler(redis.hgetall(agent_handler_key(guid)))
+            ticket_id = parsed["ticket_id"]
+        except (LookupError, ValueError, TypeError):
+            return WORK_GRAPH
+    try:
+        order = load_workorder(redis, ticket_id)
+        return resolve_graph(order.get("graph") or "")
+    except (LookupError, ValueError):
+        return WORK_GRAPH
 
 
 def _configure_logging() -> None:

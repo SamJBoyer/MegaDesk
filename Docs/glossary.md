@@ -17,9 +17,9 @@ Factory: a Node that deploys agents — it reads orders, builds somewhere for an
 
 Floor: MachineFactory's local repo farm (`Nodes/Factory/MachineFactory/Floor/`) — one bare clone per repo plus the `dev` worktree (and `tickets/*` when a merge test needs one). Factories start work from `dev`; that is the only required branch. 
 
-AgentHandler: the harness that runs inside a MachineFactory sandbox. It reads its own run hash, loads the order, and executes the work graph (startup → pathfinder → workhorse → git → teardown) before publishing the outcome. There is no cloud equivalent — the SDK is the harness there.
+AgentHandler: the harness that runs inside a MachineFactory sandbox. It reads its own run hash, loads the order, and executes the work graph named by `WORKORDER.graph` before publishing the outcome. There is no cloud equivalent — the SDK is the harness there.
 
-Work graph: the LangGraph AgentHandler runs inside a sandbox. Five nodes in a straight line, with every node able to skip ahead to teardown so FINISHED is always published. Startup rewrites git worktree pointers for the sandbox mounts; teardown restores the host pointers before it publishes.
+Work graph: the LangGraph AgentHandler runs inside a sandbox. `work` is five nodes in a straight line (startup → pathfinder → workhorse → git → teardown). `massive` is the massive-project graph (startup → orchestrator → dispatcher → ralph loop → test → teardown). Every node can skip ahead to teardown so FINISHED is always published. `WORKORDER.graph` selects which spec runs.
 
 GraphScope: FE-only canvas node that draws a live work-graph run from `GRAPHRUN:<guid>` and `GRAPHEVENT`.
 

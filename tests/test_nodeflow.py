@@ -59,13 +59,16 @@ def dispatch(
     *,
     model: str | None = None,
     factory: str | None = None,
+    graph: str | None = None,
 ) -> None:
-    """Wait for the issue row to appear, optionally pick factory/model, then press it."""
+    """Wait for the issue row to appear, optionally pick factory/model/graph, then press it."""
     harness.wait_for_widget(dispatcher, f"ticket_btn_{issue_id}")
     if factory is not None:
         dispatcher.select(f"ticket_factory_{issue_id}", factory)
     if model is not None:
         dispatcher.select(f"ticket_model_{issue_id}", model)
+    if graph is not None:
+        dispatcher.select(f"ticket_graph_{issue_id}", graph)
     dispatcher.click(f"ticket_btn_{issue_id}")
 
 
@@ -98,6 +101,7 @@ def test_t1_dispatch_writes_the_canonical_workorder(
     assert fields["instructions"] == "Cover the widget module with tests."
     assert fields["model"] == "grok-4.6"
     assert fields["issue"] == "41"
+    assert fields["graph"] == "work"
     assert redis_client.xlen(cloud_wire.CLOUDORDER_STREAM) == 0
     issued = next(item for item in fake_gh.issues if item.number == 41)
     assert "in-progress" in issued.labels
@@ -124,6 +128,20 @@ def test_t1c_dispatch_to_cloud_writes_a_canonical_cloudorder(
     assert fields["model"] == "grok-4.6"
     assert fields["issue"] == "41"
     assert workorders() == []
+
+
+def test_t1e_dispatch_massive_graph_writes_graph_on_the_workorder(
+    fake_gh, harness, workorders
+) -> None:
+    fake_gh.add_issue(41, "add-widget-tests", "Cover the widget module with tests.")
+
+    dispatcher = connect_dispatcher(harness)
+    dispatch(harness, dispatcher, 41, graph="massive")
+
+    entries = workorders()
+    assert len(entries) == 1
+    _entry_id, fields = entries[0]
+    assert fields["graph"] == "massive"
 
 
 def test_t1d_issue_pictures_travel_on_the_workorder(

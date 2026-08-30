@@ -39,6 +39,13 @@ class WorkState(TypedDict, total=False):
     commit_sha: str
     commit_message: str
 
+    # Massive-project graph. ``kanban`` is a list of plain card dicts.
+    graph: str
+    orchestrator_plan: str
+    kanban: list[dict[str, Any]]
+    ralph_report: str
+    test_report: str
+
     status: str
     exit_code: int
 
