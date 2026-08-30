@@ -85,19 +85,19 @@
         "node_name": "auto_integrate"
       }
     },
-    "a25c250d-476c-43cd-bd4b-00af34bd9765": {
-      "member_id": "a25c250d-476c-43cd-bd4b-00af34bd9765",
+    "4ee6387f-36ca-40e0-b9f3-6fc78eb79408": {
+      "member_id": "4ee6387f-36ca-40e0-b9f3-6fc78eb79408",
       "type": "megadesk",
       "nickname": "work_dispatcher",
       "node_name": "work_dispatcher",
       "position": [
-        375.0,
-        265.0
+        485.0,
+        646.0
       ],
       "parameters": {},
       "data": {
         "width": 960.0,
-        "height": 160.0,
+        "height": 110.0,
         "node_name": "work_dispatcher"
       }
     }

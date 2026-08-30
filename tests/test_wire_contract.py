@@ -126,6 +126,7 @@ def test_workorder_parser_accepts_a_legacy_entry_without_pictures(machine_wire) 
         }
     )
     assert parsed["pictures"] == []
+    assert parsed["issue"] == ""
 
 
 def test_finished_round_trips_through_the_parser(machine_wire) -> None:

@@ -43,7 +43,7 @@ def test_fe_only_nodes_do_not_launch_a_backend() -> None:
     from work_dispatcher_node import read_sequence
 
     assert wd_fe().backends == ()
-    assert wd_fe().parameters == ("GIT_URL", "ISSUE_LABEL")
+    assert wd_fe().parameters == ("GIT_URL", "ISSUE_LABEL", "MAX_DEPTH")
     assert wd_fe().read_parameters is not None
     assert wd_fe().default_width >= 900
     assert callable(read_sequence)

@@ -110,7 +110,7 @@ Per-node progress is a second family, `megadesk_contracts.wire.graph`
 
 | Where | Key | Carries |
 |-------|-----|---------|
-| db 0 stream | `WORKORDER` | `repo`, `URL`, `ticket_name`, `instructions`, `model`, `auto_pr`, `pictures` |
+| db 0 stream | `WORKORDER` | `repo`, `URL`, `ticket_name`, `instructions`, `model`, `auto_pr`, `pictures`, `issue` |
 | db 0 hash | `AGENTHANDLER:<guid>` | `ticket_id`, `status`, `error` |
 | db 0 hash | `GRAPHRUN:<guid>` | live work-graph progress (`spec`, `nodes`, `current`, …) |
 | db 0 stream | `GRAPHEVENT` | per-node timeline (`guid`, `node`, `status`, `detail`, `ts`) |

@@ -29,6 +29,7 @@ GH_TIMEOUT_SEC = 15
 ISSUE_LIST_LIMIT = 100
 
 LABEL_AGENT_READY = "agent-ready"
+LABEL_IN_PROGRESS = "in-progress"
 
 # Check name merge-check posts, and the only name AutoIntegrate / PRManager
 # look for on ``statusCheckRollup``. Spelled again in
@@ -56,6 +57,7 @@ __all__ = [
     "GatePullRequest",
     "ISSUE_LIST_LIMIT",
     "LABEL_AGENT_READY",
+    "LABEL_IN_PROGRESS",
     "MERGE_CHECK_CONTEXT",
     "MERGE_CHECK_FAILURE",
     "MERGE_CHECK_SUCCESS",
@@ -67,6 +69,7 @@ __all__ = [
     "merge_check_verdict",
     "normalize_repo_url",
     "parse_github_repo",
+    "relabel_issue",
     "run_gh",
 ]
 
@@ -240,6 +243,34 @@ def list_labeled_issues(
             )
         )
     return True, issues, ""
+
+
+def relabel_issue(
+    owner: str,
+    repo: str,
+    number: int,
+    *,
+    add: str = LABEL_IN_PROGRESS,
+    remove: str = LABEL_AGENT_READY,
+    gh: GhRunner = run_gh,
+) -> tuple[bool, str]:
+    """Move an issue from one label onto another. ``(ok, error)``.
+
+    WorkDispatcher does this when an operator clicks a ticket: ``agent-ready``
+    comes off and ``in-progress`` goes on, so the gate's next poll does not
+    offer the same issue again. ``add`` is created on the repo if missing;
+    a create that fails because the label already exists is ignored.
+    """
+    slug = f"{owner}/{repo}"
+    if add:
+        gh("label", "create", add, "--repo", slug, "--color", "D93F0B")
+    args = ["issue", "edit", str(int(number)), "--repo", slug]
+    if add:
+        args.extend(["--add-label", add])
+    if remove and remove != add:
+        args.extend(["--remove-label", remove])
+    ok, _stdout, err = gh(*args)
+    return (True, "") if ok else (False, err or "Failed to update issue labels")
 
 
 def merge_check_verdict(rollup: Any) -> Optional[str]:

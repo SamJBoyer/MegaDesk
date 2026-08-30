@@ -76,6 +76,7 @@ order is dropped — leftover tickets cannot re-run after a restart.
 | `model` | no | Model id; default `"auto"` |
 | `auto_pr` | no | `"true"` / `"false"`; default `"true"` |
 | `pictures` | no | JSON list of image URLs for agent context; default `[]` |
+| `issue` | no | GitHub issue number when the order came from a labeled ticket |
 
 ### Stream id as ticket id
 
@@ -84,7 +85,7 @@ The Redis stream entry id returned by `XADD` (e.g. `1712345678901-0`) is the **t
 ### Example
 
 ```text
-PUBLISH WORKORDER {"repo":"Helmsman","URL":"https://github.com/example/Helmsman.git","ticket_name":"1","instructions":"Create harness-smoke.txt with the text ok","model":"auto","auto_pr":"true","ref":""}
+PUBLISH WORKORDER {"repo":"Helmsman","URL":"https://github.com/example/Helmsman.git","ticket_name":"1","instructions":"Create harness-smoke.txt with the text ok","model":"auto","auto_pr":"true","ref":"","issue":""}
 ```
 
 The factory then `XADD`s the same fields onto the `WORKORDER` stream. That stream

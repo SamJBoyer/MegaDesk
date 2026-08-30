@@ -474,6 +474,7 @@ def test_choose_set_and_send_writes_a_workorder(
     assert orders[0][1]["ticket_name"] == "add-widget-tests"
     assert orders[0][1]["model"] == "grok-4.6"
     assert orders[0][1]["URL"] == TICKET_REPO
+    assert orders[0][1]["issue"] == "41"
     assert parse_workorder(orders[0][1])["pictures"] == [shot]
     assert read_stream(cloud_wire.CLOUDORDER_STREAM) == []
 

@@ -96,8 +96,12 @@ def test_t1_dispatch_writes_the_canonical_workorder(
     assert fields["auto_pr"] == "true"
     assert fields["ticket_name"] == "add-widget-tests"
     assert fields["instructions"] == "Cover the widget module with tests."
-    assert fields["model"] == "auto"
+    assert fields["model"] == "grok-4.6"
+    assert fields["issue"] == "41"
     assert redis_client.xlen(cloud_wire.CLOUDORDER_STREAM) == 0
+    issued = next(item for item in fake_gh.issues if item.number == 41)
+    assert "in-progress" in issued.labels
+    assert "agent-ready" not in issued.labels
 
 
 def test_t1c_dispatch_to_cloud_writes_a_canonical_cloudorder(
@@ -117,7 +121,8 @@ def test_t1c_dispatch_to_cloud_writes_a_canonical_cloudorder(
     assert fields["title"] == "add-widget-tests"
     assert fields["instructions"] == "Cover the widget module with tests."
     assert fields["auto_pr"] == "true"
-    assert fields["model"] == "auto"
+    assert fields["model"] == "grok-4.6"
+    assert fields["issue"] == "41"
     assert workorders() == []
 
 
@@ -163,10 +168,11 @@ def test_t2_per_row_model_combo_reaches_the_payload(
     fake_gh.add_issue(42, "pick-a-model", "Use the fast model.")
 
     dispatcher = connect_dispatcher(harness)
-    dispatch(harness, dispatcher, 42, model="grok-4.5")
+    dispatch(harness, dispatcher, 42, model="high")
 
     _entry_id, fields = workorders()[0]
-    assert fields["model"] == "grok-4.5"
+    assert fields["model"] == "claude-opus-5"
+    assert fields["issue"] == "42"
     assert read_stream(cloud_wire.CLOUDORDER_STREAM) == []
 
 
@@ -328,6 +334,7 @@ def test_t8_full_chain_from_dispatch_to_mergeable_pr(
 
     harness.wait_for_widget(manager, "name::12")
 
+    # The dispatched issue is relabeled in-progress and leaves the gate.
     # WorkDispatcher must still be draining while PRManager works: both
     # depend on the same shared pump, and its status is written by its own
     # background thread.
@@ -335,7 +342,7 @@ def test_t8_full_chain_from_dispatch_to_mergeable_pr(
         lambda: "agent-ready" in dispatcher.get("status_text"),
         message="WorkDispatcher to keep draining alongside PRManager",
     )
-    assert dispatcher.exists("ticket_btn_88")
+    assert not dispatcher.exists("ticket_btn_88")
 
     label = manager.get("name::12")
     assert "t8-pr" in label

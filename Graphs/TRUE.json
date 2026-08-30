@@ -38,30 +38,14 @@
       "nickname": "graph_scope",
       "node_name": "graph_scope",
       "position": [
-        1140.0,
-        108.0
+        1156.0,
+        109.0
       ],
       "parameters": {},
       "data": {
         "width": 480.0,
         "height": 240.0,
         "node_name": "graph_scope"
-      }
-    },
-    "671df6ca-d46e-43b8-91a4-855e8a125aad": {
-      "member_id": "671df6ca-d46e-43b8-91a4-855e8a125aad",
-      "type": "megadesk",
-      "nickname": "work_dispatcher",
-      "node_name": "work_dispatcher",
-      "position": [
-        678.0,
-        -135.0
-      ],
-      "parameters": {},
-      "data": {
-        "width": 960.0,
-        "height": 160.0,
-        "node_name": "work_dispatcher"
       }
     },
     "c4e5aa14-af24-4b6a-a436-d1e08524929b": {
@@ -73,27 +57,45 @@
         1672.0,
         -137.0
       ],
-      "parameters": {},
+      "parameters": {
+        "GIT_URL": "https://github.com/SamJBoyer/MegaDesk.git"
+      },
       "data": {
         "width": 560.0,
         "height": 160.0,
         "node_name": "pr_manager"
       }
     },
-    "dc401889-a5f1-47cd-9980-bd31b5b8dc52": {
-      "member_id": "dc401889-a5f1-47cd-9980-bd31b5b8dc52",
+    "19421de9-e0af-404a-b2c2-a87cc013b422": {
+      "member_id": "19421de9-e0af-404a-b2c2-a87cc013b422",
       "type": "megadesk",
-      "nickname": "promptimprover",
-      "node_name": "promptimprover",
+      "nickname": "auto_integrate",
+      "node_name": "auto_integrate",
       "position": [
-        1142.0,
-        423.0
+        1676.0,
+        115.0
       ],
       "parameters": {},
       "data": {
-        "width": 560.0,
-        "height": 280.0,
-        "node_name": "promptimprover"
+        "width": 520.0,
+        "height": 160.0,
+        "node_name": "auto_integrate"
+      }
+    },
+    "1dba9680-28bc-4822-8ebe-44c6839273f7": {
+      "member_id": "1dba9680-28bc-4822-8ebe-44c6839273f7",
+      "type": "megadesk",
+      "nickname": "work_dispatcher",
+      "node_name": "work_dispatcher",
+      "position": [
+        683.0,
+        -196.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 960.0,
+        "height": 160.0,
+        "node_name": "work_dispatcher"
       }
     }
   }

@@ -87,6 +87,7 @@ WORKORDER_CANONICAL_FIELDS = frozenset(
         "model",
         "auto_pr",
         "pictures",
+        "issue",
     }
 )
 FINISHED_CANONICAL_FIELDS = frozenset(
@@ -116,6 +117,7 @@ CLOUDORDER_CANONICAL_FIELDS = frozenset(
         "model",
         "auto_pr",
         "pictures",
+        "issue",
     }
 )
 CLOUDFINISHED_CANONICAL_FIELDS = frozenset(

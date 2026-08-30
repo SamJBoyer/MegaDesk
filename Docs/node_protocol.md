@@ -265,6 +265,7 @@ A node that takes parameters ships `parameters.yaml` next to its entry-point mod
 ```yaml
 - GIT_URL # the http of the git repo this node will connect to
 - ISSUE_LABEL # the issue label this gate tracks (default agent-ready)
+- MAX_DEPTH # how many tickets the columns fit without scrolling
 ```
 
 Helpers live in `megadesk_contracts.parameters` (`load_parameter_names`, `normalize_parameters`, `parameters_to_json`, `parameters_from_env`). The graph stores a value per declared name per member. **Capture** on the graph bar reads live sub-GUI values via `FeSpec.read_parameters` and writes them into the graph. What a node does with incoming parameters is its own business — WorkDispatcher and PRManager seed the repo URL field from `GIT_URL`.

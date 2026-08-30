@@ -42,7 +42,8 @@ cancel(run_key: str)   -> None
 
 `launch` takes a mapping rather than named arguments so one caller can hand the
 same parsed order to either factory; each reads the keys it understands. The
-shared keys are `title`/`ticket_name`, `instructions`, `model` and `pictures`.
+shared keys are `title`/`ticket_name`, `instructions`, `model`, `pictures` and
+`issue`.
 Beyond those, a machine order names a `repo` plus clone `URL` and `auto_pr`,
 while a cloud order names a `repo_url`, a `ref` and `auto_pr`. Both hand
 back a PR URL.

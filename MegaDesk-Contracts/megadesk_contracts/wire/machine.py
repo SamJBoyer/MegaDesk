@@ -6,7 +6,7 @@
 
 (STREAM, db0) WORKORDER
   - reference store written by the factory after it receives the signal
-  - repo, URL, ref, ticket_name, instructions, model, auto_pr, pictures
+  - repo, URL, ref, ticket_name, instructions, model, auto_pr, pictures, issue
 
 (HASH, db0) AGENTHANDLER:<guid>
   - ticket_id, status, error
@@ -160,13 +160,15 @@ def workorder_fields(
     auto_pr: bool = True,
     ref: str = "",
     pictures: Any = "",
+    issue: str = "",
 ) -> dict[str, str]:
     """Build a WORKORDER stream entry.
 
     ``URL`` is always required: the factory clones into the sandbox rather than
     mounting a Floor worktree. ``ref`` is optional and empty means
     ``DEFAULT_STARTING_REF``. ``pictures`` is a JSON list of image URLs the
-    agent should see as context; empty means none.
+    agent should see as context; empty means none. ``issue`` is the GitHub
+    issue number when the order came from a labeled ticket; empty otherwise.
     """
     fields = {
         "repo": stripped(repo),
@@ -177,6 +179,7 @@ def workorder_fields(
         "model": stripped(model) or DEFAULT_MODEL,
         "auto_pr": bool_field(auto_pr),
         "pictures": pictures_field(pictures),
+        "issue": stripped(issue),
     }
     require(
         "WORKORDER",
@@ -197,6 +200,7 @@ def parse_workorder(fields: Mapping[str, Any]) -> dict[str, Any]:
         "model": stripped(fields.get("model")) or DEFAULT_MODEL,
         "auto_pr": is_true(fields.get("auto_pr", True)),
         "pictures": parse_pictures(fields.get("pictures")),
+        "issue": stripped(fields.get("issue")),
     }
     require(
         "WORKORDER",

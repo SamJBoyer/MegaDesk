@@ -105,6 +105,7 @@ Leftover stream entries do not start work.
 | `model` | Model id, or `auto` |
 | `auto_pr` | `"true"` opens a PR when the work lands |
 | `pictures` | JSON list of image URLs for agent context; default `[]` |
+| `issue` | GitHub issue number when the order came from a labeled ticket |
 
 ## CLOUDFINISHED
 

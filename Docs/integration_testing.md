@@ -98,7 +98,7 @@ Writers emit canonical field names only. Tests assert that set — see
 [`tests/test_wire_contract.py`](../tests/test_wire_contract.py).
 
 `WORKORDER` fields: `repo`, `URL`, `ref`, `ticket_name`, `instructions`,
-`model`, `auto_pr`, `pictures`. `FINISHED:<REPO>` fields: `ticket_name`, `ticket_id`,
+`model`, `auto_pr`, `pictures`, `issue`. `FINISHED:<REPO>` fields: `ticket_name`, `ticket_id`,
 `status`, `pr_url`. PRManager shows and opens PRs whose merge-check `mergeable`
 status succeeded; it does not consume `FINISHED`.
 
@@ -196,10 +196,10 @@ host DB lanes; if `REDIS_URL` already names a non-live pair, conftest honors it.
 
 | # | Scenario | Catches |
 |---|---|---|
-| T1 | Click a ticket row (default factory `machine`). Assert `WORKORDER` gained one entry with the canonical fields (`repo`, `URL`, `ref`, `ticket_name`, `instructions`, `model`, `auto_pr="true"`) and `CLOUDORDER` stayed empty. | Field renames; dual-dispatch |
+| T1 | Click a ticket row (default factory `machine`). Assert `WORKORDER` gained one entry with the canonical fields (`repo`, `URL`, `ref`, `ticket_name`, `instructions`, `model`, `auto_pr="true"`, `issue`) and `CLOUDORDER` stayed empty. | Field renames; dual-dispatch |
 | T1b | Empty issue body dispatches with `instructions` = title | Body/title fallback inverted |
 | T1c | Row factory combo `cloud` writes a canonical `CLOUDORDER` and no `WORKORDER` | CloudFactory starved of tickets; dual-dispatch |
-| T2 | Row model combo `grok-4.5` → payload `model` | Per-row widget → payload |
+| T2 | Row model combo `high` → payload `model` `claude-opus-5` | Per-row widget → payload |
 | T2b | `gh repo view` failing surfaces on `status_text` | Errors swallowed |
 | T3 | `FakeAgent` consumes; group has zero pending; `FINISHED:{repo}` has the four canonical fields (`ticket_name`, `ticket_id`, `status`, `pr_url`) | Consumer-group and ack |
 | T3b | A second pass returns nothing | Redelivery of acked entries |
