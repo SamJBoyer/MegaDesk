@@ -28,7 +28,15 @@ from megadesk_contracts.repo import CloneError, is_clone, safe_repo_name
 POLL_INTERVAL_SEC = 3.0
 GIT_TIMEOUT_SEC = 300
 PARAM_GIT_URL = "GIT_URL"
+PARAM_MAX_DEPTH = "MAX_DEPTH"
 ENV_SCOPE_ROOT = "PR_SCOPE_ROOT"
+
+HEADER_H = 48
+ROW_H = 26
+DEFAULT_DEPTH = 2
+DEFAULT_WIDTH = 560
+DEFAULT_HEIGHT = HEADER_H + DEFAULT_DEPTH * ROW_H + 10
+MAX_DEPTH_LIMIT = 20
 
 COLOR_OK = (80, 200, 80, 255)
 COLOR_ERR = (220, 70, 70, 255)
@@ -46,6 +54,14 @@ class MergeIssue:
     pr_url: str
     row_tag: str = field(default="")
     clone_path: Optional[Path] = None
+
+
+def _clamp_depth(value: object) -> int:
+    try:
+        depth = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_DEPTH
+    return max(1, min(MAX_DEPTH_LIMIT, depth))
 
 
 def short_pr_url(url: str) -> str:
@@ -181,13 +197,14 @@ class PRManager:
         self._url_lock = threading.Lock()
         values = coerce_parameters(parameters)
         self._current_repo_url = values.get(PARAM_GIT_URL, "").strip()
+        self._max_depth = _clamp_depth(values.get(PARAM_MAX_DEPTH, "") or DEFAULT_DEPTH)
         self._items: dict[int, MergeIssue] = {}
         self._dismissed: set[int] = set()
         self._jobs: queue.Queue[tuple[int, Optional[str]]] = queue.Queue()
         self._root_tag = "primary"
+        self._content_parent = ""
         self._frame_registered = False
-        self._row_h = 26
-        self._scroll_max: Optional[int] = None
+        self._row_h = ROW_H
 
     def _tag(self, suffix: str) -> str:
         return f"{self._root_tag}::{suffix}"
@@ -322,7 +339,6 @@ class PRManager:
                     dpg.delete_item(dropped.row_tag)
         for issue in visible:
             self._add_row(issue)
-        self._resize_issue_scroll()
 
     def _row_label(self, item: MergeIssue) -> str:
         bits = [item.name]
@@ -331,15 +347,26 @@ class PRManager:
             bits.append(short)
         return "  —  ".join(bits)
 
-    def _resize_issue_scroll(self) -> None:
+    def _list_height(self) -> int:
+        return self._max_depth * self._row_h
+
+    def _apply_layout(self) -> None:
+        list_h = self._list_height()
         scroll = self._tag("issue_scroll")
-        if not dpg.does_item_exist(scroll):
-            return
-        n = max(2, len(self._items))
-        h = n * self._row_h
-        if self._scroll_max is not None:
-            h = min(h, self._scroll_max)
-        dpg.configure_item(scroll, height=h)
+        if dpg.does_item_exist(scroll):
+            dpg.configure_item(scroll, height=list_h)
+        content = self._content_parent or f"{self._root_tag}::content"
+        if content and dpg.does_item_exist(content):
+            dpg.configure_item(content, height=HEADER_H + list_h + 10)
+
+    def _on_depth_changed(self, sender, app_data, user_data=None) -> None:
+        depth = _clamp_depth(
+            app_data if app_data is not None else dpg.get_value(sender)
+        )
+        self._max_depth = depth
+        if dpg.does_item_exist(sender):
+            dpg.set_value(sender, depth)
+        self._apply_layout()
 
     def _has_pr(self, issue: MergeIssue) -> bool:
         return bool(issue.pr_url) and pr_number_from_url(issue.pr_url) is not None
@@ -427,7 +454,6 @@ class PRManager:
                 callback=self._on_dismiss_row,
                 user_data=issue.id,
             )
-        self._resize_issue_scroll()
 
     def _on_open_pr(self, _sender: str, _app_data: object, issue_id: int) -> None:
         item = self._items.get(issue_id)
@@ -503,7 +529,6 @@ class PRManager:
         dropped = self._items.pop(issue_id, item)
         if dropped is not None and dropped.row_tag and dpg.does_item_exist(dropped.row_tag):
             dpg.delete_item(dropped.row_tag)
-        self._resize_issue_scroll()
         self._set_status(f"Dismissed {name}", COLOR_OK)
 
     def build_ui(
@@ -511,20 +536,20 @@ class PRManager:
         parent: str,
         *,
         tag_prefix: str,
-        width: int = 560,
-        height: int = 160,
+        width: int = DEFAULT_WIDTH,
+        height: int = DEFAULT_HEIGHT,
     ) -> None:
         """Fill the host content parent with PRManager widgets."""
         self._root_tag = tag_prefix
-        _ = width
-        self._scroll_max = max(self._row_h * 2, height - 48) if height else None
+        self._content_parent = parent
+        _ = width, height
 
         with dpg.group(parent=parent):
             with dpg.group(horizontal=True):
                 dpg.add_input_text(
                     tag=self._tag("git_url"),
                     default_value=self._current_repo_url,
-                    width=-20,
+                    width=-80,
                     hint="https://github.com/owner/repo",
                     callback=self._on_url_changed,
                     on_enter=True,
@@ -537,6 +562,16 @@ class PRManager:
                         color=COLOR_DIM,
                         tag=self._tag("conn_light"),
                     )
+                dpg.add_input_int(
+                    tag=self._tag("max_depth"),
+                    default_value=self._max_depth,
+                    width=48,
+                    min_value=1,
+                    max_value=MAX_DEPTH_LIMIT,
+                    min_clamped=True,
+                    max_clamped=True,
+                    callback=self._on_depth_changed,
+                )
 
             dpg.add_text(
                 "Idle", tag=self._tag("status_text"), color=(160, 160, 160)
@@ -544,10 +579,11 @@ class PRManager:
             dpg.add_child_window(
                 tag=self._tag("issue_scroll"),
                 width=-1,
-                height=self._row_h * 2,
+                height=self._list_height(),
                 border=True,
             )
 
+        self._apply_layout()
         dpg.set_item_user_data(parent, self.shutdown)
         self._start_services()
         _LIVE[tag_prefix] = self
@@ -585,8 +621,8 @@ def build_ui(
     parent: str,
     *,
     tag_prefix: str,
-    width: int = 560,
-    height: int = 160,
+    width: int = DEFAULT_WIDTH,
+    height: int = DEFAULT_HEIGHT,
     parameters: Optional[Mapping[str, str]] = None,
 ) -> None:
     """Module-level builder for FeSpec / MegaDesk canvas hosting."""
@@ -603,7 +639,14 @@ def read_parameters(tag_prefix: str) -> dict[str, str]:
     tag = f"{tag_prefix}::git_url"
     if not dpg.does_item_exist(tag):
         return {}
-    return {PARAM_GIT_URL: (dpg.get_value(tag) or "").strip()}
+    depth_tag = f"{tag_prefix}::max_depth"
+    depth = DEFAULT_DEPTH
+    if dpg.does_item_exist(depth_tag):
+        depth = _clamp_depth(dpg.get_value(depth_tag))
+    return {
+        PARAM_GIT_URL: (dpg.get_value(tag) or "").strip(),
+        PARAM_MAX_DEPTH: str(depth),
+    }
 
 
 def main() -> None:

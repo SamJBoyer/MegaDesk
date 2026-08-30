@@ -7,9 +7,9 @@ from typing import Mapping, Optional
 
 from megadesk_contracts import BeSpec, FeSpec, load_parameter_names, normalize_parameters
 
-from auto_integrate_app import build_ui, read_parameters
+from auto_integrate_app import DEFAULT_HEIGHT, DEFAULT_WIDTH, build_ui, read_parameters
 
-# Names this node recognizes, declared in parameters.yaml: GIT_URL.
+# Names this node recognizes, declared in parameters.yaml.
 PARAMETERS = load_parameter_names(__file__)
 
 
@@ -26,8 +26,8 @@ def get_fe_spec(
         name="auto_integrate",
         description="Send a factory agent at a pull request that no longer merges.",
         icon=None,
-        default_width=520,
-        default_height=160,
+        default_width=DEFAULT_WIDTH,
+        default_height=DEFAULT_HEIGHT,
         build=build,
         parameters=PARAMETERS,
         read_parameters=read_parameters,
