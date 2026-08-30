@@ -17,6 +17,7 @@ legitimately define the same names (``DEFAULT_MODEL``, ``parse_*``)::
     wire.voice.event_fields(...)
     wire.graph.graph_run_fields(...)
     wire.notepad.command_fields(...)
+    wire.canvas.command_fields(...)
 
 ``wire.factory`` holds what the two Factory families share — the run statuses —
 so ``wire.machine`` and ``wire.cloud`` can stay separate without inventing two
@@ -25,6 +26,7 @@ down, for the nodes inside a single run.
 """
 
 from megadesk_contracts.wire import (
+    canvas,
     cloud,
     code_scope,
     factory,
@@ -41,6 +43,7 @@ __all__ = [
     "BOOL_FALSE",
     "BOOL_TRUE",
     "bool_field",
+    "canvas",
     "cloud",
     "code_scope",
     "factory",

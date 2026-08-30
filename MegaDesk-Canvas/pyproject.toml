@@ -17,6 +17,12 @@ dependencies = [
 [project.scripts]
 megadesk-supervisor = "supervisor.__main__:main"
 
+[project.entry-points."MegaDesk.nodes"]
+canvas = "canvas_node"
+
+[tool.setuptools]
+py-modules = ["canvas_node"]
+
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["engine*", "supervisor*", "voice_deck*"]
+include = ["engine*", "supervisor*", "voice_deck*", "canvas_tools*"]

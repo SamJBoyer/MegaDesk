@@ -26,6 +26,12 @@ from megadesk_contracts.wire import code_scope as scope_wire
 from megadesk_contracts.wire import machine as machine_wire
 from megadesk_contracts.wire import voice as wire
 from megadesk_contracts.wire import sargent as sargent_wire
+from canvas_tools import (
+    TOOL_CLICK_WIDGET,
+    TOOL_LIST_NODES,
+    TOOL_SELECT_NODE,
+    TOOL_TYPE_INTO,
+)
 from notepad_tools import TOOL_ADD_NOTE_TEXT, TOOL_CREATE_NOTE, TOOL_SWITCH_NOTE
 from promptimprover_tools import TOOL_REVISE_MY_PROMPT
 from VoiceDeckManager.tools import (
@@ -751,6 +757,10 @@ def test_the_session_hands_turn_taking_to_the_server() -> None:
         TOOL_CHOOSE_TICKET,
         TOOL_SET_DISPATCH,
         TOOL_SEND_TICKET,
+        TOOL_LIST_NODES,
+        TOOL_SELECT_NODE,
+        TOOL_TYPE_INTO,
+        TOOL_CLICK_WIDGET,
     } <= names
 
 

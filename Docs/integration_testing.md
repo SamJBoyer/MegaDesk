@@ -165,6 +165,12 @@ d.click(f"ticket_btn_{issue_id}")
 `fire` and `click` go through `dpg.get_item_callback`. Callbacks are invoked
 with as many of `(sender, app_data, user_data)` as their signature accepts.
 
+VoiceDeck reaches the same verbs out of process: `list_nodes`, `drop_node`,
+`select_node`, `list_widgets`, `get_widget`, `type_into`, `click_widget`, and
+`select_widget` publish `CANVAS:CMD` and wait for `CANVAS:REPLY`. The canvas
+applies them through `CanvasApi` / `NodeDriver` so typing and clicking are the
+real widget callbacks.
+
 ### Fixtures
 
 **`FakeGh`** — monkeypatches `run_gh` on both human gates and on
