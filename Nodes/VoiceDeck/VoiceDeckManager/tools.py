@@ -20,6 +20,7 @@ from code_scope_tools import (
     TOOL_DISPATCH_DOC_AGENT,
     TOOL_SET_REPO,
 )
+from promptimprover_tools import REWRITE_PREFIX, TOOL_REVISE_MY_PROMPT
 from voice_deck_tools import TOOL_END_SESSION, is_farewell
 from work_dispatcher_tools import (
     TOOL_CHOOSE_TICKET,
@@ -30,11 +31,13 @@ from work_dispatcher_tools import (
 
 __all__ = [
     "ANSWER_PREFIX",
+    "REWRITE_PREFIX",
     "TOOL_ASK_CODEBASE",
     "TOOL_CHOOSE_TICKET",
     "TOOL_DISPATCH_DOC_AGENT",
     "TOOL_END_SESSION",
     "TOOL_LIST_TICKETS",
+    "TOOL_REVISE_MY_PROMPT",
     "TOOL_SEND_TICKET",
     "TOOL_SET_DISPATCH",
     "TOOL_SET_REPO",
@@ -50,6 +53,8 @@ _IN_TREE_NODES = (
     "code_scope_node",
     "work_dispatcher_node",
     "notepad_node",
+    "sargent_node",
+    "canvas_node",
 )
 
 

@@ -7,12 +7,15 @@ Package-local notes. Discovery, `FeSpec` / `BeSpec`, hosted-shell contract, grap
 ```text
 MegaDesk-Canvas/
   main.py                  # viewport, build_canvas(), render loop
+  canvas_node.py           # tools-only MegaDesk.nodes entry (no FE / BE)
+  canvas_tools/            # VoiceDeck ToolSpec: list / select / type / click
   engine/
     display_engine.py      # Catalog drop, node_editor, Delete, BE launch on drop
     megadesk_member.py     # native dpg.node host around FeSpec.build
     graph_model.py         # Graphs/*.json load/save; GraphError
     graph_bar.py           # pick / save / save-as / Capture / delete
     megadesk_registry.py   # in-process FE catalog
+    canvas_api.py          # in-process NodeDriver verbs + CANVAS:CMD drain
     icons.py
   supervisor/              # Canvas-owned BE (`python -m supervisor`) + collapsible panel
   voice_deck/              # Canvas-owned VoiceDeck chrome panel + singleton BE launch
@@ -44,3 +47,12 @@ Boot opens the last graph recorded in `Graphs/CURRENT` when that file still poin
 | `voice_deck_panel_window::body` | VoiceDeck controls + transcript |
 
 Hosted FE tags: `megadesk::{member_id}` (the `dpg.node`) and `megadesk::{member_id}::content` (`tag_prefix` passed to `FeSpec.build`).
+
+## Voice tools
+
+`get_tool_spec()` on `canvas_node` offers VoiceDeck the same verbs the
+integration harness uses: `list_nodes`, `drop_node`, `select_node`,
+`list_widgets`, `get_widget`, `type_into`, `click_widget`, `select_widget`.
+Handlers publish `CANVAS:CMD`; `CanvasApi` applies them through the live
+widget callbacks and replies on `CANVAS:REPLY`. Wire:
+[`MegaDesk-Contracts/redis/canvas.md`](../../MegaDesk-Contracts/redis/canvas.md).

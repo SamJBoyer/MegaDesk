@@ -8,10 +8,13 @@ from typing import Any, Optional
 from megadesk_contracts import ToolSpec
 from megadesk_contracts.human_gate import (
     LABEL_AGENT_READY,
+    LABEL_IN_PROGRESS,
     check_repo,
+    extract_issue_pictures,
     list_labeled_issues,
     normalize_repo_url,
     parse_github_repo,
+    relabel_issue,
     run_gh as default_run_gh,
 )
 from megadesk_contracts.wire.cloud import (
@@ -19,7 +22,6 @@ from megadesk_contracts.wire.cloud import (
     cloudorder_fields,
     new_order_id,
 )
-from megadesk_contracts.wire.factory import DEFAULT_MODEL
 from megadesk_contracts.wire.machine import WORKORDER_STREAM, workorder_fields
 from megadesk_contracts.wire.voice import KIND_DISPATCH, KIND_ERROR
 
@@ -30,9 +32,36 @@ TOOL_SET_DISPATCH = "set_dispatch"
 TOOL_SEND_TICKET = "send_ticket"
 
 FACTORY_OPTIONS = ("machine", "cloud")
-MODEL_OPTIONS = ("auto", "grok-4.6", "claude-opus-5")
+MODEL_LEVELS = ("low", "medium", "high")
+MODEL_LEVEL_IDS = {
+    "low": "composer-2.5",
+    "medium": "grok-4.6",
+    "high": "claude-opus-5",
+}
 DEFAULT_FACTORY = "machine"
+DEFAULT_MODEL_LEVEL = "medium"
 DEFAULT_LABEL = LABEL_AGENT_READY
+DEFAULT_MODEL = MODEL_LEVEL_IDS[DEFAULT_MODEL_LEVEL]
+
+
+def resolve_model(value: str) -> str:
+    """Map a level (low/medium/high) or a known model id onto a wire model id."""
+    raw = (value or "").strip()
+    lowered = raw.lower()
+    if lowered in MODEL_LEVEL_IDS:
+        return MODEL_LEVEL_IDS[lowered]
+    ids = {item.lower(): item for item in MODEL_LEVEL_IDS.values()}
+    if lowered in ids:
+        return ids[lowered]
+    aliases = {
+        "opus-5": "claude-opus-5",
+        "opus5": "claude-opus-5",
+        "composer2.5": "composer-2.5",
+        "composer-2.5": "composer-2.5",
+    }
+    if lowered in aliases:
+        return aliases[lowered]
+    return DEFAULT_MODEL
 
 # Patchable stand-in for the GitHub CLI, same pattern as work_dispatcher_app.
 run_gh = default_run_gh
@@ -193,7 +222,7 @@ def handle_set_dispatch(arguments: dict, host: Any) -> dict:
             }
         _draft.factory = factory
     if model:
-        _draft.model = model
+        _draft.model = resolve_model(model)
     if not factory and not model:
         return {
             "status": "error",
@@ -215,12 +244,13 @@ def handle_send_ticket(arguments: dict, host: Any) -> dict:
     factory = (
         str(arguments.get("factory") or "").strip().lower() or _draft.factory
     )
-    model = str(arguments.get("model") or "").strip() or _draft.model
+    model = resolve_model(str(arguments.get("model") or "").strip() or _draft.model)
     if factory not in FACTORY_OPTIONS:
         return {"status": "error", "detail": f"unknown factory {factory}"}
 
     repo_url = ticket.url or _draft.repo_url
     parsed = parse_github_repo(repo_url)
+    owner = repo = ""
     if parsed:
         owner, repo = parsed
         repo_url = normalize_repo_url(repo_url, owner, repo)
@@ -231,6 +261,8 @@ def handle_send_ticket(arguments: dict, host: Any) -> dict:
             repo_name = repo_name[:-4]
 
     instructions = ticket.body or ticket.name
+    pictures = extract_issue_pictures(ticket.body)
+    issue = str(ticket.id)
     try:
         if factory == "machine":
             stream = WORKORDER_STREAM
@@ -241,6 +273,8 @@ def handle_send_ticket(arguments: dict, host: Any) -> dict:
                 instructions=instructions,
                 model=model,
                 auto_pr=True,
+                pictures=pictures,
+                issue=issue,
             )
         else:
             stream = CLOUDORDER_STREAM
@@ -251,6 +285,8 @@ def handle_send_ticket(arguments: dict, host: Any) -> dict:
                 instructions=instructions,
                 model=model,
                 auto_pr=True,
+                pictures=pictures,
+                issue=issue,
             )
     except ValueError as exc:
         return {"status": "error", "detail": str(exc)}
@@ -260,6 +296,16 @@ def handle_send_ticket(arguments: dict, host: Any) -> dict:
     except Exception as exc:  # noqa: BLE001 - a failed send must still answer
         return {"status": "error", "detail": f"Redis xadd failed: {exc}"}
 
+    if owner and repo:
+        relabel_issue(
+            owner,
+            repo,
+            ticket.id,
+            add=LABEL_IN_PROGRESS,
+            remove=_draft.label or DEFAULT_LABEL,
+            gh=run_gh,
+        )
+
     host.publish(KIND_DISPATCH, f"queued: {ticket.name} → {stream}")
     return {
         "status": "queued",
@@ -268,13 +314,16 @@ def handle_send_ticket(arguments: dict, host: Any) -> dict:
         "factory": factory,
         "model": model,
         "stream": stream,
+        "issue": issue,
         "detail": f"Sent #{ticket.id} to {factory}.",
     }
 
 
 def tool_spec() -> ToolSpec:
     factory_list = " or ".join(FACTORY_OPTIONS)
-    model_list = ", ".join(MODEL_OPTIONS)
+    model_list = ", ".join(
+        f"{level} ({MODEL_LEVEL_IDS[level]})" for level in MODEL_LEVELS
+    )
     return ToolSpec(
         name=NODE_NAME,
         instructions=INSTRUCTIONS,

@@ -80,6 +80,7 @@ def test_ticket_factory_merge_vertical_slice(
     assert fields["URL"] == "https://github.com/SamJBoyer/SMOKETESTREPO"
     assert fields["auto_pr"] == "true"
     assert fields["ticket_name"] == ISSUE_TITLE
+    assert fields["issue"] == str(ISSUE_NUMBER)
 
     guid = "slice-live-agent"
     redis_client.hset(

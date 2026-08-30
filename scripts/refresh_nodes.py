@@ -18,7 +18,7 @@ import tomllib
 from pathlib import Path
 
 ENV_NAME = "MEGADESK"
-SKIP_EXTRAS = {"dev", "test", "tests", "docs", "lint", "sandbox"}
+SKIP_EXTRAS = {"dev", "test", "tests", "docs", "lint", "sandbox", "service"}
 REPO_ROOT = Path(__file__).resolve().parent.parent
 # Build leftovers carry pyproject.toml files that are not nodes.
 SKIP_DIRS = {".venv", "venv", "build", "dist", "node_modules"}
@@ -53,7 +53,7 @@ def megadesk_python() -> Path:
 def in_foreign_checkout(nodes_root: Path, directory: Path) -> bool:
     """True when ``directory`` lives inside a git repo nested under ``Nodes/``.
 
-    CodeScope clones whole repositories into ``Nodes/CodeScope/Scope/``, and one
+    CodeScope clones whole repositories into ``Nodes/Cloud/CodeScope/Scope/``, and one
     of those is usually MegaDesk itself. Installing the packages found in there
     would silently point the env at a different checkout, so the recursion stops
     at anything that is its own repo.

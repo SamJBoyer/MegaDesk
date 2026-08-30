@@ -98,7 +98,7 @@ Writers emit canonical field names only. Tests assert that set — see
 [`tests/test_wire_contract.py`](../tests/test_wire_contract.py).
 
 `WORKORDER` fields: `repo`, `URL`, `ref`, `ticket_name`, `instructions`,
-`model`, `auto_pr`. `FINISHED:<REPO>` fields: `ticket_name`, `ticket_id`,
+`model`, `auto_pr`, `pictures`, `issue`. `FINISHED:<REPO>` fields: `ticket_name`, `ticket_id`,
 `status`, `pr_url`. PRManager shows and opens PRs whose merge-check `mergeable`
 status succeeded; it does not consume `FINISHED`.
 
@@ -165,6 +165,12 @@ d.click(f"ticket_btn_{issue_id}")
 `fire` and `click` go through `dpg.get_item_callback`. Callbacks are invoked
 with as many of `(sender, app_data, user_data)` as their signature accepts.
 
+VoiceDeck reaches the same verbs out of process: `list_nodes`, `drop_node`,
+`select_node`, `list_widgets`, `get_widget`, `type_into`, `click_widget`, and
+`select_widget` publish `CANVAS:CMD` and wait for `CANVAS:REPLY`. The canvas
+applies them through `CanvasApi` / `NodeDriver` so typing and clicking are the
+real widget callbacks.
+
 ### Fixtures
 
 **`FakeGh`** — monkeypatches `run_gh` on both human gates and on
@@ -196,10 +202,10 @@ host DB lanes; if `REDIS_URL` already names a non-live pair, conftest honors it.
 
 | # | Scenario | Catches |
 |---|---|---|
-| T1 | Click a ticket row (default factory `machine`). Assert `WORKORDER` gained one entry with the canonical fields (`repo`, `URL`, `ref`, `ticket_name`, `instructions`, `model`, `auto_pr="true"`) and `CLOUDORDER` stayed empty. | Field renames; dual-dispatch |
+| T1 | Click a ticket row (default factory `machine`). Assert `WORKORDER` gained one entry with the canonical fields (`repo`, `URL`, `ref`, `ticket_name`, `instructions`, `model`, `auto_pr="true"`, `issue`) and `CLOUDORDER` stayed empty. | Field renames; dual-dispatch |
 | T1b | Empty issue body dispatches with `instructions` = title | Body/title fallback inverted |
 | T1c | Row factory combo `cloud` writes a canonical `CLOUDORDER` and no `WORKORDER` | CloudFactory starved of tickets; dual-dispatch |
-| T2 | Row model combo `grok-4.5` → payload `model` | Per-row widget → payload |
+| T2 | Row model combo `high` → payload `model` `claude-opus-5` | Per-row widget → payload |
 | T2b | `gh repo view` failing surfaces on `status_text` | Errors swallowed |
 | T3 | `FakeAgent` consumes; group has zero pending; `FINISHED:{repo}` has the four canonical fields (`ticket_name`, `ticket_id`, `status`, `pr_url`) | Consumer-group and ack |
 | T3b | A second pass returns nothing | Redelivery of acked entries |
@@ -217,6 +223,7 @@ host DB lanes; if `REDIS_URL` already names a non-live pair, conftest honors it.
 | # | Scenario | Catches |
 |---|---|---|
 | H1 | The target-label dropdown offers the repo's own labels | A gate that can only ever watch its default |
+| H1c | An issue that loses the target label disappears on the next poll | Dead tickets staying on the board |
 | H2 | AutoIntegrate reads the PR branch off a failed `mergeable` status and dispatches a `WORKORDER` whose `ref` is that branch | An agent sent to fix a conflict starting from `dev` |
 | H2b | The same row on `cloud` puts the branch on `CLOUDORDER.ref` | One factory learning the branch and the other not |
 | H3 | A PR with no head branch is listed but not dispatchable | Empty-ref orders |
@@ -239,21 +246,19 @@ live in `megadesk_contracts.wire`.
 
 | Fake | Replaces | Left real |
 |---|---|---|
-| `FakeCodeAgent` | `cursor_sdk` behind CodeScope | Clone on disk, `CODEQ:ASK` group, session hash, every `CODEQ:ANSWER` |
+| `FakeCodeAgent` | `cursor_sdk` behind CodeScope | HTTP clone + SSE answers (canvas FE); Redis `CODEQ:*` for the local poller |
+| `FakeCodeScopeClient` | CodeScope HTTP for VoiceDeck | Tool router, queued SSE, out-of-band injection |
 | `FakeRealtime` | OpenAI Realtime socket and both audio devices | Tool router, Redis events, out-of-band answer injection |
 | `FakeCloudFactory` | Cursor's VM, branch, pull request | `CLOUDORDER` group, run registry, `CLOUDFINISHED`, retry rules |
 | `FakeMachineFactory` | Docker daemon, container, and Redis sidecar | `WORKORDER` group, `AGENTHANDLER`, `FINISHED:<repo>` |
 
-`FakeCodeAgent` has two faces: `run_once()` as a stand-in BE for FE tests, and
-`runner_factory` feeding canned chunks to the real `CodeScopeManager`.
-
-`CODESCOPE:SESSION:<id>`, `CLOUDRUN:<agent_id>` live
-on the **persistent** DB. Host pytest owns 14/15 and flushes both.
+`FakeCodeAgent` has two faces: `runner_factory` feeding canned chunks to the HTTP
+`ScopeService`, and `run_once()` as a stand-in for the local Redis poller.
 
 Two timing rules the suite pins:
 
-- Answers must not be read from `$` on every poll.
-  `test_an_answer_that_lands_between_polls_is_not_missed`.
+- VoiceDeck must return `searching` without waiting for SSE.
+  `test_asking_returns_searching_immediately_and_queues_the_ask`.
 - Control messages from before the BE woke up are ignored.
   `test_a_start_command_from_before_the_backend_woke_up_is_ignored`.
 

@@ -769,6 +769,67 @@ def test_launch_proceeds_when_the_repo_is_on_cursors_list(
     assert len(created) == 1
 
 
+def test_launch_attaches_order_pictures_to_the_prompt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import asyncio
+    from types import SimpleNamespace
+
+    from CloudFactoryManager.runtime import CursorCloudFactory
+    from megadesk_contracts import RunHandle
+
+    sent: list[object] = []
+    shot = "https://github.com/user-attachments/assets/cloud-shot"
+
+    class _Agent:
+        agent_id = "bc-pics01"
+
+        async def send(self, payload):
+            sent.append(payload)
+            return SimpleNamespace(id="run-1")
+
+    class _Agents:
+        async def create(self, **kwargs):
+            return _Agent()
+
+    class _Repos:
+        async def list(self, api_key=None):
+            return [SimpleNamespace(url=REPO_URL)]
+
+    class _Client:
+        agents = _Agents()
+        repositories = _Repos()
+
+    runtime = CursorCloudFactory(api_key="key")
+
+    async def fake_client():
+        return _Client()
+
+    monkeypatch.setattr(runtime, "_ensure_client", fake_client)
+    monkeypatch.setattr(runtime, "_run", lambda coro: asyncio.run(coro))
+    monkeypatch.setattr(runtime, "_options_cls", lambda: SimpleNamespace)
+
+    handle = runtime.launch(
+        {
+            "repo_url": REPO_URL,
+            "instructions": INSTRUCTIONS,
+            "title": TITLE,
+            "pictures": [shot],
+        }
+    )
+    assert handle == RunHandle(run_key="bc-pics01", run_id="run-1")
+    assert sent, "agent.send was never called"
+    payload = sent[0]
+    if isinstance(payload, dict):
+        text = payload.get("text", "")
+        images = payload.get("images") or []
+    else:
+        text = getattr(payload, "text", "")
+        images = getattr(payload, "images", None) or []
+    assert "Reference images are attached" in str(text)
+    assert any(shot in str(item) for item in images)
+
+
 # --- the frontend ----------------------------------------------------------
 
 
@@ -859,27 +920,22 @@ def test_a_run_shows_its_status_in_the_queue(
 
 
 @pytest.mark.canvas
-@pytest.mark.git
 def test_a_spoken_order_reaches_a_cloud_agent(
     harness,
     voice_session,
     fake_realtime,
+    fake_codescope,
     cloud_factory,
     fake_cloud_factory,
     redis_client,
     persistent_client,
     read_stream,
-    git_floor,
 ) -> None:
     """The whole voice path, with only the model and the VM faked."""
-    from megadesk_contracts.wire import code_scope as scope_wire
     from VoiceDeckManager.tools import TOOL_DISPATCH_DOC_AGENT
 
-    persistent_client.hset(
-        scope_wire.session_key(scope_wire.new_session_id()),
-        mapping=scope_wire.session_fields(
-            repo="widgets", clone_path=str(git_floor.dev_dir)
-        ),
+    fake_codescope.seed_repo(
+        repo="widgets", url="https://github.com/acme/widgets.git"
     )
     fe = harness.drop("cloud_factory")
     voice_session.start()
@@ -898,8 +954,7 @@ def test_a_spoken_order_reaches_a_cloud_agent(
     launch = fake_cloud_factory.launches[0]
     assert launch["title"] == TITLE
     assert INSTRUCTIONS in launch["instructions"]
-    # The URL came off the clone on disk, since nobody said it out loud.
-    assert launch["repo_url"].endswith("origin.git")
+    assert launch["repo_url"] == "https://github.com/acme/widgets.git"
     assert len(runs_on(persistent_client)) == 1
 
 

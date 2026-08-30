@@ -1,9 +1,11 @@
-"""The LangGraph work graph an AgentHandler run executes.
+"""The LangGraph work graphs an AgentHandler run executes.
 
-startup -> pathfinder -> workhorse -> git -> teardown, with every node able to
+Two specs live in ``wire.graph``. ``work`` is the straight line startup ->
+pathfinder -> workhorse -> git -> teardown. ``massive`` is startup ->
+orchestrator -> dispatcher -> ralph (loop) -> test -> teardown. Every node can
 short-circuit to teardown so the run always publishes an outcome. Startup
-clones the target repo into the sandbox; teardown pushes a branch and opens a
-pull request when ``auto_pr`` is set.
+clones the target repo; teardown pushes a branch and opens a pull request when
+``auto_pr`` is set.
 
 LangGraph is used for orchestration only. The agent nodes drive Cursor through
 ``AgentHandler.handler.run_agent`` exactly as the single-shot handler did, so

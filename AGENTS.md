@@ -38,7 +38,7 @@ python scripts/master_refresh.py      # down → contracts → nodes → sandbox
 
 Overview of code implementation: 
 - MegaDesk-Canvas: MegaDesk-Canvas is the folder that contains the code for running the canvas that integrates the Nodes. 
-- Nodes/: contains each node and its implementation. Read each node's README.md before editing. Some nodes are both Front-end and back-end. Always make sure you are placing the content in the appropriate place. Nodes may be grouped in a subfolder when they are variants of one idea — `Nodes/Factory/` holds MachineFactory and CloudFactory — but each stays its own package with its own entry point. Read `Nodes/Factory/README.md` before touching either factory.
+- Nodes/: contains each node and its implementation. Read each node's README.md before editing. Some nodes are both Front-end and back-end. Always make sure you are placing the content in the appropriate place. Nodes may be grouped in a subfolder when they are variants of one idea — `Nodes/Factory/` holds MachineFactory and CloudFactory, `Nodes/Cloud/` holds nodes whose process is not on this machine (CodeScope) — but each stays its own package with its own entry point. Read `Nodes/Factory/README.md` before touching either factory.
 - MegaDesk-Contracts: contains shared contracts between modules to ensure standardization. If a contract is modified or added make sure it is reflected in MegaDesk-Contracts
 - tests: contains unit tests for all implementations 
 - scripts: helper scripts 

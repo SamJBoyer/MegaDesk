@@ -36,6 +36,7 @@ def test_human_gates_declare_their_parameters() -> None:
     assert load_parameter_names(work_dispatcher_node.__file__) == (
         "GIT_URL",
         "ISSUE_LABEL",
+        "MAX_DEPTH",
     )
     assert load_parameter_names(auto_integrate_node.__file__) == ("GIT_URL",)
 

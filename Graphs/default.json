@@ -1,3 +1,84 @@
 {
-  "members": {}
+  "members": {
+    "81c33ce3-597d-41ee-9b4f-d5b67dbb301c": {
+      "member_id": "81c33ce3-597d-41ee-9b4f-d5b67dbb301c",
+      "type": "megadesk",
+      "nickname": "cloud_factory",
+      "node_name": "cloud_factory",
+      "position": [
+        688.0,
+        304.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 420.0,
+        "height": 160.0,
+        "node_name": "cloud_factory"
+      }
+    },
+    "38af3f15-b9c4-435d-8983-1890976ad191": {
+      "member_id": "38af3f15-b9c4-435d-8983-1890976ad191",
+      "type": "megadesk",
+      "nickname": "machine_factory",
+      "node_name": "machine_factory",
+      "position": [
+        689.0,
+        106.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 420.0,
+        "height": 120.0,
+        "node_name": "machine_factory"
+      }
+    },
+    "15036784-aee7-4a0d-a430-7b7fc0775ae9": {
+      "member_id": "15036784-aee7-4a0d-a430-7b7fc0775ae9",
+      "type": "megadesk",
+      "nickname": "graph_scope",
+      "node_name": "graph_scope",
+      "position": [
+        1140.0,
+        108.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 480.0,
+        "height": 240.0,
+        "node_name": "graph_scope"
+      }
+    },
+    "671df6ca-d46e-43b8-91a4-855e8a125aad": {
+      "member_id": "671df6ca-d46e-43b8-91a4-855e8a125aad",
+      "type": "megadesk",
+      "nickname": "work_dispatcher",
+      "node_name": "work_dispatcher",
+      "position": [
+        678.0,
+        -135.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 960.0,
+        "height": 160.0,
+        "node_name": "work_dispatcher"
+      }
+    },
+    "c4e5aa14-af24-4b6a-a436-d1e08524929b": {
+      "member_id": "c4e5aa14-af24-4b6a-a436-d1e08524929b",
+      "type": "megadesk",
+      "nickname": "pr_manager",
+      "node_name": "pr_manager",
+      "position": [
+        1618.0,
+        431.0
+      ],
+      "parameters": {},
+      "data": {
+        "width": 560.0,
+        "height": 160.0,
+        "node_name": "pr_manager"
+      }
+    }
+  }
 }

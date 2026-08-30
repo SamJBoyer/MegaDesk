@@ -95,12 +95,13 @@ def _flag(args: tuple[str, ...], name: str) -> str:
 class FakeGh:
     """Canned replacement for ``run_gh`` on the human gates and PRManager.
 
-    Answers ``gh repo view``, ``gh label list``, ``gh issue list --label …``,
-    ``gh issue close``, ``gh pr list`` and ``gh pr view``, and fails loudly on
-    anything else so a changed argv surfaces as a test failure rather than a
-    hang. ``issue list`` filters by ``--label`` and ``--state`` the way the real
-    CLI does; ``pr list`` filters by ``--base`` / ``--state`` and returns a
-    ``statusCheckRollup`` matching merge-check's ``mergeable`` check.
+    Answers ``gh repo view``, ``gh label list``, ``gh label create``,
+    ``gh issue list --label …``, ``gh issue edit``, ``gh issue close``,
+    ``gh pr list`` and ``gh pr view``, and fails loudly on anything else so a
+    changed argv surfaces as a test failure rather than a hang. ``issue list``
+    filters by ``--label`` and ``--state`` the way the real CLI does; ``pr list``
+    filters by ``--base`` / ``--state`` and returns a ``statusCheckRollup``
+    matching merge-check's ``mergeable`` check.
     """
 
     def __init__(
@@ -254,6 +255,11 @@ class FakeGh:
             if self.repo_error:
                 return False, "", self.repo_error
             return True, json.dumps([{"name": name} for name in self.labels]), ""
+        if args[:2] == ("label", "create"):
+            name = args[2] if len(args) > 2 else ""
+            if name and name not in self.labels:
+                self.labels.append(name)
+            return True, "", ""
         if args[:2] == ("pr", "list"):
             if self.issue_error:
                 return False, "", self.issue_error
@@ -304,6 +310,24 @@ class FakeGh:
                 if (not label or label in i.labels) and i.state == state
             ]
             return True, json.dumps(payload), ""
+        if args[:2] == ("issue", "edit"):
+            try:
+                number = int(args[2])
+            except (IndexError, ValueError):
+                return False, "", "FakeGh issue edit needs a number"
+            add = _flag(args, "--add-label")
+            remove = _flag(args, "--remove-label")
+            for issue in self.issues:
+                if issue.number != number:
+                    continue
+                labels = [label for label in issue.labels if label != remove]
+                if add and add not in labels:
+                    labels.append(add)
+                issue.labels = tuple(labels)
+                if add and add not in self.labels:
+                    self.labels.append(add)
+                return True, "", ""
+            return False, "", f"Issue #{number} not found"
         if args[:2] == ("issue", "close"):
             if self.close_error:
                 return False, "", self.close_error
@@ -867,7 +891,9 @@ class FakeMachineFactory:
             raise AgentStartupError(self.startup_error, retryable=self.retryable)
         self._seq += 1
         run_key = str(order.get("run_key") or f"fake-guid-{self._seq:03d}")
-        container = f"mf-{order['repo']}-ticket-{order['ticket_name']}".lower()
+        container = (
+            f"mf-{order['repo']}-ticket-{order['ticket_name']}-{run_key}".lower()
+        )
         self.launches.append(
             {
                 "run_key": run_key,

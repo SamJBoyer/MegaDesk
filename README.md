@@ -1,17 +1,44 @@
-MegaDesk is my personal custom idea-to-product software development platform. It contains a program
-called MegaDesk-Canvas, which is a canvas-like command center where the user designs various custom nodes
-to infinitely stream-line their process.
+<human>
+MegaDesk is my personal work orchestration platform. It built it as an infinitely customizable dashboard where I make custom GUIs (called nodes) to design a visual workflow for anything. 
 
-Features:
-- custom GUIs: I want the board where I do ideation and the board where I operate my agent factory to be the same. The goal is easy and fluid integration from the idea to execution. The canvas hosts custom interactive GUIs that manage agents, track tokens, log open issues, and other factory tools.
-- persistence: It would be very annoying if fat-fingering the X button on my canvas nukes the entire factory. Therefore, we will use a persistence scheme where tasks that need persistence are managed by a dedicated process lifecycle manager called the supervisor. Closing MegaDesk-Canvas won't close the back-end nodes on purpose
-- REDIS IPC: Different processes will communicate with each other using REDIS.
+MegaDesk is written in 3 parts: 
+MegaDesk-Canvas is a python gui that contains the infinite canvas that nodes are placed onto. An instance of a canvas is called a “graph”. MegaDesk-Canvas is a unified front-end to orchestrate anything. 
+MegaDesk-Supervisor is a python back-end manager that controls the lifecycles of each node’s backend. This allows node’s to have asynchronous backends that don’t lag the entire Canvas. It also stops you from losing all your work if you fat finger the close button or switch graphs. Also in-control of logs via pipes from node's procs. 
+MegaDesk-VoiceDeck is a native voice-agent that should allow agentic/voice to control MegaDesk-Canvas entirely. 
+
+Design principles: 
+
+Expressiveness is the priority. The dream is to take any arduous process and turn it into a little digital factory board. This means nodes are designed to be fairly source agnostic. This makes it easier to hijack existing nodes to serve new purposes and serves the “re-useability” purpose of modularity. It is, however, kind of a security vulnerability and makes dependency control a little more difficult. 
+
+What is a node: 
 
 
-The goal of Megadraft is actually to be fairly loose and encourage expressibility and customizability necessarily over tight optimization. It's meant to be like an expression piece. Nodes will often use protocols like Redis and PubSub to talk to each other, which are not safe in the sense that they don't really care what's publishing the signal and also not storable. This is on purpose. We want this to be an app that can kind of be opened and closed pretty efficiently whenever you want, and that means that there's a lot of staling issues. To fix a lot of these staling issues, we make it pretty fire and forget, which is open-ended design, not the most secure or auditable by point, but that it's supposed to allow more flexibility. If let's say a node doesn't care about where the sender actually is, we can kind of hijack the behavior of some of the other nodes to create more expressive kind of middle ground. So we're trying to keep the common pathways open. That's why we don't use something like let's say LaneGraph for this entire thing. LaneGraph is awesome and is a tool that we use inside of it, but it's not flexible. It's too well-regulated of a framework to allow the kind of thing that we want. We don't want to be closing and opening it over and over and over again.
+A node is basically just a script. Almost anything can be a node, as long as it has these characteristics: 
+Have a pyproject wrapper that contains MEGADESK metadata. This is how the Canvas discovers available nodes.
+Have get_fe_spec(), get_be_spec(), get_tool_spec(). Methods that are called by the Canvas, Supervisor, or VoiceDeck to get setup/teardown instructions. 
 
 
+Implementation of what the methods due is left to node-based implementation. 
 
+Nodes I use:
+- WorkDispatcher: probes a git remote for a target label and turns issues into tickets. Pressing the tickets publishes them as work-orders for factories to build agentically
+- MachineFactory: deploys a an agent in a sandbox to execute a LangGraph. 
+- CloudFactory: deploys a cloud agent with Cursor. 
+- GraphScope: tracks sandbox agent's langgraph execution state and visualizes for the user 
+- PrManager: pull request manager to quickly validate agent's work and merge. 
+- AutoIntegrate: looks for merge conflicts and allows you to dispatch an agent to merge them via the factory pathway 
+
+Nodes I made but don't use: 
+- VisionBoard: lucid-chart-like sticky note white board. Currently needs more attention for data management 
+- PrompImprover: takes a prompt and improves it. Currently sucks isn't helpful. This could probably be a cloud-agent and not a node. 
+- Notepad: hidious design and poor data management
+- CodeScope: actually function with voice deck, but should be a cloud agent not a node.
+
+Planned nodes: 
+- Ralph node: takes a local repo and sends agents to work on it until all issues are resolved. Works serially and no sandbox. Used when i'm lazy and just want to bang something out on a clean computer
+- Orchestrator: takes a huge design list and breaks them down into smaller pieces, creates issues, and dispatches agents. Natural balancer node. 
+
+</human>
 
 
 Individual modules:

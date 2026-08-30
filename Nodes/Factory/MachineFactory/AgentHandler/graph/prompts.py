@@ -11,6 +11,8 @@ convincing itself the work was good, and it read like it.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 _DIFF_LIMIT = 6000
 
 
@@ -42,6 +44,7 @@ def workhorse_prompt(
     ticket_name: str,
     instructions: str,
     pathfinder_report: str = "",
+    pictures: Sequence[str] = (),
 ) -> str:
     lines = [f"Ticket: {ticket_name}", "", instructions.strip()]
     if pathfinder_report.strip():
@@ -49,6 +52,12 @@ def workhorse_prompt(
             "",
             "A survey of this sandbox clone was done before you started:",
             pathfinder_report.strip(),
+        ]
+    if pictures:
+        lines += [
+            "",
+            f"{len(tuple(pictures))} reference image(s) are attached."
+            " Use them as visual context.",
         ]
     lines += [
         "",
@@ -95,6 +104,155 @@ def git_prompt(
             "Do not push. Do not amend anything that is already committed.",
             "If git refuses the commit because no author identity is set, set a"
             " local one for this repository and commit again.",
+        ]
+    )
+
+
+def orchestrator_prompt(
+    *,
+    ticket_name: str,
+    instructions: str,
+    repo: str = "",
+    repo_url: str = "",
+    pictures: Sequence[str] = (),
+) -> str:
+    """Deep plan for a ticket that is too big for one workhorse turn."""
+    lines = [
+        "You are the orchestrator for a massive prototype change.",
+        "Quality of the finished code is not the goal: a working slice that",
+        "covers the ticket is. Do not implement anything yet.",
+        "",
+        f"Ticket: {ticket_name}",
+        f"Repo: {repo or '(unknown)'}",
+        f"Git URL: {repo_url or '(unknown)'}",
+        "",
+        "The ticket:",
+        instructions.strip(),
+        "",
+        "Survey this cloned repository thoroughly. Then write an in-depth",
+        "implementation plan that a later dispatcher can slice into a kanban",
+        "board. The plan must include:",
+        "- The outcome that means the ticket is done",
+        "- The current layout of the relevant code (files, modules, entry points)",
+        "- A sequenced list of features / layers / seams to change, with why",
+        "  that order (dependencies first)",
+        "- How to build and run the tests in this repo",
+        "- Anything that will block the work",
+        "",
+        "Do not edit files. Do not commit. Do not start the work.",
+    ]
+    if pictures:
+        lines += [
+            "",
+            f"{len(tuple(pictures))} reference image(s) are attached.",
+            "Use them as visual context for the plan.",
+        ]
+    return "\n".join(lines)
+
+
+def dispatcher_prompt(
+    *,
+    ticket_name: str,
+    instructions: str,
+    plan: str,
+) -> str:
+    return "\n".join(
+        [
+            "You are the dispatcher for a massive prototype change.",
+            "Turn the orchestrator's plan into a ranked kanban board.",
+            "Do not implement anything.",
+            "",
+            f"Ticket: {ticket_name}",
+            "",
+            "Original ticket:",
+            instructions.strip(),
+            "",
+            "Orchestrator plan:",
+            plan.strip() or "(no plan)",
+            "",
+            "Break the plan into the smallest slices that can each land as one",
+            "commit. Rank them so the first card is the one that must happen",
+            "first (foundations and dependencies before features).",
+            "",
+            "Reply with a JSON object and nothing else, in this shape:",
+            '{',
+            '  "cards": [',
+            '    {"id": "1", "title": "short name", "detail": "what to do", "priority": 1}',
+            "  ]",
+            "}",
+            "",
+            "priority 1 is done first. Every card needs a title. Do not commit.",
+        ]
+    )
+
+
+def ralph_prompt(
+    *,
+    ticket_name: str,
+    instructions: str,
+    plan: str,
+    card: dict,
+    remaining: int,
+    pictures: Sequence[str] = (),
+) -> str:
+    title = str(card.get("title") or "").strip()
+    detail = str(card.get("detail") or "").strip()
+    lines = [
+        "You are Ralph. You do one kanban card for a massive prototype.",
+        "Ship something that works. Do not polish. Do not refactor unrelated",
+        "code. Do not start the next card.",
+        "",
+        f"Ticket: {ticket_name}",
+        f"Card: {title}",
+        f"Cards left after this one: {max(0, remaining - 1)}",
+        "",
+        "This card:",
+        detail or title,
+        "",
+        "Original ticket:",
+        instructions.strip(),
+        "",
+        "Orchestrator plan (context only — you implement this card, not the plan):",
+        plan.strip() or "(no plan)",
+        "",
+        "Implement this card in the working tree, then commit it.",
+        f"Commit message should name the ticket ({ticket_name}) and this card",
+        f"({title}). Do not push. Do not amend earlier commits.",
+        "If git refuses the commit because no author identity is set, set a",
+        "local one for this repository and commit again.",
+        "If the tree is already what the card asked for, commit nothing and say so.",
+    ]
+    if pictures:
+        lines += [
+            "",
+            f"{len(tuple(pictures))} reference image(s) are attached.",
+            "Use them as visual context.",
+        ]
+    return "\n".join(lines)
+
+
+def test_prompt(
+    *,
+    ticket_name: str,
+    instructions: str,
+    plan: str,
+) -> str:
+    return "\n".join(
+        [
+            "The massive-project cards are all committed. Run this repo's tests.",
+            "",
+            f"Ticket: {ticket_name}",
+            "",
+            "Original ticket:",
+            instructions.strip(),
+            "",
+            "The orchestrator said this about how to test:",
+            plan.strip() or "(no plan — find README / AGENTS.md / the usual files)",
+            "",
+            "Discover and run the real test command for this repository.",
+            "Do not fix failures. Do not commit. Do not push.",
+            "Finish with a short report: what you ran, pass/fail, and the",
+            "first failures if any.",
         ]
     )
 

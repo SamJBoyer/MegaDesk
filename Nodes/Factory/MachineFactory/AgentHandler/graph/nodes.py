@@ -14,6 +14,7 @@ opens a PR when ``auto_pr`` is set, and publishes FINISHED with the PR URL.
 
 from __future__ import annotations
 
+import json
 import logging
 import subprocess
 from typing import Any
@@ -29,7 +30,7 @@ from megadesk_contracts.wire.machine import (
     parse_agent_handler,
 )
 
-from AgentHandler.graph import prompts
+from AgentHandler.graph import kanban, prompts
 from AgentHandler.graph.state import RunContext, WorkState
 
 log = logging.getLogger("agent_handler.graph")
@@ -107,7 +108,9 @@ def startup_node(context: RunContext, state: WorkState) -> WorkState:
         "repo": repo,
         "model": model,
         "instructions": order["instructions"],
+        "pictures": list(order.get("pictures") or []),
         "auto_pr": auto_pr,
+        "graph": order.get("graph") or "",
     }
 
     if not repo_url:
@@ -153,12 +156,14 @@ def pathfinder_node(context: RunContext, state: WorkState) -> WorkState:
 def workhorse_node(context: RunContext, state: WorkState) -> WorkState:
     node = "workhorse_node"
     context.reporter.node_started(node)
+    pictures = list(state.get("pictures") or [])
     instruction = prompts.workhorse_prompt(
         ticket_name=state.get("ticket_name", ""),
         instructions=state.get("instructions", ""),
         pathfinder_report=state.get("pathfinder_report", ""),
+        pictures=pictures,
     )
-    outcome = _run_agent(context, state, instruction, node)
+    outcome = _run_agent(context, state, instruction, node, pictures=pictures)
     if outcome.get("error"):
         context.reporter.node_failed(node, _clip(outcome["error"], 200))
         return _fail(node, outcome["error"])
@@ -200,6 +205,122 @@ def git_node(context: RunContext, state: WorkState) -> WorkState:
         "commit_sha": sha,
         "commit_message": message,
     }
+
+
+def orchestrator_node(context: RunContext, state: WorkState) -> WorkState:
+    """Survey the clone and write the plan a dispatcher can slice."""
+    node = "orchestrator_node"
+    context.reporter.node_started(node)
+    pictures = list(state.get("pictures") or [])
+    instruction = prompts.orchestrator_prompt(
+        ticket_name=state.get("ticket_name", ""),
+        instructions=state.get("instructions", ""),
+        repo=state.get("repo", ""),
+        repo_url=context.repo_url,
+        pictures=pictures,
+    )
+    outcome = _run_agent(context, state, instruction, node, pictures=pictures)
+    if outcome.get("error"):
+        context.reporter.node_failed(node, _clip(outcome["error"], 200))
+        return _fail(node, outcome["error"])
+
+    plan = _clip(outcome.get("result"), 8000)
+    if not plan.strip():
+        message = "orchestrator produced an empty plan"
+        context.reporter.node_failed(node, message)
+        return _fail(node, message)
+
+    context.reporter.node_finished(node, _clip(plan, 200))
+    return {"orchestrator_plan": plan}
+
+
+def dispatcher_node(context: RunContext, state: WorkState) -> WorkState:
+    """Turn the plan into a ranked kanban board."""
+    node = "dispatcher_node"
+    context.reporter.node_started(node)
+    instruction = prompts.dispatcher_prompt(
+        ticket_name=state.get("ticket_name", ""),
+        instructions=state.get("instructions", ""),
+        plan=state.get("orchestrator_plan", ""),
+    )
+    outcome = _run_agent(context, state, instruction, node)
+    if outcome.get("error"):
+        context.reporter.node_failed(node, _clip(outcome["error"], 200))
+        return _fail(node, outcome["error"])
+
+    try:
+        cards = kanban.parse_kanban(str(outcome.get("result") or ""))
+    except (ValueError, json.JSONDecodeError) as exc:
+        message = f"could not parse kanban: {exc}"
+        context.reporter.node_failed(node, _clip(message, 200))
+        return _fail(node, message)
+
+    context.reporter.node_finished(node, f"{len(cards)} cards")
+    return {"kanban": cards}
+
+
+def ralph_node(context: RunContext, state: WorkState) -> WorkState:
+    """Do the highest-priority remaining card and leave a commit."""
+    node = "ralph_node"
+    context.reporter.node_started(node)
+    cards = [dict(card) for card in (state.get("kanban") or [])]
+    card = kanban.next_todo(cards)
+    if card is None:
+        context.reporter.node_finished(node, "board empty")
+        return {"kanban": cards}
+
+    remaining = kanban.remaining_count(cards)
+    pictures = list(state.get("pictures") or [])
+    instruction = prompts.ralph_prompt(
+        ticket_name=state.get("ticket_name", ""),
+        instructions=state.get("instructions", ""),
+        plan=state.get("orchestrator_plan", ""),
+        card=card,
+        remaining=remaining,
+        pictures=pictures,
+    )
+    outcome = _run_agent(context, state, instruction, node, pictures=pictures)
+    if outcome.get("error"):
+        context.reporter.node_failed(node, _clip(outcome["error"], 200))
+        return _fail(node, outcome["error"])
+
+    sha, message = _ensure_card_commit(context, card)
+    cards = kanban.mark_done(cards, str(card.get("id")), commit_sha=sha)
+    left = kanban.remaining_count(cards)
+    log = state.get("ralph_report") or ""
+    line = f"{card.get('title')}: {sha or 'no commit'}"
+    report = f"{log}\n{line}".strip()
+    context.reporter.node_finished(
+        node,
+        f"{card.get('title')} commit={sha or 'none'} left={left}",
+    )
+    return {
+        "kanban": cards,
+        "ralph_report": _clip(report, 4000),
+        "commit_sha": sha,
+        "commit_message": message,
+        "work_report": _clip(outcome.get("result")),
+    }
+
+
+def test_node(context: RunContext, state: WorkState) -> WorkState:
+    """Run the repo's tests. Failures are reported; they do not block the PR."""
+    node = "test_node"
+    context.reporter.node_started(node)
+    instruction = prompts.test_prompt(
+        ticket_name=state.get("ticket_name", ""),
+        instructions=state.get("instructions", ""),
+        plan=state.get("orchestrator_plan", ""),
+    )
+    outcome = _run_agent(context, state, instruction, node)
+    if outcome.get("error"):
+        report = _clip(outcome["error"])
+        context.reporter.node_finished(node, f"tests not run: {_clip(report, 200)}")
+        return {"test_report": report}
+
+    report = _clip(outcome.get("result"))
+    context.reporter.node_finished(node, _clip(report, 200) or "no report")
+    return {"test_report": report}
 
 
 def teardown_node(context: RunContext, state: WorkState) -> WorkState:
@@ -284,6 +405,7 @@ def _run_agent(
     state: WorkState,
     instruction: str,
     node: str,
+    pictures: list[str] | None = None,
 ) -> dict[str, Any]:
     """One agent turn inside the cloned workspace."""
     from AgentHandler.handler import run_agent
@@ -296,6 +418,7 @@ def _run_agent(
         api_key=context.api_key,
         model=model,
         audit=context.audit,
+        pictures=pictures or (),
     )
 
     status = normalize_status(outcome.get("status"))
@@ -326,3 +449,42 @@ def _read_head(context: RunContext, state: WorkState) -> tuple[str, str]:
     sha = _git(context, "rev-parse", "HEAD").strip()
     message = _git(context, "log", "-1", "--pretty=%B").strip()
     return sha[:12], _clip(message, 1000)
+
+
+def _ensure_card_commit(context: RunContext, card: dict[str, Any]) -> tuple[str, str]:
+    """Use the agent's commit when the tree is clean; otherwise commit the leftover."""
+    status = _git(context, "status", "--porcelain")
+    if not status.strip():
+        return _read_head(context, {})
+
+    title = str(card.get("title") or "card").strip()
+    ticket = str(getattr(context, "ticket", "") or "").strip()
+    commit_message = f"{ticket}: {title}".strip(": ") if ticket else title
+    identity = [
+        "-c",
+        "user.email=megadesk@local",
+        "-c",
+        "user.name=MegaDesk",
+    ]
+    add = subprocess.run(
+        ["git", *identity, "add", "-A"],
+        cwd=context.workspace,
+        capture_output=True,
+        text=True,
+        timeout=_GIT_TIMEOUT_SEC,
+        check=False,
+    )
+    if add.returncode != 0:
+        log.warning("ralph fallback add failed: %s", add.stderr.strip())
+        return _read_head(context, {})
+    committed = subprocess.run(
+        ["git", *identity, "commit", "-m", commit_message],
+        cwd=context.workspace,
+        capture_output=True,
+        text=True,
+        timeout=_GIT_TIMEOUT_SEC,
+        check=False,
+    )
+    if committed.returncode != 0:
+        log.warning("ralph fallback commit failed: %s", committed.stderr.strip())
+    return _read_head(context, {})

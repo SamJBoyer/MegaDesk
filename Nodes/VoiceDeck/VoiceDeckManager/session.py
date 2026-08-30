@@ -7,9 +7,10 @@ which sounds like a crash.
 
 So the answer is decoupled from the tool result:
 
-1. ``ask_codebase`` publishes CODEQ:ASK and immediately returns ``searching``.
+1. ``ask_codebase`` queues an HTTP ask against CodeScope and immediately returns
+   ``searching``.
 2. The model says something short to hold the floor.
-3. CodeScope streams sentences back on CODEQ:ANSWER.
+3. CodeScope streams sentences back over SSE.
 4. Each sentence is injected as a new conversation item plus a ``response.create``,
    so the model speaks it as it arrives.
 
@@ -26,15 +27,14 @@ import json
 import logging
 import threading
 import time
-from pathlib import Path
 from typing import Any, Callable, Optional
 
 from megadesk_contracts import resolve_ephemeral_db, resolve_persistent_db, redis_connect, realtime, resolve_redis_url
-from megadesk_contracts.repo import remote_url
 from megadesk_contracts.wire import code_scope as scope_wire
+from megadesk_contracts.wire import sargent as sargent_wire
 from megadesk_contracts.wire import voice as wire
 
-from VoiceDeckManager.tools import ANSWER_PREFIX, tool_handlers
+from VoiceDeckManager.tools import ANSWER_PREFIX, REWRITE_PREFIX, tool_handlers
 
 log = logging.getLogger("voice_deck.session")
 
@@ -58,6 +58,7 @@ class VoiceSession:
         transport_factory: Optional[TransportFactory] = None,
         session_id: str = "",
         repo: str = "",
+        codescope: Any = None,
     ) -> None:
         self.redis_url = resolve_redis_url(redis_url)
         self.session_id = session_id or scope_wire.new_session_id()
@@ -67,10 +68,12 @@ class VoiceSession:
         self._transport_factory = transport_factory or self._default_transport
         self._ephemeral = ephemeral
         self._persistent = persistent
+        self._codescope = codescope
         self._pending: dict[str, str] = {}
+        self._scope_asks: list[tuple[str, str, str, str]] = []
         self._last_user_text = ""
         self.current_call_id = ""
-        self._answer_cursor = "$"
+        self._rewrite_cursor = "$"
         self._control_cursor = "$"
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
@@ -105,9 +108,7 @@ class VoiceSession:
         if self.transport is not None:
             return True
         self._set_state(wire.STATE_CONNECTING)
-        # Arm the answer cursor before any question can exist, so the first read
-        # starts from a fixed id rather than "now" and cannot skip an answer.
-        self._answer_cursor = self._last_id(scope_wire.ANSWER_STREAM)
+        self._rewrite_cursor = self._last_id(sargent_wire.ANSWER_STREAM)
         try:
             self.transport = self._transport_factory()
             self.transport.connect()
@@ -257,24 +258,71 @@ class VoiceSession:
     def remember_question(self, question_id: str, call_id: str) -> None:
         self._pending[question_id] = call_id
 
+    def queue_scope_ask(
+        self,
+        session_id: str,
+        question: str,
+        question_id: str,
+        *,
+        mode: str = "",
+    ) -> None:
+        self._scope_asks.append(
+            (session_id, question, question_id, mode or scope_wire.MODE_ANSWER)
+        )
+
     def repo_url(self, scope_session_id: str) -> str:
         return self._repo_url(scope_session_id)
+
+    @property
+    def codescope(self) -> Any:
+        if self._codescope is None:
+            from CodeScopeManager.client import get_client
+
+            self._codescope = get_client()
+        return self._codescope
 
     # --- answers ---
 
     def pump_answers(self, *, block_ms: int = 0) -> int:
-        """Relay CODEQ:ANSWER entries for questions this session asked."""
-        relayed = 0
+        """Relay CodeScope SSE and SARGENT:ANSWER for asks this session made."""
+        relayed = self._pump_scope_asks()
         for _entry_id, fields in self._read(
-            scope_wire.ANSWER_STREAM, self._answer_cursor, block_ms, ANSWER_BATCH
+            sargent_wire.ANSWER_STREAM, self._rewrite_cursor, block_ms, ANSWER_BATCH
         ):
             try:
-                answer = scope_wire.parse_answer(fields)
+                rewrite = sargent_wire.parse_answer(fields)
             except ValueError:
                 continue
-            if answer["question_id"] not in self._pending:
+            if rewrite["prompt_id"] not in self._pending:
                 continue
-            relayed += self._relay(answer)
+            relayed += self._relay_rewrite(rewrite)
+        return relayed
+
+    def _pump_scope_asks(self) -> int:
+        relayed = 0
+        queued = self._scope_asks
+        self._scope_asks = []
+        for session_id, question, question_id, mode in queued:
+            try:
+                for answer in self.codescope.ask(
+                    session_id,
+                    question,
+                    mode=mode,
+                    question_id=question_id,
+                ):
+                    relayed += self._relay(answer)
+            except Exception as exc:  # noqa: BLE001 - a failed search must speak
+                log.exception("CodeScope ask failed")
+                relayed += self._relay(
+                    {
+                        "session_id": session_id,
+                        "question_id": question_id,
+                        "repo": "",
+                        "answer": str(exc),
+                        "final": True,
+                        "status": scope_wire.STATUS_ERROR,
+                    }
+                )
         return relayed
 
     def _relay(self, answer: dict) -> int:
@@ -295,6 +343,20 @@ class VoiceSession:
         self._speak(f"{ANSWER_PREFIX} {text}")
         return 1
 
+    def _relay_rewrite(self, answer: dict) -> int:
+        prompt_id = answer["prompt_id"]
+        text = answer["rewrite"].strip()
+        failed = answer["status"] == sargent_wire.STATUS_ERROR
+        self._pending.pop(prompt_id, None)
+        if failed:
+            self._publish(wire.KIND_ERROR, text)
+            self._speak(f"I could not revise the prompt: {text}")
+            return 1
+        if not text:
+            return 0
+        self._speak(f"{REWRITE_PREFIX} {text}")
+        return 1
+
     def _speak(self, text: str) -> None:
         if self.transport is None:
             log.debug("No transport; dropping %r", text[:60])
@@ -307,6 +369,8 @@ class VoiceSession:
         cleaned = text.strip()
         if cleaned.startswith(ANSWER_PREFIX):
             cleaned = cleaned[len(ANSWER_PREFIX) :].strip()
+        elif cleaned.startswith(REWRITE_PREFIX):
+            cleaned = cleaned[len(REWRITE_PREFIX) :].strip()
         return cleaned
 
     # --- CodeScope sessions ---
@@ -320,18 +384,19 @@ class VoiceSession:
         """
         wanted = (repo or "").strip().lower()
         found: list[tuple[str, str]] = []
-        for key in self.persistent.scan_iter(
-            match=f"{scope_wire.SESSION_PREFIX}*", count=100
-        ):
-            fields = self.persistent.hgetall(key)
-            try:
-                session = scope_wire.parse_session(fields)
-            except ValueError:
+        try:
+            sessions = self.codescope.list_repos()
+        except Exception:  # noqa: BLE001
+            log.warning("Could not list CodeScope repos", exc_info=True)
+            return None
+        for session in sessions:
+            name = str(session.get("repo") or "")
+            session_id = str(session.get("session_id") or "")
+            if not name or not session_id:
                 continue
-            session_id = scope_wire.session_id_from_key(key)
-            if wanted and session["repo"].lower() == wanted:
-                return session_id, session["repo"]
-            found.append((session_id, session["repo"]))
+            if wanted and name.lower() == wanted:
+                return session_id, name
+            found.append((session_id, name))
         if not wanted and len(found) == 1:
             return found[0]
         if wanted:
@@ -339,22 +404,19 @@ class VoiceSession:
         return found[0] if found else None
 
     def loaded_repos(self) -> list[str]:
-        repos: list[str] = []
-        for key in self.persistent.scan_iter(
-            match=f"{scope_wire.SESSION_PREFIX}*", count=100
-        ):
-            repo = self.persistent.hget(key, "repo")
-            if repo:
-                repos.append(repo)
-        return sorted(set(repos))
+        try:
+            sessions = self.codescope.list_repos()
+        except Exception:  # noqa: BLE001
+            log.warning("Could not list CodeScope repos", exc_info=True)
+            return []
+        return sorted({str(item.get("repo") or "") for item in sessions if item.get("repo")})
 
     def _repo_url(self, scope_session_id: str) -> str:
-        clone = self.persistent.hget(
-            scope_wire.session_key(scope_session_id), "clone_path"
-        )
-        if not clone:
-            raise ValueError("the session has no clone path")
-        return remote_url(Path(clone))
+        session = self.codescope.get_session(scope_session_id)
+        url = str(session.get("url") or "").strip()
+        if not url:
+            raise ValueError("the session has no repository URL")
+        return url
 
     # --- plumbing ---
 
@@ -396,8 +458,8 @@ class VoiceSession:
     def _remember(self, stream: str, cursor: str) -> None:
         if stream == wire.CONTROL_STREAM:
             self._control_cursor = cursor
-        elif stream == scope_wire.ANSWER_STREAM:
-            self._answer_cursor = cursor
+        elif stream == sargent_wire.ANSWER_STREAM:
+            self._rewrite_cursor = cursor
 
     def _publish(self, kind: str, text: str) -> None:
         try:

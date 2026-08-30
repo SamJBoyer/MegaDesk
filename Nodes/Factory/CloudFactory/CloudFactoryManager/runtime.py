@@ -41,6 +41,8 @@ from megadesk_contracts import (
     RunStatus,
     repo_name_from_url,
 )
+from megadesk_contracts.factory import prompt_payload
+from megadesk_contracts.wire._fields import parse_pictures
 from megadesk_contracts.wire import cloud as wire
 from megadesk_contracts.wire.factory import normalize_status
 
@@ -244,6 +246,7 @@ class CursorCloudFactory:
         title = str(order["title"])
         auto_pr = bool(order.get("auto_pr", True))
         ref = str(order.get("ref") or "")
+        pictures = parse_pictures(order.get("pictures"))
 
         url, name = canonical_github_repo(repo_url)
         CloudAgentOptions = self._options_cls()
@@ -267,6 +270,7 @@ class CursorCloudFactory:
                     instructions=instructions,
                     title=title,
                     repo_url=url,
+                    pictures=pictures,
                 )
             )
         except AgentError:
@@ -282,6 +286,7 @@ class CursorCloudFactory:
         instructions: str,
         title: str,
         repo_url: str = "",
+        pictures: Optional[list[str]] = None,
     ) -> RunHandle:
         client = await self._ensure_client()
         if repo_url:
@@ -302,7 +307,12 @@ class CursorCloudFactory:
             raise AgentStartupError("Cursor returned an agent with no id")
 
         try:
-            run = await agent.send(prompt_for(instructions=instructions, title=title))
+            text = prompt_for(instructions=instructions, title=title)
+            if pictures:
+                text += (
+                    "\n\nReference images are attached. Use them as visual context."
+                )
+            run = await agent.send(prompt_payload(text, pictures or ()))
         except Exception as exc:  # noqa: BLE001
             # The agent exists but has no work: cancel it rather than leaving a
             # billable idle VM behind.

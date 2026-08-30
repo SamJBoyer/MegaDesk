@@ -59,13 +59,16 @@ def dispatch(
     *,
     model: str | None = None,
     factory: str | None = None,
+    graph: str | None = None,
 ) -> None:
-    """Wait for the issue row to appear, optionally pick factory/model, then press it."""
+    """Wait for the issue row to appear, optionally pick factory/model/graph, then press it."""
     harness.wait_for_widget(dispatcher, f"ticket_btn_{issue_id}")
     if factory is not None:
         dispatcher.select(f"ticket_factory_{issue_id}", factory)
     if model is not None:
         dispatcher.select(f"ticket_model_{issue_id}", model)
+    if graph is not None:
+        dispatcher.select(f"ticket_graph_{issue_id}", graph)
     dispatcher.click(f"ticket_btn_{issue_id}")
 
 
@@ -96,8 +99,13 @@ def test_t1_dispatch_writes_the_canonical_workorder(
     assert fields["auto_pr"] == "true"
     assert fields["ticket_name"] == "add-widget-tests"
     assert fields["instructions"] == "Cover the widget module with tests."
-    assert fields["model"] == "auto"
+    assert fields["model"] == "grok-4.6"
+    assert fields["issue"] == "41"
+    assert fields["graph"] == "work"
     assert redis_client.xlen(cloud_wire.CLOUDORDER_STREAM) == 0
+    issued = next(item for item in fake_gh.issues if item.number == 41)
+    assert "in-progress" in issued.labels
+    assert "agent-ready" not in issued.labels
 
 
 def test_t1c_dispatch_to_cloud_writes_a_canonical_cloudorder(
@@ -117,8 +125,44 @@ def test_t1c_dispatch_to_cloud_writes_a_canonical_cloudorder(
     assert fields["title"] == "add-widget-tests"
     assert fields["instructions"] == "Cover the widget module with tests."
     assert fields["auto_pr"] == "true"
-    assert fields["model"] == "auto"
+    assert fields["model"] == "grok-4.6"
+    assert fields["issue"] == "41"
     assert workorders() == []
+
+
+def test_t1e_dispatch_massive_graph_writes_graph_on_the_workorder(
+    fake_gh, harness, workorders
+) -> None:
+    fake_gh.add_issue(41, "add-widget-tests", "Cover the widget module with tests.")
+
+    dispatcher = connect_dispatcher(harness)
+    dispatch(harness, dispatcher, 41, graph="massive")
+
+    entries = workorders()
+    assert len(entries) == 1
+    _entry_id, fields = entries[0]
+    assert fields["graph"] == "massive"
+
+
+def test_t1d_issue_pictures_travel_on_the_workorder(
+    redis_client, fake_gh, harness, workorders
+) -> None:
+    from megadesk_contracts.wire.machine import parse_workorder
+
+    shot = "https://github.com/user-attachments/assets/demo-shot"
+    fake_gh.add_issue(
+        41,
+        "match-the-mock",
+        f"Build this. ![mock]({shot})",
+    )
+
+    dispatcher = connect_dispatcher(harness)
+    dispatch(harness, dispatcher, 41)
+
+    entries = workorders()
+    assert len(entries) == 1
+    parsed = parse_workorder(entries[0][1])
+    assert parsed["pictures"] == [shot]
 
 
 def test_t1b_issue_without_a_body_falls_back_to_its_title(
@@ -142,10 +186,11 @@ def test_t2_per_row_model_combo_reaches_the_payload(
     fake_gh.add_issue(42, "pick-a-model", "Use the fast model.")
 
     dispatcher = connect_dispatcher(harness)
-    dispatch(harness, dispatcher, 42, model="grok-4.5")
+    dispatch(harness, dispatcher, 42, model="high")
 
     _entry_id, fields = workorders()[0]
-    assert fields["model"] == "grok-4.5"
+    assert fields["model"] == "claude-opus-5"
+    assert fields["issue"] == "42"
     assert read_stream(cloud_wire.CLOUDORDER_STREAM) == []
 
 
@@ -307,6 +352,7 @@ def test_t8_full_chain_from_dispatch_to_mergeable_pr(
 
     harness.wait_for_widget(manager, "name::12")
 
+    # The dispatched issue is relabeled in-progress and leaves the gate.
     # WorkDispatcher must still be draining while PRManager works: both
     # depend on the same shared pump, and its status is written by its own
     # background thread.
@@ -314,7 +360,7 @@ def test_t8_full_chain_from_dispatch_to_mergeable_pr(
         lambda: "agent-ready" in dispatcher.get("status_text"),
         message="WorkDispatcher to keep draining alongside PRManager",
     )
-    assert dispatcher.exists("ticket_btn_88")
+    assert not dispatcher.exists("ticket_btn_88")
 
     label = manager.get("name::12")
     assert "t8-pr" in label

@@ -1,15 +1,15 @@
-"""MegaDesk.nodes entry point for CodeScope (FE + BE).
+"""MegaDesk.nodes entry point for CodeScope — a cloud node.
 
 FE: Dear PyGui repo intake and question box (requires ``[canvas]``).
-BE: CodeScopeManager, which answers CODEQ:ASK from a warm local Cursor agent.
+The process that clones and answers runs elsewhere (``CODESCOPE_URL``).
+There is no Supervisor-launched BE on this machine.
 """
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-from megadesk_contracts import BeSpec, FeSpec, ToolSpec
+from megadesk_contracts import KIND_CLOUD, FeSpec, ToolSpec
 
 _CODE_SCOPE_ROOT = Path(__file__).resolve().parent
 NODE_NAME = "code_scope"
@@ -27,20 +27,15 @@ def get_fe_spec() -> FeSpec | None:
         default_width=520,
         default_height=240,
         build=build_ui,
-        backends=(NODE_NAME,),
+        kind=KIND_CLOUD,
     )
 
 
-def get_be_spec() -> BeSpec | None:
-    return BeSpec(
-        name=NODE_NAME,
-        argv=[sys.executable, "-u", "-m", "CodeScopeManager"],
-        cwd=str(_CODE_SCOPE_ROOT),
-    )
+def get_be_spec():
+    return None
 
 
 def get_tool_spec() -> ToolSpec | None:
     from code_scope_tools import tool_spec
 
     return tool_spec()
-

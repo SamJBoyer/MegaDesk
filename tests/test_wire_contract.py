@@ -73,6 +73,75 @@ def test_workorder_round_trips_through_the_parser(machine_wire) -> None:
     assert parsed["auto_pr"] is True
     assert parsed["URL"] == "https://github.com/acme/widgets"
     assert parsed["model"] == "grok-4.5"
+    assert parsed["pictures"] == []
+    assert parsed["graph"] == "work"
+
+
+def test_workorder_graph_defaults_to_work_and_rejects_unknown(machine_wire) -> None:
+    parsed = machine_wire.parse_workorder(
+        machine_wire.workorder_fields(**WORKORDER_SAMPLE)
+    )
+    assert parsed["graph"] == "work"
+    massive = machine_wire.parse_workorder(
+        machine_wire.workorder_fields(**WORKORDER_SAMPLE, graph="massive")
+    )
+    assert massive["graph"] == "massive"
+    with pytest.raises(ValueError, match="graph"):
+        machine_wire.workorder_fields(**WORKORDER_SAMPLE, graph="unknown")
+
+
+def test_prompt_payload_stays_a_string_without_pictures() -> None:
+    from megadesk_contracts.factory import prompt_payload
+
+    assert prompt_payload("do the work") == "do the work"
+
+
+def test_pictures_round_trip_on_both_order_families(machine_wire) -> None:
+    from megadesk_contracts.human_gate import extract_issue_pictures
+    from megadesk_contracts.wire import cloud
+
+    urls = [
+        "https://github.com/user-attachments/assets/aaaa",
+        "https://example.com/mock.png",
+    ]
+    body = (
+        "See ![one](https://github.com/user-attachments/assets/aaaa) "
+        "and <img src=\"https://example.com/mock.png\">."
+    )
+    assert extract_issue_pictures(body) == urls
+
+    machine = machine_wire.parse_workorder(
+        machine_wire.workorder_fields(**WORKORDER_SAMPLE, pictures=urls)
+    )
+    assert machine["pictures"] == urls
+
+    cloud_parsed = cloud.parse_cloudorder(
+        cloud.cloudorder_fields(
+            order_id="order-1",
+            repo_url="https://github.com/acme/widgets",
+            title="add-widget-tests",
+            instructions="Cover the widget module.",
+            pictures=urls,
+        )
+    )
+    assert cloud_parsed["pictures"] == urls
+    assert extract_issue_pictures("no images here") == []
+
+
+def test_workorder_parser_accepts_a_legacy_entry_without_pictures(machine_wire) -> None:
+    parsed = machine_wire.parse_workorder(
+        {
+            "repo": "widgets",
+            "URL": "https://github.com/acme/widgets",
+            "ticket_name": "add-widget-tests",
+            "instructions": "Cover the widget module.",
+            "model": "auto",
+            "auto_pr": "true",
+        }
+    )
+    assert parsed["pictures"] == []
+    assert parsed["issue"] == ""
+    assert parsed["graph"] == "work"
 
 
 def test_finished_round_trips_through_the_parser(machine_wire) -> None:
@@ -183,6 +252,26 @@ def test_graph_event_round_trips_through_the_parser(graph_wire) -> None:
     )
     assert parsed["node"] == "workhorse_node"
     assert parsed["guid"] == "run-1"
+
+
+def test_resolve_graph_picks_the_named_spec(graph_wire) -> None:
+    assert graph_wire.resolve_graph("").name == "work"
+    assert graph_wire.resolve_graph("work").name == "work"
+    assert graph_wire.resolve_graph("massive").name == "massive"
+    assert graph_wire.MASSIVE_PROJECT_GRAPH.node_names() == (
+        "startup_node",
+        "orchestrator_node",
+        "dispatcher_node",
+        "ralph_node",
+        "test_node",
+        "teardown_node",
+    )
+    decoded = graph_wire.decode_spec(
+        graph_wire.encode_spec(graph_wire.MASSIVE_PROJECT_GRAPH)
+    )
+    assert decoded.edges == graph_wire.MASSIVE_PROJECT_GRAPH.edges
+    with pytest.raises(ValueError, match="unknown work graph"):
+        graph_wire.resolve_graph("unknown")
 
 
 def test_graph_run_rejects_a_status_outside_the_shared_vocabulary(graph_wire) -> None:

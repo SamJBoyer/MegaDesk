@@ -45,7 +45,7 @@ Deleted at teardown with the `AGENTHANDLER` hash, so a missing key still means
 | Field | Required | Notes |
 |-------|----------|-------|
 | `guid` | yes | Same guid as `AGENTHANDLER:<guid>` |
-| `graph` | yes | Spec name (`work`) |
+| `graph` | yes | Spec name (`work` or `massive`) |
 | `spec` | yes | JSON `GraphSpec` (nodes, edges, kinds) — the shape that actually ran |
 | `nodes` | yes | JSON map of node name → `{status, started, ended, detail}` |
 | `current` | no | Node running right now; empty between nodes and after finish |
@@ -94,17 +94,29 @@ No consumer group. This is a timeline, not a queue.
 
 ## Topology
 
-The default spec is `WORK_GRAPH`:
+Two specs are defined. `WORK_GRAPH` (`work`) is the default:
 
 ```
 startup_node → pathfinder_node → workhorse_node → git_node → teardown_node
 ```
 
+`MASSIVE_PROJECT_GRAPH` (`massive`) is for a ticket that is too big for one
+workhorse turn. `WORKORDER.graph` selects it.
+
+```
+startup_node → orchestrator_node → dispatcher_node → ralph_node ⟲ → test_node → teardown_node
+```
+
+The orchestrator writes an in-depth plan from the ticket and the cloned repo.
+The dispatcher slices that plan into a ranked kanban board. Ralph does the
+highest-priority card, commits, and loops until the board is empty. Tests run
+after the last card; teardown still opens the PR. A test failure is reported
+and does not block the PR — this graph is for prototype-sized work.
+
 Each non-terminal node also has a conditional edge to `teardown_node` when
 `state["error"]` is set, so `FINISHED:<repo>` is always published and both
-hashes are always deleted. Startup rewrites the linked worktree's gitdir
-pointers for `/workspace` + `/bare`; teardown restores the host pointers
-before it publishes so host gitdir pointers are restored.
+hashes are always deleted. Startup clones the target repo into `/workspace`;
+teardown pushes the branch and opens a PR when `auto_pr` is set.
 
 The hash carries its own `spec` so a visualizer draws what ran, not what it was
 compiled against.

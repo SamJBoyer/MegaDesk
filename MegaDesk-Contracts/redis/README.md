@@ -41,7 +41,7 @@ Default Redis has indexes 0–15. Live MegaDesk never leaves 0/1. MachineFactory
 
 | DB | Use | Constants |
 |----|-----|-----------|
-| **0** (live ephemeral) | Default realtime traffic: MachineFactory `WORKORDER` / `AGENTHANDLER` / `FINISHED` / `GRAPHRUN` / `GRAPHEVENT`; Supervisor streams `SUPERVISOR:LAUNCHREQUEST` / `SUPERVISOR:KILLREQUEST` / `NODEEXIT`; voice chain `CODEQ:*` / `VOICE:*` / `CLOUD*`; Sargent `SARGENT:*` | `REDIS_DB_EPHEMERAL` |
+| **0** (live ephemeral) | Default realtime traffic: MachineFactory `WORKORDER` / `AGENTHANDLER` / `FINISHED` / `GRAPHRUN` / `GRAPHEVENT`; Supervisor streams `SUPERVISOR:LAUNCHREQUEST` / `SUPERVISOR:KILLREQUEST` / `NODEEXIT`; voice chain `CODEQ:*` / `VOICE:*` / `CLOUD*`; PromptImprover `SARGENT:*` | `REDIS_DB_EPHEMERAL` |
 | **1** (live persistent) | `SUPERVISOR:SINGLETON`, `SUPERVISOR:ALIVE`, `RUNNINGNODES:<unique_id>`, `CODESCOPE:SESSION:<id>`, `CLOUDRUN:<agent_id>` | `REDIS_DB_PERSISTENT` |
 | **14/15** | Host pytest pair. Never handed to an agent. | `HOST_PYTEST_EPHEMERAL_DB` / `HOST_PYTEST_PERSISTENT_DB` |
 
@@ -72,6 +72,8 @@ Default Redis has indexes 0–15. Live MegaDesk never leaves 0/1. MachineFactory
 | `VOICE:CONTROL` | stream | `VOICE:CONTROL` | 0 | [voice-chain.md](voice-chain.md#voicecontrol) |
 | `VOICE:EVENT` | stream | `VOICE:EVENT` | 0 | [voice-chain.md](voice-chain.md#voiceevent) |
 | `NOTEPAD:CMD` | stream | `NOTEPAD:CMD` | 0 | [notepad.md](notepad.md#notepadcmd) |
+| `CANVAS:CMD` | stream | `CANVAS:CMD` | 0 | [canvas.md](canvas.md#canvascmd) |
+| `CANVAS:REPLY` | stream | `CANVAS:REPLY` | 0 | [canvas.md](canvas.md#canvasreply) |
 | `CLOUDORDER` | pub/sub + stream | `CLOUDORDER` | 0 | [voice-chain.md](voice-chain.md#cloudorder) |
 | `CLOUDFINISHED` | stream | `CLOUDFINISHED` | 0 | [voice-chain.md](voice-chain.md#cloudfinished) |
 | CodeScope session | hash | `CODESCOPE:SESSION:<id>` | 1 | [voice-chain.md](voice-chain.md#hashes-db-1) |
@@ -86,12 +88,13 @@ there. A node shipping its own `redis_packets.py` is a bug, not a shortcut:
 
 - `MegaDesk-Contracts/megadesk_contracts/wire/factory.py` — status vocabulary shared by both factories
 - `MegaDesk-Contracts/megadesk_contracts/wire/machine.py` — `WORKORDER`, `AGENTHANDLER`, `FINISHED`
-- `MegaDesk-Contracts/megadesk_contracts/wire/graph.py` — `GRAPHRUN`, `GRAPHEVENT`, `WORK_GRAPH`
+- `MegaDesk-Contracts/megadesk_contracts/wire/graph.py` — `GRAPHRUN`, `GRAPHEVENT`, `WORK_GRAPH`, `MASSIVE_PROJECT_GRAPH`
 - `MegaDesk-Contracts/megadesk_contracts/wire/cloud.py` — `CLOUDORDER`, `CLOUDFINISHED`, `CLOUDRUN`
 - `MegaDesk-Contracts/megadesk_contracts/wire/code_scope.py`
 - `MegaDesk-Contracts/megadesk_contracts/wire/sargent.py`
 - `MegaDesk-Contracts/megadesk_contracts/wire/voice.py`
 - `MegaDesk-Contracts/megadesk_contracts/wire/notepad.py`
+- `MegaDesk-Contracts/megadesk_contracts/wire/canvas.py`
 
 Supervisor keys/streams (Canvas-owned BE):
 

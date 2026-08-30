@@ -2,8 +2,8 @@
 
 Talk to your codebase. VoiceDeck is a transport, not a brain: it holds a
 speech-to-speech session with the OpenAI Realtime API and routes the model's tool
-calls to the nodes that actually do the work — CodeScope for questions,
-CloudFactory for documentation agents.
+calls to the nodes that actually do the work — CodeScope (cloud HTTP) for
+questions, CloudFactory for documentation agents.
 
 ## Halves
 
@@ -29,9 +29,9 @@ conversation and the model goes quiet, which sounds exactly like a crash.
 
 So the answer is decoupled from the tool result:
 
-1. `ask_codebase` publishes `CODEQ:ASK` and returns `status: searching` immediately.
+1. `ask_codebase` queues an HTTP POST to CodeScope and returns `status: searching` immediately.
 2. The model is instructed to say one short thing and then wait.
-3. CodeScope streams the answer back sentence by sentence on `CODEQ:ANSWER`.
+3. CodeScope streams the answer back sentence by sentence over SSE.
 4. Each sentence is injected as a new conversation item plus a `response.create`,
    so the model speaks it as it arrives.
 
@@ -47,11 +47,13 @@ each call to that node's handler.
 
 | Source | Tool | Effect |
 |------|------|--------|
-| CodeScope | `ask_codebase(question)` | `CODEQ:ASK` to CodeScope; returns `searching` |
+| CodeScope | `ask_codebase(question)` | HTTP POST to CodeScope; returns `searching` |
 | CodeScope | `dispatch_doc_agent(title, instructions, target)` | Publishes `CLOUDORDER` to CloudFactory |
 | CodeScope | `set_repo(repo)` | Switch which loaded repo questions are about |
 | WorkDispatcher | `list_tickets` / `choose_ticket` / `set_dispatch` / `send_ticket` | List labeled issues, pick one, set machine/cloud + model, dispatch |
 | Notepad | `create_note` / `add_note_text` / `switch_note` | New document, append text, switch the target tab |
+| Canvas | `list_nodes` / `drop_node` / `select_node` / `list_widgets` / `get_widget` / `type_into` / `click_widget` / `select_widget` | Operate the live board the way the test harness does |
+| PromptImprover | `revise_my_prompt(prompt)` | `SARGENT:ASK` to PromptImprover; returns `revising`; the rewrite is spoken |
 | VoiceDeck | `end_session()` | Close the socket |
 
 `dispatch_doc_agent` publishes a `CLOUDORDER` the same way WorkDispatcher does.
@@ -69,6 +71,7 @@ rather than leaving two voices running.
 ## Requirements
 
 - `OPENAI_API_KEY`
+- `CODESCOPE_URL` and `CODESCOPE_API_TOKEN` so `ask_codebase` can reach the cloud node
 - `pip install -e Nodes/VoiceDeck[canvas,audio]` — `sounddevice` needs PortAudio,
   which is why audio is an extra: the FE and the wire tests import without it
 - A repo loaded in CodeScope; there is nothing to ask about otherwise

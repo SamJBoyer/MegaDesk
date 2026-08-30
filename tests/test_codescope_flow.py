@@ -1,15 +1,9 @@
 """CodeScope end to end: paste a repo, ask a question, read the answer.
 
 The chain is cut where the money is spent. ``FakeCodeAgent`` stands in for
-``cursor_sdk`` and the model; everything on both sides of that cut is real — the
-canvas and its widget callbacks, the git clone on disk, the CODEQ:ASK consumer
-group, the session hash on db 1, and the streamed CODEQ:ANSWER payloads.
-
-Two seams get their own tests because they fail independently:
-
-* FE ↔ stream, with ``FakeCodeAgent`` standing in for the whole BE.
-* BE ↔ agent, with the real ``CodeScopeManager`` loop and a fake runner, which is
-  where sentence buffering, acks, ``agent_id`` persistence and error answers live.
+``cursor_sdk`` and the model. The FE talks HTTP to an in-process CodeScope
+service; the Redis poller is still tested on its own for the local ``run``
+command.
 """
 
 from __future__ import annotations
@@ -18,8 +12,6 @@ from pathlib import Path
 
 import pytest
 from conftest import (
-    CODEQ_ANSWER_CANONICAL_FIELDS,
-    CODEQ_ASK_CANONICAL_FIELDS,
     CODEQ_ASK_GROUP,
 )
 from megadesk_contracts.wire import code_scope as wire
@@ -33,9 +25,6 @@ ANSWER = (
 )
 
 
-# --- helpers ---------------------------------------------------------------
-
-
 def host_code_scope(harness, origin: Path):
     """Drop CodeScope, point it at a repo, and wait until it is ready to ask."""
     scope = harness.drop("code_scope")
@@ -45,13 +34,6 @@ def host_code_scope(harness, origin: Path):
         message="CodeScope to finish cloning",
     )
     return scope
-
-
-def session_of(persistent_client) -> tuple[str, dict[str, str]]:
-    """The one CODESCOPE:SESSION hash on db 1, as (session_id, fields)."""
-    keys = list(persistent_client.scan_iter(match=f"{wire.SESSION_PREFIX}*"))
-    assert len(keys) == 1, f"expected exactly one session hash, found {keys}"
-    return wire.session_id_from_key(keys[0]), persistent_client.hgetall(keys[0])
 
 
 def ask_through_manager(
@@ -91,25 +73,24 @@ def seed_session(persistent_client, *, repo: str, clone_path: Path) -> str:
 # --- FE intake -------------------------------------------------------------
 
 
-def test_pasting_a_repo_clones_it_and_publishes_the_session(
-    harness, redis_client, persistent_client, scope_root: Path, origin_repo: Path
+def test_pasting_a_repo_clones_it_and_opens_a_session(
+    harness, codescope_http, scope_root: Path, origin_repo: Path
 ) -> None:
-    """The FE owns intake: the BE only ever learns where the clone landed."""
     scope = host_code_scope(harness, origin_repo)
 
     clone = scope_root / "widgets"
     assert (clone / ".git").exists(), f"no clone at {clone}"
     assert (clone / "README.md").is_file(), "clone has no working tree"
 
-    _session_id, fields = session_of(persistent_client)
-    assert fields["repo"] == "widgets"
-    assert Path(fields["clone_path"]) == clone
-    assert fields["status"] == wire.SESSION_READY
+    listed = codescope_http["client"].list_repos()
+    assert len(listed) == 1
+    assert listed[0]["repo"] == "widgets"
+    assert listed[0]["status"] == wire.SESSION_READY
     assert scope.get("status_text") == "Ready — widgets"
 
 
 def test_an_unusable_url_is_reported_and_nothing_is_cloned(
-    harness, redis_client, persistent_client, scope_root: Path
+    harness, codescope_http, scope_root: Path
 ) -> None:
     scope = harness.drop("code_scope")
     scope.type_into("git_url", "not a repo at all")
@@ -117,114 +98,52 @@ def test_an_unusable_url_is_reported_and_nothing_is_cloned(
         lambda: "Unrecognized" in scope.get("status_text"),
         message="CodeScope to reject the URL",
     )
-    assert not scope_root.exists()
-    assert list(persistent_client.scan_iter(match=f"{wire.SESSION_PREFIX}*")) == []
+    assert not any(scope_root.iterdir()) if scope_root.exists() else True
+    assert codescope_http["client"].list_repos() == []
 
 
-def test_the_session_hash_is_removed_when_the_node_is_closed(
-    harness, redis_client, persistent_client, scope_root: Path, origin_repo: Path
-) -> None:
-    """A session is minted per FE instance, so a stale hash is just a dead key."""
-    scope = host_code_scope(harness, origin_repo)
-    session_id, _fields = session_of(persistent_client)
-
-    scope.close()
-    harness.pump(2)
-
-    assert persistent_client.exists(wire.session_key(session_id)) == 0
-
-
-# --- FE asking -------------------------------------------------------------
-
-
-def test_asking_publishes_a_canonical_ask_and_shows_the_streamed_answer(
+def test_asking_streams_the_answer_into_the_log(
     harness,
-    redis_client,
-    persistent_client,
-    read_stream,
-    fake_code_agent,
-    scope_root: Path,
+    codescope_http,
     origin_repo: Path,
 ) -> None:
     scope = host_code_scope(harness, origin_repo)
-    session_id, _fields = session_of(persistent_client)
-    fake_code_agent.add_answer("frame pump", ANSWER)
-
+    codescope_http["agent"].add_answer("frame pump", ANSWER)
     scope.type_into("question", QUESTION)
 
-    asks = read_stream(wire.ASK_STREAM)
-    assert len(asks) == 1
-    _entry_id, ask = asks[0]
-    assert set(ask) == set(CODEQ_ASK_CANONICAL_FIELDS)
-    assert ask["question"] == QUESTION
-    assert ask["repo"] == "widgets"
-    assert ask["session_id"] == session_id
-    assert ask["mode"] == wire.MODE_ANSWER
     assert scope.get("question") == "", "the input should clear once the ask is sent"
-
-    # The stand-in BE answers in sentences, as the streaming runner does.
-    runs = fake_code_agent.run_once()
-    assert len(runs) == 1
-    assert len(runs[0].chunks) == 2, "a two-sentence answer should stream in two parts"
-
     harness.wait_until(
         lambda: "outlives" in scope.get("qa_a_1"),
         message="the answer to reach the log",
     )
     assert scope.get("qa_q_1") == f"? {QUESTION}"
     assert scope.get("qa_a_1") == ANSWER
+    assert codescope_http["agent"].questions == [QUESTION]
     harness.wait_until(
         lambda: scope.get("status_text").startswith("Ready"),
         message="status to settle after the final answer",
     )
 
 
-def test_every_answer_entry_is_canonical_and_only_the_last_is_final(
-    harness,
-    redis_client,
-    persistent_client,
-    read_stream,
-    fake_code_agent,
-    scope_root: Path,
-    origin_repo: Path,
-) -> None:
-    scope = host_code_scope(harness, origin_repo)
-    fake_code_agent.add_answer("frame pump", ANSWER)
-    scope.type_into("question", QUESTION)
-    fake_code_agent.run_once()
-
-    entries = [fields for _entry_id, fields in read_stream(wire.ANSWER_STREAM)]
-    assert len(entries) == 2
-    for fields in entries:
-        assert set(fields) == set(CODEQ_ANSWER_CANONICAL_FIELDS)
-        assert fields["status"] == wire.STATUS_OK
-    assert [f["final"] for f in entries] == ["false", "true"]
-
-
 def test_a_question_asked_before_the_clone_is_ready_is_refused(
-    harness, redis_client, read_stream, scope_root: Path
+    harness, codescope_http
 ) -> None:
-    """Publishing it would only produce an error answer from the BE."""
+    """Publishing it would only produce an error answer from the service."""
     scope = harness.drop("code_scope")
     scope.type_into("question", QUESTION)
 
-    assert read_stream(wire.ASK_STREAM) == []
+    assert codescope_http["agent"].questions == []
     assert "not ready" in scope.get("status_text")
 
 
 def test_a_failed_answer_is_surfaced_rather_than_swallowed(
     harness,
-    redis_client,
-    persistent_client,
-    fake_code_agent,
-    scope_root: Path,
+    codescope_http,
     origin_repo: Path,
 ) -> None:
     scope = host_code_scope(harness, origin_repo)
-    fake_code_agent.error = "The agent could not start: no CURSOR_API_KEY"
-
+    codescope_http["agent"].startup_error = "no CURSOR_API_KEY in the environment"
     scope.type_into("question", QUESTION)
-    fake_code_agent.run_once()
 
     harness.wait_until(
         lambda: scope.get("status_text") == "Answer failed",
@@ -234,7 +153,7 @@ def test_a_failed_answer_is_surfaced_rather_than_swallowed(
 
 
 def test_sync_hard_resets_the_clone(
-    harness, redis_client, persistent_client, scope_root: Path, origin_repo: Path
+    harness, codescope_http, scope_root: Path, origin_repo: Path
 ) -> None:
     """The clone is disposable, which is what makes the agent's write tools safe."""
     host_code_scope(harness, origin_repo)

@@ -7,14 +7,14 @@ from typing import Mapping, Optional
 
 from megadesk_contracts import BeSpec, FeSpec, ToolSpec, load_parameter_names, normalize_parameters
 
-from work_dispatcher_app import build_ui, read_parameters
+from work_dispatcher_app import DEFAULT_HEIGHT, DEFAULT_WIDTH, build_ui, read_parameters
 from work_dispatcher_app import read_sequence as read_sequence
 
 _ICON = str(
     Path(__file__).resolve().parent / "Etc" / "Artwork" / "ticket.png"
 )
 
-# Names this node recognizes, declared in parameters.yaml: GIT_URL, ISSUE_LABEL.
+# Names this node recognizes, declared in parameters.yaml.
 PARAMETERS = load_parameter_names(__file__)
 
 
@@ -32,8 +32,8 @@ def get_fe_spec(
         name="work_dispatcher",
         description="Dispatch labeled GitHub issues to a machine or cloud factory.",
         icon=icon,
-        default_width=960,
-        default_height=160,
+        default_width=DEFAULT_WIDTH,
+        default_height=DEFAULT_HEIGHT,
         build=build,
         parameters=PARAMETERS,
         read_parameters=read_parameters,

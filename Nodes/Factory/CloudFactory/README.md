@@ -66,7 +66,7 @@ lands where a local one would. Repos only need this branch.
 
 | Where | Key | Carries |
 |-------|-----|---------|
-| db 0 stream | `CLOUDORDER` | `order_id`, `repo_url`, `ref`, `title`, `instructions`, `model`, `auto_pr` |
+| db 0 stream | `CLOUDORDER` | `order_id`, `repo_url`, `ref`, `title`, `instructions`, `model`, `auto_pr`, `pictures`, `issue` |
 | db 0 stream | `CLOUDFINISHED` | `agent_id`, `order_id`, `status`, `pr_url` |
 | db 1 hash | `CLOUDRUN:<agent_id>` | `order_id`, `repo_url`, `title`, `status`, `pr_url`, `run_id` |
 

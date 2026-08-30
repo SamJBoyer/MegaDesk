@@ -5,12 +5,14 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "code-scope"
 version = "0.1.0"
-description = "MegaDesk node: ask questions about a cloned repository (FE) via a warm local Cursor agent (BE)"
+description = "MegaDesk cloud node: ask questions about a cloned repository over HTTP"
 requires-python = ">=3.10"
 dependencies = [
     "cursor-sdk>=0.1.0",
     "redis>=5.0.0",
     "megadesk-contracts",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
 ]
 
 [project.optional-dependencies]
@@ -18,6 +20,10 @@ dependencies = [
 #   pip install -e .[canvas]
 canvas = [
     "dearpygui>=1.11.1",
+]
+service = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
 ]
 
 [project.entry-points."MegaDesk.nodes"]

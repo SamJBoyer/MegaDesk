@@ -3,3 +3,4 @@
 # Do not add pytest-xdist: one Dear PyGui context per process means the canvas
 # tests must run serially.
 pytest>=8.0
+httpx>=0.27

@@ -67,10 +67,18 @@ class FakeRun:
 class FakeCursorAgent:
     """Records every prompt. Fails when the prompt contains ``fail_needle``."""
 
-    def __init__(self, recorder: list[str], fail_needle: str = "") -> None:
+    def __init__(
+        self,
+        recorder: list[str],
+        fail_needle: str = "",
+        images: list[list[Any]] | None = None,
+        results: dict[str, str] | None = None,
+    ) -> None:
         self.agent_id = "ag-1"
         self._recorder = recorder
         self._fail_needle = fail_needle
+        self._images = images if images is not None else []
+        self._results = results or {}
 
     def __enter__(self) -> "FakeCursorAgent":
         return self
@@ -78,18 +86,38 @@ class FakeCursorAgent:
     def __exit__(self, *exc: Any) -> bool:
         return False
 
-    def send(self, instruction: str) -> FakeRun:
-        self._recorder.append(instruction)
-        if self._fail_needle and self._fail_needle in instruction:
+    def send(self, payload: Any) -> FakeRun:
+        if isinstance(payload, dict):
+            text = str(payload.get("text") or "")
+            self._images.append(list(payload.get("images") or []))
+        else:
+            text = payload if isinstance(payload, str) else str(
+                getattr(payload, "text", payload)
+            )
+            images = getattr(payload, "images", None)
+            self._images.append(list(images or []))
+        self._recorder.append(text)
+        if self._fail_needle and self._fail_needle in text:
             return FakeRun(status="error", result="")
-        return FakeRun(status="finished", result="ok")
+        result = "ok"
+        for needle, body in self._results.items():
+            if needle in text:
+                result = body
+                break
+        return FakeRun(status="finished", result=result)
 
     @classmethod
-    def bind(cls, recorder: list[str], fail_needle: str = "") -> type:
+    def bind(
+        cls,
+        recorder: list[str],
+        fail_needle: str = "",
+        images: list[list[Any]] | None = None,
+        results: dict[str, str] | None = None,
+    ) -> type:
         class Bound(cls):  # type: ignore[valid-type,misc]
             @classmethod
             def create(inner_cls, **kwargs: Any) -> "FakeCursorAgent":
-                return FakeCursorAgent(recorder, fail_needle)
+                return FakeCursorAgent(recorder, fail_needle, images, results)
 
         return Bound
 
@@ -112,6 +140,8 @@ def _seed_order(
     guid: str,
     workspace: Path,
     ticket_name: str = "add-widget-tests",
+    pictures: list[str] | None = None,
+    graph: str = "work",
 ) -> str:
     ticket_id = redis_client.xadd(
         machine_wire.WORKORDER_STREAM,
@@ -121,6 +151,8 @@ def _seed_order(
             ticket_name=ticket_name,
             instructions="Create harness-smoke.txt with the text ok",
             model="auto",
+            pictures=pictures or [],
+            graph=graph,
         ),
     )
     redis_client.hset(
@@ -140,13 +172,15 @@ def _context(
     guid: str,
     workspace: Path,
     audit: AgentAuditLog,
+    spec=None,
 ):
     from AgentHandler.graph import GraphReporter, RunContext
 
+    chosen = spec or graph_wire.WORK_GRAPH
     reporter = GraphReporter(
         redis_client,
         guid=guid,
-        spec=graph_wire.WORK_GRAPH,
+        spec=chosen,
         audit=audit,
         repo="widgets",
         ticket_name="add-widget-tests",
@@ -250,6 +284,41 @@ def test_work_graph_happy_path_publishes_finished_and_clears_hashes(
     assert "When you commit your work" not in joined
     assert "Commit the work already present" in joined
     assert "Names the ticket" in joined
+
+
+@pytest.mark.git
+def test_work_graph_attaches_order_pictures_to_the_workhorse(
+    redis_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from AgentHandler.graph import run_work_graph
+
+    shot = "https://github.com/user-attachments/assets/work-shot"
+    guid = "wg-pictures"
+    workspace = tmp_path / "wt"
+    _seed_order(redis_client, guid=guid, workspace=workspace, pictures=[shot])
+    _init_dirty_repo(workspace)
+
+    prompts: list[str] = []
+    images: list[list[Any]] = []
+    monkeypatch.setattr(
+        "AgentHandler.handler.Agent", FakeCursorAgent.bind(prompts, images=images)
+    )
+
+    audit = AgentAuditLog(guid, path=tmp_path / "audit.md", repo="widgets")
+    try:
+        final = run_work_graph(
+            _context(redis_client, guid=guid, workspace=workspace, audit=audit)
+        )
+    finally:
+        audit.close()
+
+    assert final.get("status") == machine_wire.STATUS_FINISHED
+    workhorse = next(
+        payload for payload, prompt in zip(images, prompts) if "Ticket:" in prompt
+    )
+    assert workhorse
+    assert any(shot in str(item) for item in workhorse)
+    assert "reference image(s) are attached" in "\n".join(prompts)
 
 
 def test_work_graph_prepares_repo_on_startup_and_restores_on_teardown(
@@ -396,3 +465,184 @@ def test_graph_scope_draws_an_injected_run(harness, redis_client, tmp_path: Path
     assert scope.exists("graph_dl")
     assert scope.exists("box_startup_node")
     harness.screenshot("graph-scope-live")
+
+
+MASSIVE_NODE_NAMES = (
+    "startup_node",
+    "orchestrator_node",
+    "dispatcher_node",
+    "ralph_node",
+    "test_node",
+    "teardown_node",
+)
+
+MASSIVE_KANBAN = """
+{"cards": [
+  {"id": "1", "title": "first piece", "detail": "do A", "priority": 1},
+  {"id": "2", "title": "second piece", "detail": "do B", "priority": 2}
+]}
+"""
+
+MASSIVE_REPLIES = {
+    "You are the orchestrator": "Plan: do A, then B. Tests: pytest.",
+    "ranked kanban board": MASSIVE_KANBAN,
+    "You are Ralph": "card done",
+    "Run this repo's tests": "pytest: 2 passed",
+}
+
+
+def test_parse_kanban_reads_fenced_json() -> None:
+    from AgentHandler.graph.kanban import next_todo, parse_kanban
+
+    cards = parse_kanban(
+        "here you go\n```json\n"
+        '{"cards":[{"title":"late","priority":2},{"title":"early","priority":1}]}'
+        "\n```\n"
+    )
+    assert [card["title"] for card in cards] == ["early", "late"]
+    assert next_todo(cards)["title"] == "early"
+
+
+def test_massive_graph_loops_ralph_until_the_board_is_empty() -> None:
+    from langgraph.graph import END, START
+
+    from AgentHandler.graph import RunContext, build_work_graph
+
+    audit = SimpleNamespace(event=lambda *a, **k: None)
+    context = RunContext(
+        guid="shape-massive",
+        redis=None,
+        audit=audit,
+        reporter=SimpleNamespace(),
+        api_key="fake",
+        workspace=".",
+        repo_factory=NullRepo,
+    )
+    compiled = build_work_graph(context, spec=graph_wire.MASSIVE_PROJECT_GRAPH)
+    graph = compiled.get_graph()
+    nodes = {name for name in graph.nodes if name not in {START, END, "__start__", "__end__"}}
+    assert nodes == set(MASSIVE_NODE_NAMES)
+    edges = {(edge.source, edge.target) for edge in graph.edges}
+    assert ("startup_node", "orchestrator_node") in edges
+    assert ("dispatcher_node", "ralph_node") in edges
+    assert ("ralph_node", "ralph_node") in edges
+    assert ("ralph_node", "test_node") in edges
+    assert ("ralph_node", "teardown_node") in edges
+    assert ("test_node", "teardown_node") in edges
+
+
+@pytest.mark.git
+def test_massive_graph_happy_path_does_each_card_then_tests(
+    redis_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from AgentHandler.graph import run_work_graph
+    from AgentHandler.handler import spec_for_order
+
+    guid = "wg-massive"
+    workspace = tmp_path / "wt"
+    _seed_order(redis_client, guid=guid, workspace=workspace, graph="massive")
+    _init_dirty_repo(workspace)
+
+    prompts: list[str] = []
+    monkeypatch.setattr(
+        "AgentHandler.handler.Agent",
+        FakeCursorAgent.bind(prompts, results=MASSIVE_REPLIES),
+    )
+
+    spec = spec_for_order(redis_client, guid)
+    assert spec.name == "massive"
+
+    audit = AgentAuditLog(guid, path=tmp_path / "audit.md", repo="widgets")
+    try:
+        final = run_work_graph(
+            _context(
+                redis_client,
+                guid=guid,
+                workspace=workspace,
+                audit=audit,
+                spec=spec,
+            ),
+            spec=spec,
+        )
+    finally:
+        audit.close()
+
+    assert final.get("status") == machine_wire.STATUS_FINISHED
+    assert final.get("exit_code") == 0
+    assert [card["status"] for card in final.get("kanban") or []] == ["done", "done"]
+    assert "pytest" in (final.get("test_report") or "")
+
+    running = [
+        node
+        for node, status in _event_pairs(redis_client, guid)
+        if status == machine_wire.STATUS_RUNNING
+    ]
+    assert running.count("ralph_node") == 2
+    assert running[0] == "startup_node"
+    assert running[-1] == "teardown_node"
+    assert "test_node" in running
+
+    joined = "\n".join(prompts)
+    assert "You are the orchestrator" in joined
+    assert "ranked kanban board" in joined
+    assert "You are Ralph" in joined
+    assert "first piece" in joined
+    assert "second piece" in joined
+    assert "Run this repo's tests" in joined
+
+    finished = redis_client.xrange(machine_wire.finished_stream("widgets"))
+    assert len(finished) == 1
+    assert finished[0][1]["status"] == machine_wire.STATUS_FINISHED
+
+
+def test_massive_graph_ralph_failure_still_reaches_teardown(
+    redis_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from AgentHandler.graph import run_work_graph
+
+    guid = "wg-massive-fail"
+    workspace = tmp_path / "wt"
+    _seed_order(redis_client, guid=guid, workspace=workspace, graph="massive")
+
+    prompts: list[str] = []
+    monkeypatch.setattr(
+        "AgentHandler.handler.Agent",
+        FakeCursorAgent.bind(
+            prompts, fail_needle="You are Ralph", results=MASSIVE_REPLIES
+        ),
+    )
+
+    spec = graph_wire.MASSIVE_PROJECT_GRAPH
+    audit = AgentAuditLog(guid, path=tmp_path / "audit.md", repo="widgets")
+    try:
+        final = run_work_graph(
+            _context(
+                redis_client,
+                guid=guid,
+                workspace=workspace,
+                audit=audit,
+                spec=spec,
+            ),
+            spec=spec,
+        )
+    finally:
+        audit.close()
+
+    assert final.get("status") == machine_wire.STATUS_ERROR
+    assert final.get("failed_node") == "ralph_node"
+    running = [
+        node
+        for node, status in _event_pairs(redis_client, guid)
+        if status == machine_wire.STATUS_RUNNING
+    ]
+    assert running == [
+        "startup_node",
+        "orchestrator_node",
+        "dispatcher_node",
+        "ralph_node",
+        "teardown_node",
+    ]
+    assert not any(node == "test_node" for node in running)
+    finished = redis_client.xrange(machine_wire.finished_stream("widgets"))
+    assert len(finished) == 1
+    assert finished[0][1]["status"] == machine_wire.STATUS_ERROR

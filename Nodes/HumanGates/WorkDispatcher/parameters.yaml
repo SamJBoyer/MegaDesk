@@ -1,2 +1,3 @@
 - GIT_URL # the http of the git repo this node will connect to
 - ISSUE_LABEL # the issue label this gate tracks (default agent-ready)
+- MAX_DEPTH # how many tickets the columns fit without scrolling

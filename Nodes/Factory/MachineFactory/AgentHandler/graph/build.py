@@ -5,10 +5,11 @@ written out here, so the shape the visualizer draws is the shape that runs. If
 someone adds a node to the spec without adding a function for it, this raises at
 build time instead of drawing a node that never lights up.
 
-The shape is the straight line from the design, with one addition: every edge
-into a non-terminal node is conditional on ``state["error"]`` being empty. That
-keeps the happy path linear while guaranteeing teardown runs, which is what
-publishes FINISHED and deletes the handshake hash.
+The shape is the spec's happy path, with two additions: every edge into a
+non-terminal node is conditional on ``state["error"]`` being empty, and
+``ralph_node`` loops on itself while the kanban still has work. That keeps
+teardown on every path, which is what publishes FINISHED and deletes the
+handshake hash.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from typing import Any, Callable
 from langgraph.graph import END, START, StateGraph
 from megadesk_contracts.wire import graph as wire
 
+from AgentHandler.graph import kanban
 from AgentHandler.graph import nodes as node_impls
 from AgentHandler.graph.state import RunContext, WorkState
 
@@ -30,8 +32,16 @@ NODE_FUNCTIONS: dict[str, Callable[..., WorkState]] = {
     "pathfinder_node": node_impls.pathfinder_node,
     "workhorse_node": node_impls.workhorse_node,
     "git_node": node_impls.git_node,
+    "orchestrator_node": node_impls.orchestrator_node,
+    "dispatcher_node": node_impls.dispatcher_node,
+    "ralph_node": node_impls.ralph_node,
+    "test_node": node_impls.test_node,
     "teardown_node": node_impls.teardown_node,
 }
+
+# Extra visits LangGraph allows for a looping node. The default 25 is enough
+# for the straight-line work graph; massive needs one ralph visit per card.
+MASSIVE_RECURSION_LIMIT = 80
 
 
 def _route_on_error(ok: str, terminal: str) -> Callable[[WorkState], str]:
@@ -39,6 +49,22 @@ def _route_on_error(ok: str, terminal: str) -> Callable[[WorkState], str]:
         return terminal if state.get("error") else ok
 
     return route
+
+
+def _route_ralph(done: str, terminal: str) -> Callable[[WorkState], str]:
+    def route(state: WorkState) -> str:
+        if state.get("error"):
+            return terminal
+        if kanban.next_todo(state.get("kanban") or []):
+            return "ralph_node"
+        return done
+
+    return route
+
+
+NODE_ROUTERS: dict[str, Callable[[str, str], Callable[[WorkState], str]]] = {
+    "ralph_node": _route_ralph,
+}
 
 
 def build_work_graph(
@@ -62,7 +88,11 @@ def build_work_graph(
 
     builder.add_edge(START, entry)
     for source, target in spec.edges:
-        if target == terminal:
+        if source in NODE_ROUTERS:
+            router = NODE_ROUTERS[source](target, terminal)
+            paths = {target: target, terminal: terminal, source: source}
+            builder.add_conditional_edges(source, router, paths)
+        elif target == terminal:
             builder.add_edge(source, target)
         else:
             builder.add_conditional_edges(
@@ -85,7 +115,10 @@ def run_work_graph(
     context.reporter.start_run()
     context.audit.event("graph-start", f"{spec.name}: {' -> '.join(spec.node_names())}")
     try:
-        final: WorkState = compiled.invoke({"guid": context.guid})
+        config: dict[str, Any] = {}
+        if spec.name == wire.MASSIVE_PROJECT_GRAPH.name:
+            config["recursion_limit"] = MASSIVE_RECURSION_LIMIT
+        final: WorkState = compiled.invoke({"guid": context.guid}, config)
         context.audit.event(
             "graph-done",
             f"status={final.get('status', 'unknown')} exit={final.get('exit_code', 1)}",

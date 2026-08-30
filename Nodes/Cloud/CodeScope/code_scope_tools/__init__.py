@@ -5,10 +5,11 @@ from __future__ import annotations
 from typing import Any
 
 from megadesk_contracts import ToolSpec
-from megadesk_contracts.repo import CloneError
 from megadesk_contracts.wire import cloud as cloud_wire
 from megadesk_contracts.wire import code_scope as scope_wire
 from megadesk_contracts.wire import voice as voice_wire
+
+from CodeScopeManager.client import CodeScopeError
 
 NODE_NAME = "code_scope"
 TOOL_ASK_CODEBASE = "ask_codebase"
@@ -50,16 +51,8 @@ def handle_ask_codebase(arguments: dict, host: Any) -> dict:
 
     scope_session_id, repo = resolved
     question_id = scope_wire.new_question_id()
-    host.ephemeral.xadd(
-        scope_wire.ASK_STREAM,
-        scope_wire.ask_fields(
-            session_id=scope_session_id,
-            question_id=question_id,
-            repo=repo,
-            question=question,
-        ),
-    )
     host.remember_question(question_id, host.current_call_id)
+    host.queue_scope_ask(scope_session_id, question, question_id)
     host.set_state(voice_wire.STATE_THINKING)
     return {
         "status": "searching",
@@ -87,7 +80,7 @@ def handle_dispatch_doc_agent(arguments: dict, host: Any) -> dict:
 
     try:
         url = host.repo_url(scope_session_id)
-    except (CloneError, ValueError) as exc:
+    except (CodeScopeError, ValueError) as exc:
         detail = f"could not resolve the remote for {repo}: {exc}"
         host.publish(voice_wire.KIND_ERROR, detail)
         return {"status": "error", "detail": detail}

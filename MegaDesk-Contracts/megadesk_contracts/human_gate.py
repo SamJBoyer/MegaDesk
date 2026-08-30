@@ -29,6 +29,7 @@ GH_TIMEOUT_SEC = 15
 ISSUE_LIST_LIMIT = 100
 
 LABEL_AGENT_READY = "agent-ready"
+LABEL_IN_PROGRESS = "in-progress"
 
 # Check name merge-check posts, and the only name AutoIntegrate / PRManager
 # look for on ``statusCheckRollup``. Spelled again in
@@ -36,6 +37,13 @@ LABEL_AGENT_READY = "agent-ready"
 MERGE_CHECK_CONTEXT = "mergeable"
 MERGE_CHECK_SUCCESS = "success"
 MERGE_CHECK_FAILURE = "failure"
+
+# GitHub issue bodies carry screenshots as markdown images or <img src>.
+_MD_IMAGE = re.compile(r"!\[(?:[^\]]*)\]\((https?://[^)\s]+)\)")
+_HTML_IMAGE = re.compile(
+    r"<img\b[^>]*\bsrc=['\"](https?://[^'\"]+)['\"]",
+    re.IGNORECASE,
+)
 
 _SUCCESS_STATES = frozenset({"SUCCESS"})
 _FAILURE_STATES = frozenset({"FAILURE", "ERROR", "TIMED_OUT"})
@@ -49,16 +57,19 @@ __all__ = [
     "GatePullRequest",
     "ISSUE_LIST_LIMIT",
     "LABEL_AGENT_READY",
+    "LABEL_IN_PROGRESS",
     "MERGE_CHECK_CONTEXT",
     "MERGE_CHECK_FAILURE",
     "MERGE_CHECK_SUCCESS",
     "check_repo",
+    "extract_issue_pictures",
     "list_labeled_issues",
     "list_merge_prs",
     "list_repo_labels",
     "merge_check_verdict",
     "normalize_repo_url",
     "parse_github_repo",
+    "relabel_issue",
     "run_gh",
 ]
 
@@ -135,6 +146,30 @@ def normalize_repo_url(git_url: str, owner: str, repo: str) -> str:
     return f"https://github.com/{owner}/{repo}"
 
 
+def extract_issue_pictures(body: str) -> list[str]:
+    """Image URLs embedded in a GitHub issue body, in document order.
+
+    WorkDispatcher puts these on the order so a factory can attach them as
+    agent context. Markdown ``![alt](url)`` and HTML ``<img src>`` are the
+    two forms GitHub actually writes when someone drops a screenshot on an
+    issue; a bare URL in the text is not a picture.
+    """
+    text = body or ""
+    found: list[tuple[int, str]] = []
+    for match in _MD_IMAGE.finditer(text):
+        found.append((match.start(), match.group(1)))
+    for match in _HTML_IMAGE.finditer(text):
+        found.append((match.start(), match.group(1)))
+    seen: set[str] = set()
+    out: list[str] = []
+    for _pos, url in sorted(found, key=lambda item: item[0]):
+        if url in seen:
+            continue
+        seen.add(url)
+        out.append(url)
+    return out
+
+
 def check_repo(owner: str, repo: str, *, gh: GhRunner = run_gh) -> tuple[bool, str]:
     """Whether the CLI can see this repo at all. ``(ok, error)``."""
     ok, _stdout, err = gh("repo", "view", f"{owner}/{repo}", "--json", "nameWithOwner")
@@ -208,6 +243,34 @@ def list_labeled_issues(
             )
         )
     return True, issues, ""
+
+
+def relabel_issue(
+    owner: str,
+    repo: str,
+    number: int,
+    *,
+    add: str = LABEL_IN_PROGRESS,
+    remove: str = LABEL_AGENT_READY,
+    gh: GhRunner = run_gh,
+) -> tuple[bool, str]:
+    """Move an issue from one label onto another. ``(ok, error)``.
+
+    WorkDispatcher does this when an operator clicks a ticket: ``agent-ready``
+    comes off and ``in-progress`` goes on, so the gate's next poll does not
+    offer the same issue again. ``add`` is created on the repo if missing;
+    a create that fails because the label already exists is ignored.
+    """
+    slug = f"{owner}/{repo}"
+    if add:
+        gh("label", "create", add, "--repo", slug, "--color", "D93F0B")
+    args = ["issue", "edit", str(int(number)), "--repo", slug]
+    if add:
+        args.extend(["--add-label", add])
+    if remove and remove != add:
+        args.extend(["--remove-label", remove])
+    ok, _stdout, err = gh(*args)
+    return (True, "") if ok else (False, err or "Failed to update issue labels")
 
 
 def merge_check_verdict(rollup: Any) -> Optional[str]:

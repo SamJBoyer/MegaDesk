@@ -63,7 +63,7 @@ Graphs/CURRENT
 Nodes/Factory/MachineFactory/Floor/
 
 # CodeScope disposable clones (never share with a writing agent)
-Nodes/CodeScope/Scope/
+Nodes/Cloud/CodeScope/Scope/
 
 # PRManager disposable PR checkouts (override with PR_SCOPE_ROOT)
 Nodes/PRManager/Scope/
