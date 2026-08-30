@@ -231,7 +231,7 @@ Installed entry points are scanned via `importlib.metadata` group `MegaDesk.node
 
 Keys prefer `spec.name`, falling back to the entry-point name.
 
-Related public helpers (same package): `SupervisorClient`, `ensure_supervisor_running`, `configure_node_logging`, `frame_pump`, `resolve_redis_url`, `resolve_redis_pair`. Redis connection / DB constants: `DEFAULT_REDIS_URL`, `REDIS_DB_EPHEMERAL`, `REDIS_DB_PERSISTENT`, `SUPERVISOR_SINGLETON_KEY`, `SUPERVISOR_ALIVE_KEY`. All Redis clients honor **`REDIS_URL`** and select ephemeral/persistent via `resolve_redis_pair()`.
+Related public helpers (same package): `SupervisorClient`, `ensure_supervisor_running`, `configure_node_logging`, `frame_pump`, `resolve_redis_url`, `resolve_redis_pair`. Redis connection / DB constants: `DEFAULT_REDIS_URL`, `REDIS_DB_EPHEMERAL`, `REDIS_DB_PERSISTENT`, `SUPERVISOR_SINGLETON_KEY`, `SUPERVISOR_ALIVE_KEY`. All Redis clients honor **`REDIS_URL`** and select ephemeral/persistent via `resolve_redis_pair()`. Auto-provisioned Docker Redis (and Redis Insight, if `MEGADESK_REDIS_INSIGHT=1`) bind **loopback only** (`127.0.0.1`), not `0.0.0.0`. MachineFactory sandboxes authenticate as the `megadesk-factory` ACL user; see [`MegaDesk-Contracts/redis/README.md`](../MegaDesk-Contracts/redis/README.md).
 
 ---
 

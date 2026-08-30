@@ -88,6 +88,23 @@ def redis_url_with_db(redis_url: str, db: int) -> str:
     return urlunparse(parsed._replace(path=f"/{int(db)}"))
 
 
+def redis_url_with_auth(redis_url: str, username: str, password: str) -> str:
+    """Return ``redis_url`` with userinfo set. Host and port are unchanged.
+
+    Callers must not log the result; it carries the password.
+    """
+    from urllib.parse import quote
+
+    parsed = urlparse(redis_url)
+    host = parsed.hostname or "localhost"
+    user = quote(str(username), safe="")
+    secret = quote(str(password), safe="")
+    netloc = f"{user}:{secret}@{host}"
+    if parsed.port:
+        netloc = f"{netloc}:{parsed.port}"
+    return urlunparse(parsed._replace(netloc=netloc))
+
+
 def resolve_redis_pair(redis_url: Optional[str] = None) -> tuple[int, int]:
     """Ephemeral and persistent DB indexes for this process.
 

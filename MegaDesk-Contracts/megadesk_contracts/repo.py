@@ -72,6 +72,93 @@ def _strip_dot_git(name: str) -> str:
     return name[: -len(".git")] if name.endswith(".git") else name
 
 
+_GITHUB_SSH = re.compile(r"^git@github\.com:([^/]+)/([^/]+?)(?:\.git)?/?$")
+_GIT_REF = re.compile(r"^[\w./-]+$")
+_GITHUB_HOSTS = frozenset({"github.com", "www.github.com"})
+
+
+def parse_github_clone_url(url: str) -> Optional[tuple[str, str]]:
+    """``(owner, repo)`` for https://github.com, https://www.github.com, or git@github.com.
+
+    Other hosts, ``http://``, ``file://``, and scheme-less text return ``None``.
+    """
+    text = str(url or "").strip()
+    if not text:
+        return None
+    ssh = _GITHUB_SSH.match(text)
+    if ssh:
+        return ssh.group(1), _strip_dot_git(ssh.group(2))
+    if not text.startswith("https://"):
+        return None
+    parsed = urlparse(text)
+    host = (parsed.hostname or "").lower()
+    if host not in _GITHUB_HOSTS:
+        return None
+    parts = [p for p in parsed.path.strip("/").split("/") if p]
+    if len(parts) < 2:
+        return None
+    return parts[0], _strip_dot_git(parts[1])
+
+
+def github_https_url(owner: str, repo: str) -> str:
+    return f"https://github.com/{owner}/{repo}"
+
+
+def is_local_clone_path(url: str) -> bool:
+    """A filesystem path the integration suite may clone, not a network URL."""
+    text = str(url or "").strip()
+    if not text or "://" in text or text.startswith("git@"):
+        return False
+    normalized = text.replace("\\", "/")
+    if re.match(r"^[A-Za-z]:/", normalized):
+        return True
+    if normalized.startswith(("/", "./", "../")):
+        return True
+    if "/" in normalized and not re.match(r"^[A-Za-z0-9.+-]+://", text):
+        return True
+    try:
+        return Path(text).exists()
+    except OSError:
+        return False
+
+
+def allowlisted_clone_source(
+    url: str, *, allow_local: bool = True
+) -> tuple[str, str]:
+    """Return ``(clone_url, repo_name)`` or raise ``ValueError``.
+
+    Network clones are GitHub-only. Local directories stay available for the
+    integration suite when ``allow_local`` is true. There is no fall-through
+    to arbitrary ``https://`` / ``file://`` URLs.
+    """
+    text = str(url or "").strip()
+    if not text:
+        raise ValueError("Unrecognized repository URL")
+    parsed = parse_github_clone_url(text)
+    if parsed is not None:
+        owner, repo = parsed
+        return github_https_url(owner, repo), repo
+    if allow_local and is_local_clone_path(text):
+        return text, repo_name_from_url(text)
+    raise ValueError("Unrecognized repository URL")
+
+
+def validate_git_ref(ref: str, *, default: Optional[str] = None) -> str:
+    """A branch-like token safe to pass to ``git clone --branch``.
+
+    Empty becomes ``default`` (or ``DEFAULT_STARTING_REF``). Rejects leading
+    dashes and characters git would treat as options or extra argv.
+    """
+    from megadesk_contracts.wire.factory import DEFAULT_STARTING_REF
+
+    text = str(ref or "").strip()
+    if not text:
+        return default if default is not None else DEFAULT_STARTING_REF
+    if text.startswith("-") or not _GIT_REF.match(text):
+        raise ValueError(f"Invalid git ref: {ref!r}")
+    return text
+
+
 def _git(args: list[str], *, cwd: Optional[Path] = None) -> str:
     try:
         result = subprocess.run(

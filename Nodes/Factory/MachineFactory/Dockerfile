@@ -7,8 +7,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app \
-    PATH="/root/.local/bin:${PATH}" \
-    WORKSPACE=/workspace
+    PATH="/home/megadesk/.local/bin:${PATH}" \
+    WORKSPACE=/workspace \
+    HOME=/home/megadesk
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
@@ -44,7 +45,13 @@ RUN pip install --no-cache-dir /app/MegaDesk-Contracts
 
 COPY Nodes/Factory/MachineFactory/AgentHandler /app/AgentHandler
 
-RUN mkdir -p /workspace
+RUN useradd --create-home --uid 1000 --shell /bin/bash megadesk \
+    && mkdir -p /workspace /home/megadesk/.local \
+    && if [ -d /root/.local ]; then cp -a /root/.local/. /home/megadesk/.local/; fi \
+    && chmod +x /app/AgentHandler/git_askpass.py \
+    && chown -R megadesk:megadesk /home/megadesk /app /workspace
+
+USER megadesk
 WORKDIR /workspace
 
 # AgentHandler clones REPO_URL into /workspace, then runs the work graph.

@@ -58,6 +58,14 @@ def test_titles_become_safe_text_filenames(tmp_path: Path) -> None:
     assert reloaded.note().text == "ship it"
 
 
+def test_attach_repo_rejects_non_github_network_urls(tmp_path: Path) -> None:
+    pad = Pad(notes_root=tmp_path / "notes")
+    with pytest.raises(PadError, match="Unrecognized"):
+        pad.attach_repo("https://example.com/acme/widgets", scope=tmp_path / "scope")
+    with pytest.raises(PadError, match="Unrecognized"):
+        pad.attach_repo("file:///tmp/widgets", scope=tmp_path / "scope")
+
+
 def test_git_include_stages_the_note_files(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()

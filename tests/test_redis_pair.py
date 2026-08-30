@@ -43,6 +43,15 @@ def test_url_helpers_round_trip() -> None:
     assert resolve_persistent_db(url) == 5
 
 
+def test_redis_url_with_auth_preserves_host_and_db() -> None:
+    from megadesk_contracts import FACTORY_ACL_USER, redis_url_with_auth
+
+    url = redis_url_with_auth(
+        "redis://host.docker.internal:6379/14", FACTORY_ACL_USER, "s3cret"
+    )
+    assert url == f"redis://{FACTORY_ACL_USER}:s3cret@host.docker.internal:6379/14"
+
+
 def test_factory_url_prefers_the_dedicated_env(monkeypatch) -> None:
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/4")
     monkeypatch.setenv(
@@ -139,3 +148,35 @@ def test_flush_live_redis_pair_flushes_db_zero_then_one(monkeypatch) -> None:
     flush_live_redis_pair("redis://localhost:6379/14")
     assert flushed == [0, 1]
     assert closed == [0, 1]
+
+
+@pytest.mark.redis
+def test_factory_acl_user_cannot_flush_or_write_supervisor(
+    redis_client, monkeypatch
+) -> None:
+    """End state: sandbox credentials are not an admin URL."""
+    import redis
+    from megadesk_contracts import (
+        FACTORY_ACL_USER,
+        ensure_factory_acl_user,
+        factory_ipc_url,
+        redis_connect,
+        resolve_ephemeral_db,
+        resolve_redis_url,
+    )
+    from megadesk_contracts.supervisor_client import LAUNCHREQUEST_STREAM
+
+    monkeypatch.setenv("MEGADESK_FACTORY_REDIS_PASSWORD", "acl-pytest-password")
+    url = resolve_redis_url()
+    password = ensure_factory_acl_user(url)
+    factory_url = factory_ipc_url(url, password)
+    assert FACTORY_ACL_USER in factory_url
+    scoped = redis_connect(factory_url, db=resolve_ephemeral_db(url))
+    assert scoped.ping() is True
+    with pytest.raises(redis.ResponseError):
+        scoped.flushdb()
+    with pytest.raises(redis.ResponseError):
+        scoped.xadd(LAUNCHREQUEST_STREAM, {"node_endpoint": "denied"})
+    # Factory keys remain writable so the sandbox can finish a run.
+    scoped.xadd("WORKORDER", {"probe": "ok"})
+    assert scoped.xlen("WORKORDER") >= 1

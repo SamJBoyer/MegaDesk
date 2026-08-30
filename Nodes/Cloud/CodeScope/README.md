@@ -17,7 +17,7 @@ follow-up questions cheap.
 | Half | What it does |
 |------|--------------|
 | FE (`code_scope_frontend/app.py`) | Repo URL intake, asks questions, shows streamed answers. Talks HTTP. |
-| HTTP (`CodeScopeManager serve`) | `POST /repos` clones, `POST /sessions/{id}/ask` streams sentences. Runs in the cloud (or locally for smoke tests). |
+| HTTP (`CodeScopeManager serve`) | `POST /repos` clones GitHub URLs only, `POST /sessions/{id}/ask` streams sentences. Default bind `127.0.0.1`. OpenAPI docs disabled. |
 | Tools (`code_scope_tools/`) | `ask_codebase`, `set_repo`, `dispatch_doc_agent` for VoiceDeck |
 
 There is no Supervisor-launched BE. `get_be_spec()` returns `None`.
@@ -49,4 +49,10 @@ default. They are disposable: `sync` hard-resets to the remote default branch.
 - `CURSOR_API_KEY` on the service host
 - `CODESCOPE_URL` + `CODESCOPE_API_TOKEN` on the machine running MegaDesk
 - `pip install -e Nodes/Cloud/CodeScope[canvas]`
-- HTTP service: `python -m CodeScopeManager serve` — see [`Docs/codescope_service.md`](../../../Docs/codescope_service.md)
+- HTTP service: `python -m CodeScopeManager serve` (listens on `127.0.0.1:8080`;
+  pass `--host 0.0.0.0` only when you intend all-interfaces) — see
+  [`Docs/codescope_service.md`](../../../Docs/codescope_service.md)
+
+`POST /repos` accepts `https://github.com/…`, `https://www.github.com/…`, and
+`git@github.com:…` only. Local directories remain valid for the integration
+suite. `/health` is public; `/docs` / `/redoc` / `/openapi.json` are off.

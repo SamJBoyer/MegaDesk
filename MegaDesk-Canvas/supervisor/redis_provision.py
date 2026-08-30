@@ -33,6 +33,8 @@ from megadesk_contracts.supervisor_client import (
 REDIS_CONTAINER = "megadesk-redis"
 INSIGHTS_CONTAINER = "megadesk-redis-insight"
 INSIGHTS_PORT = 5540
+ENV_REDIS_INSIGHT = "MEGADESK_REDIS_INSIGHT"
+_INSIGHT_TRUTHY = frozenset({"1", "true", "yes", "on"})
 
 ALIVE_TTL_SECONDS = 5
 SINGLETON_TTL_SECONDS = 10
@@ -53,6 +55,29 @@ def ping_redis(redis_url: Optional[str] = None, timeout: float = 1.0) -> bool:
         return bool(client.ping())
     except Exception:
         return False
+
+
+def redis_insight_enabled() -> bool:
+    """Redis Insight is opt-in; default does not publish port 5540."""
+    raw = (os.environ.get(ENV_REDIS_INSIGHT) or "").strip().lower()
+    return raw in _INSIGHT_TRUTHY
+
+
+def _redis_publish_args(port: int) -> list[str]:
+    """Docker publish args for a new Redis container (loopback only).
+
+    ``--requirepass`` is only applied when *creating* a container and
+    ``REDIS_PASSWORD`` is set. An already-running operator Redis is never
+    rewritten. ``REDIS_URL`` must then include the password
+    (``redis://:password@localhost:6379/0``).
+    """
+    args = ["-p", f"127.0.0.1:{int(port)}:6379"]
+    password = (os.environ.get("REDIS_PASSWORD") or "").strip()
+    if password:
+        args.extend(["redis:7", "redis-server", "--requirepass", password])
+    else:
+        args.append("redis:7")
+    return args
 
 
 def _docker_available() -> bool:
@@ -114,9 +139,11 @@ def connect_handles(redis_url: Optional[str] = None) -> RedisHandles:
 
 
 def provision_redis(redis_url: Optional[str] = None) -> RedisHandles:
-    """Prefer existing Redis at REDIS_URL; otherwise start Docker Redis + Insights.
+    """Prefer existing Redis at REDIS_URL; otherwise start Docker Redis.
 
-    Docker auto-provision only runs when the URL host is loopback.
+    Docker auto-provision only runs when the URL host is loopback. Published
+    ports bind ``127.0.0.1`` only. Redis Insight starts only when
+    ``MEGADESK_REDIS_INSIGHT=1``.
     """
     url = resolve_redis_url(redis_url)
     if ping_redis(url):
@@ -135,22 +162,16 @@ def provision_redis(redis_url: Optional[str] = None) -> RedisHandles:
             "Start Redis locally, install/start Docker, or set REDIS_URL."
         )
 
-    _ensure_container(
-        REDIS_CONTAINER,
-        [
-            "-p",
-            f"{port}:6379",
-            "redis:7",
-        ],
-    )
-    _ensure_container(
-        INSIGHTS_CONTAINER,
-        [
-            "-p",
-            f"{INSIGHTS_PORT}:5540",
-            "redis/redisinsight:latest",
-        ],
-    )
+    _ensure_container(REDIS_CONTAINER, _redis_publish_args(port))
+    if redis_insight_enabled():
+        _ensure_container(
+            INSIGHTS_CONTAINER,
+            [
+                "-p",
+                f"127.0.0.1:{INSIGHTS_PORT}:5540",
+                "redis/redisinsight:latest",
+            ],
+        )
 
     deadline = time.time() + 30
     while time.time() < deadline:

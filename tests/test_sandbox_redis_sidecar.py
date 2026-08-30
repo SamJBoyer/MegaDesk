@@ -2,7 +2,17 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
+
+_SANDBOX_DOCKERFILE = (
+    Path(__file__).resolve().parents[1]
+    / "Nodes"
+    / "Factory"
+    / "MachineFactory"
+    / "Dockerfile"
+)
 
 
 def test_redis_sidecar_name_is_prefixed_and_docker_safe() -> None:
@@ -44,6 +54,24 @@ def test_factory_redis_url_for_container_defaults_live_pair(
     monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
     monkeypatch.delenv("REDIS_URL_CONTAINER", raising=False)
     assert factory_redis_url_for_container() == "redis://host.docker.internal:6379/0"
+
+
+def test_sandbox_dockerfile_runs_as_non_root() -> None:
+    text = _SANDBOX_DOCKERFILE.read_text(encoding="utf-8")
+    assert "USER megadesk" in text
+    assert "privileged" not in text.lower()
+    assert "docker.sock" not in text
+
+
+def test_factory_ipc_url_is_not_an_unauthenticated_admin_url() -> None:
+    from megadesk_contracts import FACTORY_ACL_USER, factory_ipc_url
+
+    url = factory_ipc_url(
+        "redis://host.docker.internal:6379/14", password="acl-test-pw"
+    )
+    assert url.startswith(f"redis://{FACTORY_ACL_USER}:")
+    assert "@host.docker.internal:6379/14" in url
+    assert url != "redis://host.docker.internal:6379/14"
 
 
 def test_list_redis_sidecars_reads_run_keys_from_labels() -> None:

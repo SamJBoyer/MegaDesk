@@ -336,6 +336,7 @@ def test_same_ticket_two_starts_do_not_remove_the_first_container(
 
     monkeypatch.setenv("GH_TOKEN", "test-token")
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(pool, "ensure_factory_acl_user", lambda url=None: "acl-test-pw")
 
     run_names: list[str] = []
     docker_calls: list[list[str]] = []
@@ -355,22 +356,26 @@ def test_same_ticket_two_starts_do_not_remove_the_first_container(
     ), patch.object(pool, "ensure_network"), patch.object(
         pool, "_follow_container_logs"
     ), patch.object(pool, "remove_container") as remove:
-        first = pool.start_ticket_sandbox(
-            repo="widgets",
-            ticket=TICKET,
-            repo_url="https://github.com/acme/widgets",
-            guid="guid-aaa",
-            ticket_id="1-0",
-            api_key="key",
-        )
-        second = pool.start_ticket_sandbox(
-            repo="widgets",
-            ticket=TICKET,
-            repo_url="https://github.com/acme/widgets",
-            guid="guid-bbb",
-            ticket_id="1-1",
-            api_key="key",
-        )
+        try:
+            first = pool.start_ticket_sandbox(
+                repo="widgets",
+                ticket=TICKET,
+                repo_url="https://github.com/acme/widgets",
+                guid="guid-aaa",
+                ticket_id="1-0",
+                api_key="key",
+            )
+            second = pool.start_ticket_sandbox(
+                repo="widgets",
+                ticket=TICKET,
+                repo_url="https://github.com/acme/widgets",
+                guid="guid-bbb",
+                ticket_id="1-1",
+                api_key="key",
+            )
+        finally:
+            pool.cleanup_sandbox_secrets("guid-aaa")
+            pool.cleanup_sandbox_secrets("guid-bbb")
 
     assert first != second
     assert run_names == [first, second]
@@ -388,6 +393,7 @@ def test_same_guid_leftover_may_be_removed(monkeypatch: pytest.MonkeyPatch) -> N
 
     monkeypatch.setenv("GH_TOKEN", "test-token")
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(pool, "ensure_factory_acl_user", lambda url=None: "acl-test-pw")
 
     leftover = pool.container_name("widgets", TICKET, "guid-01")
     other = pool.container_name("widgets", TICKET, "guid-other")
@@ -410,14 +416,17 @@ def test_same_guid_leftover_may_be_removed(monkeypatch: pytest.MonkeyPatch) -> N
     ), patch.object(pool, "ensure_network"), patch.object(
         pool, "_follow_container_logs"
     ):
-        started = pool.start_ticket_sandbox(
-            repo="widgets",
-            ticket=TICKET,
-            repo_url="https://github.com/acme/widgets",
-            guid="guid-01",
-            ticket_id="1-0",
-            api_key="key",
-        )
+        try:
+            started = pool.start_ticket_sandbox(
+                repo="widgets",
+                ticket=TICKET,
+                repo_url="https://github.com/acme/widgets",
+                guid="guid-01",
+                ticket_id="1-0",
+                api_key="key",
+            )
+        finally:
+            pool.cleanup_sandbox_secrets("guid-01")
 
     assert started == leftover
     assert removed == [leftover]
@@ -430,40 +439,56 @@ def test_the_sandbox_environment_carries_the_ref_and_defaults_to_dev(
     """``STARTING_REF`` is what AgentHandler clones and bases its PR on."""
     from unittest.mock import patch
 
+    from megadesk_contracts import FACTORY_ACL_USER
     from MachineFactoryManager import pool
 
-    monkeypatch.setenv("GH_TOKEN", "test-token")
+    planted = "gho_planted_fake_token_for_redact"
+    monkeypatch.setenv("GH_TOKEN", planted)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(pool, "ensure_factory_acl_user", lambda url=None: "acl-test-pw")
 
-    def env_of(ref: str) -> dict[str, str]:
+    def run_args(ref: str) -> list[str]:
         with patch.object(pool, "_docker") as docker, patch.object(
             pool, "start_redis_sidecar", return_value="mf-redis-test"
         ), patch.object(pool, "ensure_network"), patch.object(
             pool, "_follow_container_logs"
         ):
             docker.return_value.returncode = 1
-            pool.start_ticket_sandbox(
-                repo="widgets",
-                ticket=TICKET,
-                repo_url="https://github.com/acme/widgets",
-                guid="guid-01",
-                ticket_id="1-0",
-                ref=ref,
-                api_key="key",
-            )
-            args = docker.call_args[0][0]
+            try:
+                pool.start_ticket_sandbox(
+                    repo="widgets",
+                    ticket=TICKET,
+                    repo_url="https://github.com/acme/widgets",
+                    guid="guid-01",
+                    ticket_id="1-0",
+                    ref=ref,
+                    api_key="key",
+                )
+            finally:
+                pool.cleanup_sandbox_secrets("guid-01")
+            return list(docker.call_args[0][0])
+
+    def env_of(args: list[str]) -> dict[str, str]:
         return dict(
             pair.split("=", 1)
             for index, pair in enumerate(args)
             if index and args[index - 1] == "-e"
         )
 
-    env = env_of("cursor/stuck-branch")
+    args = run_args("cursor/stuck-branch")
+    env = env_of(args)
+    joined = " ".join(args)
     assert env["STARTING_REF"] == "cursor/stuck-branch"
-    assert env["GH_TOKEN"] == "test-token"
-    assert env["GITHUB_TOKEN"] == "test-token"
     assert env["GIT_TERMINAL_PROMPT"] == "0"
-    assert env_of("")["STARTING_REF"] == wire.DEFAULT_STARTING_REF
+    assert "GH_TOKEN=" not in joined
+    assert "GITHUB_TOKEN=" not in joined
+    assert planted not in joined
+    assert env["MEGADESK_FACTORY_REDIS_URL"].startswith(
+        f"redis://{FACTORY_ACL_USER}:"
+    )
+    assert env["MEGADESK_GITHUB_TOKEN_FILE"]
+    assert env["GIT_ASKPASS"]
+    assert env_of(run_args(""))["STARTING_REF"] == wire.DEFAULT_STARTING_REF
 
 
 def test_auto_pr_sandbox_refuses_to_start_without_github_credentials(
@@ -518,13 +543,13 @@ def test_publish_branch_fails_clearly_without_a_token(
 
     monkeypatch.delenv("GH_TOKEN", raising=False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("MEGADESK_GITHUB_TOKEN_FILE", raising=False)
     assert _auth_url("https://github.com/acme/widgets") == "https://github.com/acme/widgets"
 
-    monkeypatch.setenv("GH_TOKEN", "secret")
-    assert (
-        _auth_url("https://github.com/acme/widgets")
-        == "https://x-access-token:secret@github.com/acme/widgets"
-    )
+    planted = "gho_planted_fake_token_for_redact"
+    monkeypatch.setenv("GH_TOKEN", planted)
+    assert _auth_url("https://github.com/acme/widgets") == "https://github.com/acme/widgets"
+    assert planted not in _auth_url("https://github.com/acme/widgets")
 
     monkeypatch.delenv("GH_TOKEN", raising=False)
     repo = SandboxRepo(
@@ -534,6 +559,67 @@ def test_publish_branch_fails_clearly_without_a_token(
     )
     with pytest.raises(RuntimeError, match="GH_TOKEN is not set"):
         repo.publish_branch()
+
+
+def test_clone_url_and_ref_allowlists() -> None:
+    from megadesk_contracts import allowlisted_clone_source, validate_git_ref
+    from MachineFactoryManager import pool
+
+    assert allowlisted_clone_source(
+        "https://github.com/acme/widgets.git", allow_local=False
+    ) == ("https://github.com/acme/widgets", "widgets")
+    assert allowlisted_clone_source(
+        "git@github.com:acme/widgets.git", allow_local=False
+    ) == ("https://github.com/acme/widgets", "widgets")
+    with pytest.raises(ValueError):
+        allowlisted_clone_source("https://example.com/acme/widgets", allow_local=False)
+    with pytest.raises(ValueError):
+        allowlisted_clone_source("file:///tmp/widgets", allow_local=False)
+
+    assert validate_git_ref("") == wire.DEFAULT_STARTING_REF
+    assert validate_git_ref("cursor/stuck-branch") == "cursor/stuck-branch"
+    with pytest.raises(ValueError):
+        validate_git_ref("--upload-pack=evil")
+    with pytest.raises(ValueError):
+        validate_git_ref("has space")
+    with pytest.raises(ValueError):
+        validate_git_ref("has\nnewline")
+
+    with pytest.raises(RuntimeError):
+        pool.start_ticket_sandbox(
+            repo="widgets",
+            ticket=TICKET,
+            repo_url="https://example.com/acme/widgets",
+            guid="guid-bad-url",
+            ticket_id="1-0",
+            api_key="key",
+            auto_pr=False,
+        )
+    with pytest.raises(RuntimeError):
+        pool.start_ticket_sandbox(
+            repo="widgets",
+            ticket=TICKET,
+            repo_url="https://github.com/acme/widgets",
+            guid="guid-bad-ref",
+            ticket_id="1-0",
+            ref="--upload-pack=evil",
+            api_key="key",
+            auto_pr=False,
+        )
+
+
+def test_docker_errors_redact_planted_tokens() -> None:
+    from MachineFactoryManager import pool
+
+    planted = "gho_planted_fake_token_for_redact"
+    message = (
+        f"docker run -e GH_TOKEN={planted} -e "
+        f"MEGADESK_FACTORY_REDIS_URL=redis://megadesk-factory:{planted}@host/0 "
+        f"failed: x-access-token:{planted}@github.com"
+    )
+    redacted = pool.redact_secrets(message, planted)
+    assert planted not in redacted
+    assert "GH_TOKEN=***" in redacted
 
 
 def test_a_repo_only_needs_a_dev_branch(git_floor) -> None:

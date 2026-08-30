@@ -72,7 +72,9 @@ gone.
   Linux Docker and cannot use Windows Git Credential Manager, so a public
   clone can succeed and then die at teardown with `could not read Username`.
   Set `GH_TOKEN` / `GITHUB_TOKEN` User-level, or `gh auth login` on the host
-  (MachineFactory reads `gh auth token` and injects it):
+  (MachineFactory reads `gh auth token` on the **host** and mounts it as a
+  0600 file + `GIT_ASKPASS`; it is never passed as `-e GH_TOKEN` / `-e
+  GITHUB_TOKEN`, and never written into git remotes):
 
 ```powershell
 [System.Environment]::SetEnvironmentVariable("GH_TOKEN", "ghp_...", "User")
@@ -154,7 +156,16 @@ registry and the real FINISHED payloads without a container. Its mirror is
 ## Notes
 
 - Sandbox `REDIS_URL` is the per-run Redis sidecar; `MEGADESK_FACTORY_REDIS_URL` is
-  the factory bus on the host pair.
+  the factory bus on the host pair, authenticated as Redis ACL user
+  `megadesk-factory` (factory keys only — not `SUPERVISOR:*` / `FLUSHDB`).
+  Launch fails if the host Redis refuses `ACL SETUSER`.
+- `REPO_URL` must be `https://github.com/…`, `https://www.github.com/…`, or
+  `git@github.com:…`. `STARTING_REF` is a branch-like token (`^[\w./-]+$`, no
+  leading `-`) passed to `git clone --branch`.
+- GitHub token is a host file (mode 0600) + `GIT_ASKPASS`. `CURSOR_API_KEY`
+  is still injected as container env (Cursor SDK); that remains a residual
+  risk (`docker inspect` / in-sandbox `/proc`).
+- The image runs as non-root `USER megadesk`. No Docker socket, no `privileged`.
 - AgentHandler exits when the job finishes; `--rm` removes the container.
 - Sandbox names are `mf-{repo}-ticket-{ticket}-{guid}` so two live WORKORDERs
   for the same ticket do not share a container. They are labelled

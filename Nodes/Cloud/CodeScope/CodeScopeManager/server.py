@@ -7,6 +7,7 @@ secret.
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import json
 import logging
@@ -24,9 +25,20 @@ from CodeScopeManager.service import ScopeService, public_session
 
 log = logging.getLogger("code_scope.server")
 
-DEFAULT_HOST = "0.0.0.0"
+DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8080
 TOKEN_ENV = "CODESCOPE_API_TOKEN"
+
+
+def _token_digest(value: str) -> bytes:
+    return hashlib.sha256(value.encode("utf-8")).digest()
+
+
+def tokens_match(given: str, expected: str) -> bool:
+    """Length-safe bearer compare. Wrong-length tokens are 401, not 500."""
+    if not given or not expected:
+        return False
+    return hmac.compare_digest(_token_digest(given), _token_digest(expected))
 
 
 class RepoIn(BaseModel):
@@ -64,7 +76,13 @@ def create_app(
         yield
         scoped.close()
 
-    app = FastAPI(title="CodeScope", lifespan=lifespan)
+    app = FastAPI(
+        title="CodeScope",
+        lifespan=lifespan,
+        docs_url=None,
+        redoc_url=None,
+        openapi_url=None,
+    )
     app.state.service = scoped
     app.state.api_token = token
 
@@ -72,7 +90,7 @@ def create_app(
         authorization: Optional[str] = Header(default=None),
     ) -> None:
         given = _bearer_token(authorization)
-        if not given or not hmac.compare_digest(given, token):
+        if not tokens_match(given, token):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="invalid or missing bearer token",

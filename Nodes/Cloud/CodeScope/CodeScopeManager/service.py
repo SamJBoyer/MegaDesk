@@ -9,19 +9,17 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import threading
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
-from urllib.parse import urlparse
 
 from megadesk_contracts import (
     AgentError,
     AgentStartupError,
     CloneError,
+    allowlisted_clone_source,
     ensure_clone,
     refresh_clone,
-    repo_name_from_url,
 )
 from megadesk_contracts.wire import code_scope as wire
 from megadesk_contracts.wire.factory import DEFAULT_MODEL
@@ -36,33 +34,17 @@ RunnerFactory = Callable[..., Any]
 
 
 def normalize_repo_url(git_url: str) -> Optional[tuple[str, str]]:
-    """Return ``(url, repo_name)`` for anything git can clone, or ``None``.
+    """Return ``(url, repo_name)`` for a GitHub repo or a local path, or ``None``.
 
-    Same rules as the canvas FE: GitHub https and SSH collapse to one clone
-    directory; a local path (what the tests clone from) is passed through.
+    Network clones are GitHub-only (``https://github.com``, ``https://www.github.com``,
+    ``git@github.com``). Local directories stay available for the integration
+    suite. There is no fall-through to arbitrary ``https://`` or ``file://``.
     """
     text = str(git_url or "").strip()
     if not text:
         return None
-
-    ssh = re.match(r"git@github\.com:([^/]+)/([^/]+?)(?:\.git)?/?$", text)
-    if ssh:
-        owner, repo = ssh.group(1), ssh.group(2)
-        return f"https://github.com/{owner}/{repo}", repo
-
-    if text.startswith(("http://", "https://")):
-        parsed = urlparse(text)
-        if parsed.hostname in ("github.com", "www.github.com"):
-            parts = [p for p in parsed.path.strip("/").split("/") if p]
-            if len(parts) < 2:
-                return None
-            owner, repo = parts[0], parts[1]
-            if repo.endswith(".git"):
-                repo = repo[:-4]
-            return f"https://github.com/{owner}/{repo}", repo
-
     try:
-        return text, repo_name_from_url(text)
+        return allowlisted_clone_source(text, allow_local=True)
     except ValueError:
         return None
 

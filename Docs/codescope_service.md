@@ -22,9 +22,10 @@ local debug path only.
 | `GET` | `/sessions/{id}` | Bearer | one session |
 | `POST` | `/sessions/{id}/ask` | Bearer | SSE: CODEQ:ANSWER fields (`answer`, `final`, `status`, …) |
 
-`POST /repos` body: `{"url": "https://github.com/org/repo"}`. Optional `"model"`.
+`POST /repos` body: `{"url": "https://github.com/org/repo"}` — GitHub https/SSH
+only. Optional `"model"`. Non-GitHub `https://` and `file://` return 400.
 `POST .../ask` body: `{"question": "..."}`. Optional `"mode"` (`answer` or
-`propose_ticket`).
+`propose_ticket`). OpenAPI `/docs` is disabled.
 
 Header on every route except `/health`:
 
@@ -67,6 +68,7 @@ python scripts/refresh_nodes.py
 $env:CODESCOPE_API_TOKEN = "<paste the token>"
 # CURSOR_API_KEY should already be in your User environment.
 python -m CodeScopeManager serve --port 8080
+# Default bind is 127.0.0.1. Pass --host 0.0.0.0 only when you need all-interfaces.
 ```
 
 In another shell:
@@ -97,8 +99,9 @@ From the **worktree root** (needs `MegaDesk-Contracts` and `Nodes/Cloud/CodeScop
 
 ```bash
 docker build -f Nodes/Cloud/CodeScope/Dockerfile -t codescope-http .
-docker run --rm -p 8080:8080 -v codescope-data:/data/scope `
-  -e CODESCOPE_API_TOKEN -e CURSOR_API_KEY codescope-http
+docker run --rm -p 127.0.0.1:8080:8080 -v codescope-data:/data/scope `
+  -e CODESCOPE_API_TOKEN -e CURSOR_API_KEY codescope-http `
+  python -m CodeScopeManager serve --host 0.0.0.0 --port 8080
 ```
 
 Then the same curls against `http://127.0.0.1:8080`.
@@ -140,7 +143,8 @@ printf 'CODESCOPE_API_TOKEN=%s\nCURSOR_API_KEY=%s\n' \
 chmod 600 ~/.codescope.env
 docker run -d --name codescope --restart unless-stopped \
   -p 8080:8080 -v codescope-data:/data/scope \
-  --env-file ~/.codescope.env codescope-http
+  --env-file ~/.codescope.env codescope-http \
+  python -m CodeScopeManager serve --host 0.0.0.0 --port 8080
 ```
 
 11. From your PC:
