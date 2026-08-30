@@ -54,6 +54,7 @@ _IN_TREE_NODES = (
     "work_dispatcher_node",
     "notepad_node",
     "sargent_node",
+    "canvas_node",
 )
 
 

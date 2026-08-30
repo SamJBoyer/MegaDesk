@@ -33,7 +33,7 @@ from megadesk_contracts import (
 | [`megadesk_contracts/paths.py`](megadesk_contracts/paths.py) | `resolve_canvas_root()` / `resolve_logs_root()` — Supervisor cwd and worktree `Logs/` follow the running checkout, not another worktree |
 | [`megadesk_contracts/log_session.py`](megadesk_contracts/log_session.py) | Supervisor-generation log sessions (`begin_log_session`, `Logs/CURRENT`, `{node}.md`) |
 | [`megadesk_contracts/agent_audit.py`](megadesk_contracts/agent_audit.py) | Per-run agent audit (`Logs/{session}/agent-{guid}.md` pretty, `agent-{guid}.tokens.md` token stream) — not Redis |
-| [`megadesk_contracts/wire/`](megadesk_contracts/wire/) | `factory`, `machine`, `cloud`, `code_scope`, `sargent`, `voice` — canonical stream field sets with build / parse helpers |
+| [`megadesk_contracts/wire/`](megadesk_contracts/wire/) | `factory`, `machine`, `cloud`, `code_scope`, `sargent`, `voice`, `notepad`, `canvas` — canonical stream field sets with build / parse helpers |
 | [`megadesk_contracts/wire/factory.py`](megadesk_contracts/wire/factory.py) | The status vocabulary both factories report in, and `normalize_status` |
 | [`megadesk_contracts/wire/graph.py`](megadesk_contracts/wire/graph.py) | `GRAPHRUN` / `GRAPHEVENT` — AgentHandler work-graph telemetry |
 | [`megadesk_contracts/repo.py`](megadesk_contracts/repo.py) | `ensure_clone` / `refresh_clone` for disposable read-only clones |
@@ -45,6 +45,7 @@ from megadesk_contracts import (
 | [`redis/machine-factory-pipeline.md`](redis/machine-factory-pipeline.md) | `WORKORDER` → `AGENTHANDLER:<GUID>` → `FINISHED:<REPO>` |
 | [`redis/work-graph.md`](redis/work-graph.md) | `GRAPHRUN:<GUID>` / `GRAPHEVENT` |
 | [`redis/voice-chain.md`](redis/voice-chain.md) | `CODEQ:*` / `VOICE:*` / `CLOUDORDER` / `CLOUDFINISHED` |
+| [`redis/canvas.md`](redis/canvas.md) | `CANVAS:CMD` / `CANVAS:REPLY` — VoiceDeck drives the live canvas |
 | [`redis/supervisor.md`](redis/supervisor.md) | Supervisor streams (DB 0), `RUNNINGNODES` / singleton / alive (DB 1) |
 
 ## Modules that speak Redis
@@ -56,7 +57,7 @@ from megadesk_contracts import (
 | **MachineFactory / AgentHandler** | Reads `AGENTHANDLER:<GUID>` + `WORKORDER`; publishes `FINISHED:<REPO>` (`status`, `pr_url`) on DB 0 |
 | **PRManager** | Does not speak Redis. Lists open PRs whose merge-check `mergeable` status succeeded, pulls the tracked PR into a local Scope, and opens it in the browser, VS Code, or Cursor. |
 | **Supervisor** (Canvas-owned, `MegaDesk-Canvas/supervisor/`) | Consumes `SUPERVISOR:LAUNCHREQUEST` / `SUPERVISOR:KILLREQUEST` on DB 0; writes `RUNNINGNODES:<unique_id>` + singleton/alive on DB 1. Bootstrapped by canvas startup via `ensure_supervisor_running()` — not a Catalog node. |
-| **MegaDesk canvas (`MegaDesk-Canvas/`)** | On graph drop/open of a MegaDesk FE that also exposes a BE, `XADD`s `SUPERVISOR:LAUNCHREQUEST` with `FeSpec.backend_parameters` |
+| **MegaDesk canvas (`MegaDesk-Canvas/`)** | On graph drop/open of a MegaDesk FE that also exposes a BE, `XADD`s `SUPERVISOR:LAUNCHREQUEST` with `FeSpec.backend_parameters`. Consumes `CANVAS:CMD` / publishes `CANVAS:REPLY` so VoiceDeck can drive widgets |
 | **CodeScope** | Cloud node. Canvas FE + VoiceDeck talk HTTP (`CODESCOPE_URL`). No Supervisor BE. The Redis `CODEQ:*` poller is a local debug path only. |
 | **VoiceDeck** | Canvas chrome FE + `voice_deck` BE. `VOICE:CONTROL` / `VOICE:EVENT` on DB 0; asks CodeScope over HTTP; publishes `CLOUDORDER`. Never puts audio on Redis |
 | **CloudFactory** | Consumes `CLOUDORDER`, publishes `CLOUDFINISHED` on DB 0; owns `CLOUDRUN:<agent_id>` on DB 1 |

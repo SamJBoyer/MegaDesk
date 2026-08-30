@@ -16,6 +16,7 @@ from megadesk_contracts import (
 )
 from megadesk_contracts.log_session import attach_log_session, session_log_path
 
+from engine.canvas_api import attach_canvas_api
 from engine.display_engine import (
     CATALOG_BODY_TAG,
     CATALOG_TOGGLE_TAG,
@@ -236,6 +237,7 @@ def build_canvas(
         engine.on_viewport_resize()
 
     dpg.set_viewport_resize_callback(_on_resize)
+    attach_canvas_api(engine)
     return engine
 
 

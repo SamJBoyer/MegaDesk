@@ -84,6 +84,8 @@ Default Redis has indexes 0–15. Live MegaDesk never leaves 0/1. MachineFactory
 | `VOICE:CONTROL` | stream | `VOICE:CONTROL` | 0 | [voice-chain.md](voice-chain.md#voicecontrol) |
 | `VOICE:EVENT` | stream | `VOICE:EVENT` | 0 | [voice-chain.md](voice-chain.md#voiceevent) |
 | `NOTEPAD:CMD` | stream | `NOTEPAD:CMD` | 0 | [notepad.md](notepad.md#notepadcmd) |
+| `CANVAS:CMD` | stream | `CANVAS:CMD` | 0 | [canvas.md](canvas.md#canvascmd) |
+| `CANVAS:REPLY` | stream | `CANVAS:REPLY` | 0 | [canvas.md](canvas.md#canvasreply) |
 | `CLOUDORDER` | pub/sub + stream | `CLOUDORDER` | 0 | [voice-chain.md](voice-chain.md#cloudorder) |
 | `CLOUDFINISHED` | stream | `CLOUDFINISHED` | 0 | [voice-chain.md](voice-chain.md#cloudfinished) |
 | CodeScope session | hash | `CODESCOPE:SESSION:<id>` | 1 | [voice-chain.md](voice-chain.md#hashes-db-1) |
@@ -104,6 +106,7 @@ there. A node shipping its own `redis_packets.py` is a bug, not a shortcut:
 - `MegaDesk-Contracts/megadesk_contracts/wire/sargent.py`
 - `MegaDesk-Contracts/megadesk_contracts/wire/voice.py`
 - `MegaDesk-Contracts/megadesk_contracts/wire/notepad.py`
+- `MegaDesk-Contracts/megadesk_contracts/wire/canvas.py`
 
 Supervisor keys/streams (Canvas-owned BE):
 

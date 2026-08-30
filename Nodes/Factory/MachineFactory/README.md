@@ -167,7 +167,9 @@ registry and the real FINISHED payloads without a container. Its mirror is
   risk (`docker inspect` / in-sandbox `/proc`).
 - The image runs as non-root `USER megadesk`. No Docker socket, no `privileged`.
 - AgentHandler exits when the job finishes; `--rm` removes the container.
-- Containers are labelled `megadesk.run_key=<guid>`, which is how `poll` and
-  `cancel` find one again after a manager restart.
+- Sandbox names are `mf-{repo}-ticket-{ticket}-{guid}` so two live WORKORDERs
+  for the same ticket do not share a container. They are labelled
+  `megadesk.run_key=<guid>`, which is how `poll` and `cancel` find one again
+  after a manager restart.
 - Redis sidecars (`megadesk.redis_for=<guid>`) are reaped when the agent sandbox
   is gone.

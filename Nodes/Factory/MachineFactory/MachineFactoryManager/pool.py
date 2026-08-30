@@ -72,6 +72,10 @@ REDIS_NAME_PREFIX = "mf-redis-"
 CONTAINER_SECRETS_DIR = "/run/megadesk-secrets"
 CONTAINER_TOKEN_FILE = f"{CONTAINER_SECRETS_DIR}/github_token"
 CONTAINER_ASKPASS = "/app/AgentHandler/git_askpass.py"
+# Docker-safe token length shared with redis_sidecar_name. Ticket slugs shrink
+# first so a long title cannot drop the guid that makes two live runs distinct.
+_GUID_TOKEN_LEN = 48
+_CONTAINER_NAME_MAX = 128
 _SECRET_PATTERNS = (
     re.compile(r"(?i)(GH_TOKEN=|GITHUB_TOKEN=|CURSOR_API_KEY=)\S+"),
     re.compile(r"(://[^:@/\s]+:)[^@/\s]+@"),
@@ -238,13 +242,36 @@ def build_image(node_root: Path) -> None:
         raise SystemExit(f"docker build failed with code {proc.returncode}")
 
 
-def container_name(repo: str, ticket: str) -> str:
-    safe = f"{CONTAINER_NAME_PREFIX}{repo}-ticket-{ticket}".lower().replace("_", "-")
-    return re.sub(r"[^a-zA-Z0-9_.-]", "-", safe)
+def _docker_token(value: str, *, max_len: int | None = None) -> str:
+    """Lowercase Docker-safe token; same charset as redis_sidecar_name."""
+    token = re.sub(r"[^a-zA-Z0-9_.-]", "-", value.lower())
+    if max_len is not None:
+        return token[:max_len]
+    return token
+
+
+def container_name(repo: str, ticket: str, guid: str) -> str:
+    """Agent sandbox name: repo + ticket for `docker ps`, guid for uniqueness.
+
+    Two live WORKORDERs can share a ticket; they must not share a container
+    name. Uniqueness lives on the guid token (same sanitizing as sidecars).
+    A long ticket slug is truncated before the guid is.
+    """
+    guid_token = _docker_token(guid, max_len=_GUID_TOKEN_LEN)
+    repo_token = _docker_token(repo)
+    ticket_token = _docker_token(ticket)
+    prefix = f"{CONTAINER_NAME_PREFIX}{repo_token}-ticket-"
+    suffix = f"-{guid_token}"
+    room = _CONTAINER_NAME_MAX - len(prefix) - len(suffix)
+    if room < 1:
+        ticket_token = ""
+    else:
+        ticket_token = ticket_token[:room]
+    return f"{prefix}{ticket_token}{suffix}"
 
 
 def redis_sidecar_name(guid: str) -> str:
-    token = re.sub(r"[^a-zA-Z0-9_.-]", "-", guid.lower())[:48]
+    token = _docker_token(guid, max_len=_GUID_TOKEN_LEN)
     return f"{REDIS_NAME_PREFIX}{token}"
 
 
@@ -404,9 +431,9 @@ def start_ticket_sandbox(
     ensure_network()
     redis_name = start_redis_sidecar(guid=guid)
 
-    name = container_name(repo, ticket)
+    name = container_name(repo, ticket, guid)
     if _docker(["inspect", "-f", "{{.State.Running}}", name], check=False).returncode == 0:
-        log.info("Removing existing container %s before restart", name)
+        log.info("Removing leftover container %s for this run %s", name, guid)
         remove_container(name)
 
     subject_url = f"redis://{redis_name}:6379/0"

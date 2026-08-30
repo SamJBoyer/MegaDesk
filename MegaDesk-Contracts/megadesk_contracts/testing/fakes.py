@@ -891,7 +891,9 @@ class FakeMachineFactory:
             raise AgentStartupError(self.startup_error, retryable=self.retryable)
         self._seq += 1
         run_key = str(order.get("run_key") or f"fake-guid-{self._seq:03d}")
-        container = f"mf-{order['repo']}-ticket-{order['ticket_name']}".lower()
+        container = (
+            f"mf-{order['repo']}-ticket-{order['ticket_name']}-{run_key}".lower()
+        )
         self.launches.append(
             {
                 "run_key": run_key,

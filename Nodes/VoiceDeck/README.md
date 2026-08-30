@@ -52,6 +52,7 @@ each call to that node's handler.
 | CodeScope | `set_repo(repo)` | Switch which loaded repo questions are about |
 | WorkDispatcher | `list_tickets` / `choose_ticket` / `set_dispatch` / `send_ticket` | List labeled issues, pick one, set machine/cloud + model, dispatch |
 | Notepad | `create_note` / `add_note_text` / `switch_note` | New document, append text, switch the target tab |
+| Canvas | `list_nodes` / `drop_node` / `select_node` / `list_widgets` / `get_widget` / `type_into` / `click_widget` / `select_widget` | Operate the live board the way the test harness does |
 | PromptImprover | `revise_my_prompt(prompt)` | `SARGENT:ASK` to PromptImprover; returns `revising`; the rewrite is spoken |
 | VoiceDeck | `end_session()` | Close the socket |
 

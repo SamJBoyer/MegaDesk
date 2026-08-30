@@ -165,6 +165,12 @@ d.click(f"ticket_btn_{issue_id}")
 `fire` and `click` go through `dpg.get_item_callback`. Callbacks are invoked
 with as many of `(sender, app_data, user_data)` as their signature accepts.
 
+VoiceDeck reaches the same verbs out of process: `list_nodes`, `drop_node`,
+`select_node`, `list_widgets`, `get_widget`, `type_into`, `click_widget`, and
+`select_widget` publish `CANVAS:CMD` and wait for `CANVAS:REPLY`. The canvas
+applies them through `CanvasApi` / `NodeDriver` so typing and clicking are the
+real widget callbacks.
+
 ### Fixtures
 
 **`FakeGh`** — monkeypatches `run_gh` on both human gates and on
@@ -217,6 +223,7 @@ host DB lanes; if `REDIS_URL` already names a non-live pair, conftest honors it.
 | # | Scenario | Catches |
 |---|---|---|
 | H1 | The target-label dropdown offers the repo's own labels | A gate that can only ever watch its default |
+| H1c | An issue that loses the target label disappears on the next poll | Dead tickets staying on the board |
 | H2 | AutoIntegrate reads the PR branch off a failed `mergeable` status and dispatches a `WORKORDER` whose `ref` is that branch | An agent sent to fix a conflict starting from `dev` |
 | H2b | The same row on `cloud` puts the branch on `CLOUDORDER.ref` | One factory learning the branch and the other not |
 | H3 | A PR with no head branch is listed but not dispatchable | Empty-ref orders |
