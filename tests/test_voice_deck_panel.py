@@ -68,14 +68,17 @@ def test_voice_deck_is_not_in_the_catalog(panel_harness) -> None:
 
 @pytest.mark.canvas
 def test_voice_deck_discovers_node_tools(panel_harness) -> None:
-    from engine.megadesk_registry import all_tool_specs
+    from engine.megadesk_registry import all_fe_specs, all_tool_specs
 
     names = {spec.name for spec in all_tool_specs()}
-    assert {"code_scope", "work_dispatcher", "voice_deck"} <= names
+    assert {"code_scope", "work_dispatcher", "voice_deck", "canvas"} <= names
+    assert "canvas" not in {spec.name for spec in all_fe_specs()}
     tools = {schema["name"] for spec in all_tool_specs() for schema in spec.schemas}
     assert "ask_codebase" in tools
     assert "list_tickets" in tools
     assert "end_session" in tools
+    assert "list_nodes" in tools
+    assert "type_into" in tools
 
 
 @pytest.mark.canvas

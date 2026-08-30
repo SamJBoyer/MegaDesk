@@ -147,6 +147,10 @@ GRAPHEVENT_CANONICAL_FIELDS = frozenset(
     {"guid", "graph", "node", "status", "detail", "ts"}
 )
 NOTEPAD_CMD_CANONICAL_FIELDS = frozenset({"action", "title", "text"})
+CANVAS_CMD_CANONICAL_FIELDS = frozenset(
+    {"request_id", "action", "node", "suffix", "value"}
+)
+CANVAS_REPLY_CANONICAL_FIELDS = frozenset({"request_id", "status", "result"})
 SARGENT_ASK_CANONICAL_FIELDS = frozenset({"session_id", "prompt_id", "prompt"})
 SARGENT_ANSWER_CANONICAL_FIELDS = frozenset(
     {"session_id", "prompt_id", "rewrite", "status"}

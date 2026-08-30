@@ -70,6 +70,7 @@ def test_fe_only_nodes_do_not_launch_a_backend() -> None:
 
 
 def test_nodes_with_voice_tools_declare_them() -> None:
+    from canvas_node import get_tool_spec as canvas_tools
     from code_scope_node import get_tool_spec as scope_tools
     from notepad_node import get_tool_spec as notepad_tools
     from sargent_node import get_tool_spec as promptimprover_tools
@@ -82,12 +83,14 @@ def test_nodes_with_voice_tools_declare_them() -> None:
     notes = notepad_tools()
     rewrite = promptimprover_tools()
     session = voice_tools()
+    board = canvas_tools()
     assert (
         code is not None
         and tickets is not None
         and notes is not None
         and rewrite is not None
         and session is not None
+        and board is not None
     )
     assert code.name == "code_scope"
     assert {schema["name"] for schema in code.schemas} == {
@@ -113,6 +116,18 @@ def test_nodes_with_voice_tools_declare_them() -> None:
     assert set(rewrite.handlers) == {schema["name"] for schema in rewrite.schemas}
     assert session.name == "voice_deck"
     assert {schema["name"] for schema in session.schemas} == {"end_session"}
+    assert board.name == "canvas"
+    assert {schema["name"] for schema in board.schemas} == {
+        "list_nodes",
+        "drop_node",
+        "select_node",
+        "list_widgets",
+        "get_widget",
+        "click_widget",
+        "type_into",
+        "select_widget",
+    }
+    assert set(board.handlers) == {schema["name"] for schema in board.schemas}
     assert set(code.handlers) == {schema["name"] for schema in code.schemas}
     assert set(tickets.handlers) == {schema["name"] for schema in tickets.schemas}
     assert set(notes.handlers) == {schema["name"] for schema in notes.schemas}
