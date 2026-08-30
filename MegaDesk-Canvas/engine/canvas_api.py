@@ -2,8 +2,8 @@
 
 The integration harness already pilots widgets through ``NodeDriver``. This
 module is that same surface on the live engine: list / drop / select nodes,
-then get, type, click, or pick a widget by tag suffix. A frame-pump drain
-applies Redis commands so the voice BE (another process) can use it.
+then get, type, click, or pick a widget by tag suffix. Live ``main()``
+drains ``CANVAS:CMD`` each frame so the voice BE (another process) can use it.
 """
 
 from __future__ import annotations
@@ -14,12 +14,11 @@ from typing import Any, Optional
 import dearpygui.dearpygui as dpg
 import redis
 from megadesk_contracts import (
-    frame_pump,
     redis_connect,
     resolve_ephemeral_db,
     resolve_redis_url,
 )
-from megadesk_contracts.testing import CallbackMissing, NodeDriver, WidgetMissing
+from megadesk_contracts.testing.driver import CallbackMissing, NodeDriver, WidgetMissing
 from megadesk_contracts.wire import canvas as wire
 from redis.exceptions import ConnectionError as RedisConnectionError
 from redis.exceptions import RedisError
@@ -52,20 +51,19 @@ class CanvasApi:
     def __init__(self, engine: DisplayEngine) -> None:
         self.engine = engine
         self._redis: Optional[redis.Redis] = None
-        self._cursor = "$"
-        self._frame_registered = False
-
-    def attach(self) -> None:
-        if self._frame_registered:
-            return
-        frame_pump.register(self._on_frame)
-        self._frame_registered = True
+        self._cursor: Optional[str] = None
 
     def detach(self) -> None:
-        if self._frame_registered:
-            frame_pump.unregister(self._on_frame)
-            self._frame_registered = False
+        global _LIVE
+        client = self._redis
         self._redis = None
+        if client is not None:
+            try:
+                client.close()
+            except Exception:
+                pass
+        if _LIVE is self:
+            _LIVE = None
 
     def _connect_redis(self) -> Optional[redis.Redis]:
         if self._redis is not None:
@@ -84,7 +82,8 @@ class CanvasApi:
             )
             client.ping()
             self._redis = client
-            self._cursor = self._last_id(client)
+            if self._cursor is None:
+                self._cursor = self._last_id(client)
             return client
         except (RedisConnectionError, RedisTimeoutError, OSError, RedisError, ValueError):
             self._redis = None
@@ -99,25 +98,25 @@ class CanvasApi:
             return "0-0"
         return str(newest[0][0])
 
-    def _on_frame(self) -> None:
-        self.drain_commands()
-
     def drain_commands(self) -> int:
-        client = self._connect_redis()
-        if client is None:
-            return 0
         try:
+            client = self._connect_redis()
+            if client is None:
+                return 0
             reply = client.xread(
-                {wire.CMD_STREAM: self._cursor}, count=CMD_BATCH, block=0
+                {wire.CMD_STREAM: self._cursor or "0-0"}, count=CMD_BATCH, block=0
             )
-        except RedisError:
+        except (RedisError, OSError, ValueError):
             self._redis = None
             return 0
         applied = 0
         for _stream, items in reply or []:
             for entry_id, fields in items:
                 self._cursor = str(entry_id)
-                self._reply_to(client, fields)
+                try:
+                    self._reply_to(client, fields)
+                except Exception:
+                    log.exception("CANVAS:CMD %s failed", entry_id)
                 applied += 1
         return applied
 
@@ -131,7 +130,7 @@ class CanvasApi:
                 status=wire.STATUS_OK,
                 result=result,
             )
-        except (CanvasError, WidgetMissing, CallbackMissing, ValueError, KeyError) as exc:
+        except Exception as exc:
             payload = wire.reply_fields(
                 request_id=request_id or "unknown",
                 status=wire.STATUS_ERROR,
@@ -227,19 +226,9 @@ class CanvasApi:
             prefix = CHROME_PREFIXES[node]
             if not dpg.does_item_exist(prefix):
                 raise CanvasError(f"chrome {node!r} is not on this canvas")
-            try:
-                dpg.focus_item(prefix)
-            except Exception:
-                pass
             return {"name": node, "member_id": ""}
         member = self._member(node)
         self.engine.notify_member_clicked(member.member_id)
-        tag = member.hosted_tag()
-        if dpg.does_item_exist(tag):
-            try:
-                dpg.focus_item(tag)
-            except Exception:
-                pass
         return {"name": member.name, "member_id": member.member_id}
 
     def list_widgets(self, node: str) -> list[str]:
@@ -282,12 +271,12 @@ class CanvasApi:
 
 
 def attach_canvas_api(engine: DisplayEngine) -> CanvasApi:
-    """Bind a ``CanvasApi`` to ``engine`` and drain CANVAS:CMD on the frame pump."""
+    """Bind a ``CanvasApi`` to ``engine``. Live ``main()`` drains each frame."""
     global _LIVE
     if _LIVE is not None:
         _LIVE.detach()
+        _LIVE = None
     api = CanvasApi(engine)
-    api.attach()
     engine.canvas_api = api
     _LIVE = api
     return api
