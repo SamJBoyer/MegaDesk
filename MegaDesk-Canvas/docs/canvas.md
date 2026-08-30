@@ -15,7 +15,7 @@ MegaDesk-Canvas/
     graph_model.py         # Graphs/*.json load/save; GraphError
     graph_bar.py           # pick / save / save-as / Capture / delete
     megadesk_registry.py   # in-process FE catalog
-    canvas_api.py          # in-process NodeDriver verbs; sync_members drains CANVAS:CMD
+    canvas_api.py          # in-process NodeDriver verbs; main() drains CANVAS:CMD
     icons.py
   supervisor/              # Canvas-owned BE (`python -m supervisor`) + collapsible panel
   voice_deck/              # Canvas-owned VoiceDeck chrome panel + singleton BE launch

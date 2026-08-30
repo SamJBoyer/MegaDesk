@@ -2,8 +2,8 @@
 
 The integration harness already pilots widgets through ``NodeDriver``. This
 module is that same surface on the live engine: list / drop / select nodes,
-then get, type, click, or pick a widget by tag suffix. ``sync_members``
-drains ``CANVAS:CMD`` so the voice BE (another process) can use it.
+then get, type, click, or pick a widget by tag suffix. Live ``main()``
+drains ``CANVAS:CMD`` each frame so the voice BE (another process) can use it.
 """
 
 from __future__ import annotations
@@ -271,7 +271,7 @@ class CanvasApi:
 
 
 def attach_canvas_api(engine: DisplayEngine) -> CanvasApi:
-    """Bind a ``CanvasApi`` to ``engine``; ``sync_members`` drains CANVAS:CMD."""
+    """Bind a ``CanvasApi`` to ``engine``. Live ``main()`` drains each frame."""
     global _LIVE
     if _LIVE is not None:
         _LIVE.detach()
