@@ -477,7 +477,7 @@ class WorkDispatcher:
                 )
                 for issue in issues:
                     issue.url = repo_url
-                    self._ui_queue.put(("ticket", issue))
+                self._ui_queue.put(("sync", issues))
 
             self._stop.wait(POLL_INTERVAL_SEC)
 
@@ -532,8 +532,8 @@ class WorkDispatcher:
                     dpg.configure_item(status, color=color)
             elif kind == "labels":
                 self._set_label_items(msg[1])
-            elif kind == "ticket":
-                self._ensure_ticket_row(msg[1])
+            elif kind == "sync":
+                self._sync_tickets(msg[1])
 
     def _set_label_items(self, labels: list[str]) -> None:
         tag = self._tag("label_combo")
@@ -554,6 +554,15 @@ class WorkDispatcher:
         content = self._content_parent or f"{self._root_tag}::content"
         if content and dpg.does_item_exist(content):
             dpg.configure_item(content, height=HEADER_H + col_h + 10)
+
+    def _sync_tickets(self, issues: list[IssueTicket]) -> None:
+        """Replace the board with the latest labeled set; drop anything else."""
+        live_ids = {issue.id for issue in issues}
+        for ticket_id in list(self._tickets):
+            if ticket_id not in live_ids:
+                self._remove_ticket(ticket_id)
+        for issue in issues:
+            self._ensure_ticket_row(issue)
 
     def _ensure_ticket_row(self, ticket: IssueTicket) -> None:
         row_tag = self._tag(f"ticket_row_{ticket.id}")

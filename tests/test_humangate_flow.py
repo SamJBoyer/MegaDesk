@@ -81,6 +81,27 @@ def test_h1b_retargeting_the_label_changes_which_issues_are_listed(
     )
 
 
+def test_h1c_a_ticket_that_loses_the_label_leaves_the_board(
+    fake_gh, harness
+) -> None:
+    """Each pull is a snapshot; unlabeled issues are dead and must drop."""
+    fake_gh.add_issue(41, "add-widget-tests", "Cover the widget module.")
+    fake_gh.add_issue(50, "already-claimed", "Someone else took this.")
+
+    gate = connect_gate(harness, "work_dispatcher")
+    harness.wait_for_widget(gate, "ticket_btn_41")
+    harness.wait_for_widget(gate, "ticket_btn_50")
+
+    dead = next(issue for issue in fake_gh.issues if issue.number == 50)
+    dead.labels = ("in-progress",)
+
+    harness.wait_until(
+        lambda: not gate.exists("ticket_btn_50"),
+        message="an unlabeled ticket to leave the board",
+    )
+    assert gate.exists("ticket_btn_41")
+
+
 # --- H2: PR → branch → order ref -------------------------------------------
 
 
