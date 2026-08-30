@@ -326,6 +326,104 @@ def test_the_order_decides_which_branch_the_sandbox_starts_from(
     )
 
 
+def test_same_ticket_two_starts_do_not_remove_the_first_container(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A second WORKORDER for the same ticket must not docker rm the live run."""
+    from unittest.mock import MagicMock, patch
+
+    from MachineFactoryManager import pool
+
+    monkeypatch.setenv("GH_TOKEN", "test-token")
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    run_names: list[str] = []
+    docker_calls: list[list[str]] = []
+
+    def _docker(args: list[str], *, check: bool = True) -> MagicMock:
+        docker_calls.append(list(args))
+        result = MagicMock()
+        result.returncode = 1
+        result.stdout = ""
+        if args and args[0] == "run" and "--name" in args:
+            run_names.append(args[args.index("--name") + 1])
+            result.returncode = 0
+        return result
+
+    with patch.object(pool, "_docker", side_effect=_docker), patch.object(
+        pool, "start_redis_sidecar", return_value="mf-redis-test"
+    ), patch.object(pool, "ensure_network"), patch.object(
+        pool, "_follow_container_logs"
+    ), patch.object(pool, "remove_container") as remove:
+        first = pool.start_ticket_sandbox(
+            repo="widgets",
+            ticket=TICKET,
+            repo_url="https://github.com/acme/widgets",
+            guid="guid-aaa",
+            ticket_id="1-0",
+            api_key="key",
+        )
+        second = pool.start_ticket_sandbox(
+            repo="widgets",
+            ticket=TICKET,
+            repo_url="https://github.com/acme/widgets",
+            guid="guid-bbb",
+            ticket_id="1-1",
+            api_key="key",
+        )
+
+    assert first != second
+    assert run_names == [first, second]
+    assert first == pool.container_name("widgets", TICKET, "guid-aaa")
+    assert second == pool.container_name("widgets", TICKET, "guid-bbb")
+    remove.assert_not_called()
+    assert not any(call[0] == "rm" for call in docker_calls if call)
+
+
+def test_same_guid_leftover_may_be_removed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A crashed leftover of this run's name can be rm'd; no other name."""
+    from unittest.mock import MagicMock, patch
+
+    from MachineFactoryManager import pool
+
+    monkeypatch.setenv("GH_TOKEN", "test-token")
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+
+    leftover = pool.container_name("widgets", TICKET, "guid-01")
+    other = pool.container_name("widgets", TICKET, "guid-other")
+    removed: list[str] = []
+
+    def _docker(args: list[str], *, check: bool = True) -> MagicMock:
+        result = MagicMock()
+        result.stdout = ""
+        if args and args[0] == "inspect":
+            result.returncode = 0 if leftover in args else 1
+        elif args and args[0] == "rm":
+            removed.extend(arg for arg in args if arg not in {"rm", "-f"})
+            result.returncode = 0
+        else:
+            result.returncode = 0
+        return result
+
+    with patch.object(pool, "_docker", side_effect=_docker), patch.object(
+        pool, "start_redis_sidecar", return_value="mf-redis-test"
+    ), patch.object(pool, "ensure_network"), patch.object(
+        pool, "_follow_container_logs"
+    ):
+        started = pool.start_ticket_sandbox(
+            repo="widgets",
+            ticket=TICKET,
+            repo_url="https://github.com/acme/widgets",
+            guid="guid-01",
+            ticket_id="1-0",
+            api_key="key",
+        )
+
+    assert started == leftover
+    assert removed == [leftover]
+    assert other not in removed
+
+
 def test_the_sandbox_environment_carries_the_ref_and_defaults_to_dev(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
