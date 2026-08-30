@@ -20,7 +20,8 @@ the connected repo, saved into the graph as `ISSUE_LABEL`, and a **depth**
 field that sizes the node to fit that many tickets. AutoIntegrate has no
 label: merge-check's fail signal *is* its queue. Clicking a WorkDispatcher
 ticket dispatches it and moves the GitHub issue from `agent-ready` to
-`in-progress`.
+`in-progress`. Each poll is a snapshot, so an issue that lost the target
+label leaves the board.
 
 The GitHub reading half is shared code — `megadesk_contracts.human_gate` —
 because "which labels does this repo have", "which issues carry this one", and

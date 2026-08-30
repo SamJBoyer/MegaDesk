@@ -223,6 +223,7 @@ host DB lanes; if `REDIS_URL` already names a non-live pair, conftest honors it.
 | # | Scenario | Catches |
 |---|---|---|
 | H1 | The target-label dropdown offers the repo's own labels | A gate that can only ever watch its default |
+| H1c | An issue that loses the target label disappears on the next poll | Dead tickets staying on the board |
 | H2 | AutoIntegrate reads the PR branch off a failed `mergeable` status and dispatches a `WORKORDER` whose `ref` is that branch | An agent sent to fix a conflict starting from `dev` |
 | H2b | The same row on `cloud` puts the branch on `CLOUDORDER.ref` | One factory learning the branch and the other not |
 | H3 | A PR with no head branch is listed but not dispatchable | Empty-ref orders |
