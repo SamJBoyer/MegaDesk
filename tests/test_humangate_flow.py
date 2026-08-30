@@ -155,6 +155,39 @@ def test_h2c_the_row_shows_the_branch_rather_than_the_issue_number(
     )
 
 
+def test_h2d_a_clicked_ticket_is_stale_and_leaves_the_bar(
+    fake_gh, harness, workorders
+) -> None:
+    """A dispatched PR must drop off so a later poll cannot send a second agent."""
+    from auto_integrate_app import _LIVE
+
+    fake_gh.add_merge_fail(12, "stuck", PR_URL, branch=BRANCH)
+    fake_gh.add_merge_fail(
+        13, "also-stuck", "https://github.com/acme/widgets/pull/13"
+    )
+
+    gate = connect_gate(harness, "auto_integrate")
+    press_row(harness, gate, 12)
+
+    assert len(workorders()) == 1
+    harness.wait_until(
+        lambda: not gate.exists("issue_btn_12"),
+        message="the clicked ticket to leave the bar",
+    )
+    assert gate.exists("issue_btn_13")
+
+    inst = _LIVE[gate.tag_prefix]
+    assert 12 in inst._stale
+    ok, rows, err = inst._fetch_rows("acme", "widgets")
+    assert ok and err is None
+    assert {row.id for row in rows} == {12, 13}
+    inst._sync_rows(rows)
+    harness.pump(2)
+    assert not gate.exists("issue_btn_12"), "a still-failing PR came back after dispatch"
+    assert gate.exists("issue_btn_13")
+    assert len(workorders()) == 1
+
+
 # --- H3: a PR with no head branch is not dispatchable ----------------------
 
 

@@ -21,7 +21,9 @@ the connected repo, saved into the graph as `ISSUE_LABEL`. Both gates have a
 no label: merge-check's fail signal *is* its queue. Clicking a WorkDispatcher
 ticket dispatches it and moves the GitHub issue from `agent-ready` to
 `in-progress`. Each poll is a snapshot, so an issue that lost the target
-label leaves the board.
+label leaves the board. Clicking an AutoIntegrate ticket dispatches a fix and
+stales that PR on the bar so the next poll cannot send a second agent at the
+same conflict; the stale mark drops if the PR leaves the fail list.
 
 The GitHub reading half is shared code — `megadesk_contracts.human_gate` —
 because "which labels does this repo have", "which issues carry this one", and

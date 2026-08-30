@@ -226,6 +226,7 @@ host DB lanes; if `REDIS_URL` already names a non-live pair, conftest honors it.
 | H1c | An issue that loses the target label disappears on the next poll | Dead tickets staying on the board |
 | H2 | AutoIntegrate reads the PR branch off a failed `mergeable` status and dispatches a `WORKORDER` whose `ref` is that branch | An agent sent to fix a conflict starting from `dev` |
 | H2b | The same row on `cloud` puts the branch on `CLOUDORDER.ref` | One factory learning the branch and the other not |
+| H2d | A clicked AutoIntegrate PR leaves the bar and stays gone on the next poll | Two agents sent at the same conflict |
 | H3 | A PR with no head branch is listed but not dispatchable | Empty-ref orders |
 | H4 | A mergeable PR is not on AutoIntegrate; `list_merge_prs` splits success vs failure | The two queues drifting apart |
 | H5 | WorkDispatcher leaves `ref` empty, so the factory falls back to `dev` | A default branch quietly becoming mandatory |

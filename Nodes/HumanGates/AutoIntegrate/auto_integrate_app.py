@@ -3,7 +3,8 @@
 The gate lists open PRs whose merge-check (``mergeable``) failed.
 Pressing a row orders a factory to fix that PR *on its own branch*, which is
 the whole reason the order carries a ``ref``: starting from ``dev`` would
-produce a fix that never reaches the branch it is meant to unblock.
+produce a fix that never reaches the branch it is meant to unblock. The
+clicked PR is then stale on the bar so a later poll cannot dispatch it twice.
 """
 
 from __future__ import annotations
@@ -105,6 +106,7 @@ class AutoIntegrate:
         self._current_repo_url = values.get(PARAM_GIT_URL, "").strip()
         self._max_depth = _clamp_depth(values.get(PARAM_MAX_DEPTH, "") or DEFAULT_DEPTH)
         self._rows: dict[int, GateRow] = {}
+        self._stale: set[int] = set()
         self._redis: Optional[redis.Redis] = None
         self.redis_url = resolve_redis_url()
         self._root_tag = "primary"
@@ -241,15 +243,21 @@ class AutoIntegrate:
         self._sync_url_from_input()
         self._ui_queue.put(("status", "Checking remote…", (180, 180, 100)))
 
+    def _drop_row(self, rid: int) -> None:
+        tag = self._tag(f"issue_row_{rid}")
+        if dpg.does_item_exist(tag):
+            dpg.delete_item(tag)
+        self._rows.pop(rid, None)
+
     def _sync_rows(self, rows: list[GateRow]) -> None:
-        seen = {row.id for row in rows}
+        live_ids = {row.id for row in rows}
+        self._stale &= live_ids
+        visible = [row for row in rows if row.id not in self._stale]
+        seen = {row.id for row in visible}
         for rid in list(self._rows):
             if rid not in seen:
-                tag = self._tag(f"issue_row_{rid}")
-                if dpg.does_item_exist(tag):
-                    dpg.delete_item(tag)
-                self._rows.pop(rid, None)
-        for row in rows:
+                self._drop_row(rid)
+        for row in visible:
             self._ensure_row(row)
 
     # --- polling ---
@@ -436,6 +444,8 @@ class AutoIntegrate:
 
     def _on_row_pressed(self, sender, app_data, user_data: int) -> None:
         issue_id = user_data
+        if issue_id in self._stale:
+            return
         row = self._rows.get(issue_id)
         if row is None:
             return
@@ -519,9 +529,9 @@ class AutoIntegrate:
             self._redis = None
             return
 
-        light = self._tag(f"issue_light_{issue_id}")
-        if dpg.does_item_exist(light):
-            dpg.configure_item(light, fill=COLOR_BLUE, color=COLOR_BLUE)
+        self._stale.add(issue_id)
+        self._drop_row(issue_id)
+        self._resize_scroll()
         self._set_status(f"Dispatched {branch} → {channel}", COLOR_BLUE)
 
 
