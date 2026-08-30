@@ -8,6 +8,7 @@ clicking are covered in ``test_canvas_harness.py``.
 from __future__ import annotations
 
 import threading
+import time
 
 import pytest
 from conftest import CANVAS_CMD_CANONICAL_FIELDS, CANVAS_REPLY_CANONICAL_FIELDS
@@ -63,6 +64,28 @@ def test_type_into_keeps_interior_whitespace_and_select_needs_a_value() -> None:
             node="graph_bar",
             suffix="select",
         )
+
+
+@pytest.mark.redis
+def test_drain_commands_returns_immediately_when_cmd_is_empty(redis_client) -> None:
+    """Empty CANVAS:CMD must not stall the render loop.
+
+    redis-py ``xread(..., block=0)`` sends Redis ``XREAD BLOCK 0``, which
+    waits forever. The live canvas then freezes until socket_timeout (~2s)
+    on every frame.
+    """
+    from engine.canvas_api import CanvasApi
+
+    api = CanvasApi(object())
+    try:
+        started = time.perf_counter()
+        assert api.drain_commands() == 0
+        elapsed = time.perf_counter() - started
+    finally:
+        api.detach()
+    assert elapsed < 0.4, (
+        f"empty CANVAS:CMD XREAD blocked for {elapsed:.2f}s (BLOCK 0?)"
+    )
 
 
 @pytest.mark.redis

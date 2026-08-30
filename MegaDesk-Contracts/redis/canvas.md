@@ -21,6 +21,8 @@ sequenceDiagram
 The canvas process owns Dear PyGui. VoiceDeck publishes a verb and waits for
 the matching `request_id` on `CANVAS:REPLY`. There is no consumer group: the
 one live canvas `XREAD`s from the tail so a boot does not replay history.
+That `XREAD` must omit `BLOCK`. Redis treats `BLOCK 0` as wait-forever, which
+stalls the Dear PyGui render loop until the client socket times out.
 
 ## CANVAS:CMD
 

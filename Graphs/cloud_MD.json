@@ -6,8 +6,8 @@
       "nickname": "pr_manager",
       "node_name": "pr_manager",
       "position": [
-        260.0,
-        34.0
+        227.0,
+        -5.0
       ],
       "parameters": {
         "GIT_URL": "https://github.com/SamJBoyer/MegaDesk.git"
@@ -18,33 +18,14 @@
         "node_name": "pr_manager"
       }
     },
-    "f60829b6-d591-4a8c-ab72-7bf494eb7928": {
-      "member_id": "f60829b6-d591-4a8c-ab72-7bf494eb7928",
-      "type": "megadesk",
-      "nickname": "work_dispatcher",
-      "node_name": "work_dispatcher",
-      "position": [
-        259.0,
-        -198.0
-      ],
-      "parameters": {
-        "GIT_URL": "https://github.com/SamJBoyer/MegaDesk.git",
-        "ISSUE_LABEL": "agent-ready"
-      },
-      "data": {
-        "width": 480.0,
-        "height": 160.0,
-        "node_name": "work_dispatcher"
-      }
-    },
     "4e9146a4-f8dd-4b4e-adb7-7d36082189dd": {
       "member_id": "4e9146a4-f8dd-4b4e-adb7-7d36082189dd",
       "type": "megadesk",
       "nickname": "cloud_factory",
       "node_name": "cloud_factory",
       "position": [
-        778.0,
-        -193.0
+        226.0,
+        -247.0
       ],
       "parameters": {},
       "data": {
@@ -59,8 +40,8 @@
       "nickname": "auto_integrate",
       "node_name": "auto_integrate",
       "position": [
-        781.0,
-        40.0
+        678.0,
+        -248.0
       ],
       "parameters": {
         "GIT_URL": "https://github.com/SamJBoyer/MegaDesk.git"
@@ -69,6 +50,26 @@
         "width": 520.0,
         "height": 160.0,
         "node_name": "auto_integrate"
+      }
+    },
+    "b3fa603c-996c-4dae-83bb-a1751da74107": {
+      "member_id": "b3fa603c-996c-4dae-83bb-a1751da74107",
+      "type": "megadesk",
+      "nickname": "work_dispatcher",
+      "node_name": "work_dispatcher",
+      "position": [
+        231.0,
+        -430.0
+      ],
+      "parameters": {
+        "GIT_URL": "https://github.com/SamJBoyer/MegaDesk.git",
+        "ISSUE_LABEL": "agent-ready",
+        "MAX_DEPTH": "2"
+      },
+      "data": {
+        "width": 960.0,
+        "height": 120.0,
+        "node_name": "work_dispatcher"
       }
     }
   }

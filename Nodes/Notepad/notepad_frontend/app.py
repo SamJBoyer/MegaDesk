@@ -58,11 +58,7 @@ class Notepad:
 
     def _connect_redis(self) -> Optional[redis.Redis]:
         if self._redis is not None:
-            try:
-                self._redis.ping()
-                return self._redis
-            except (RedisConnectionError, RedisTimeoutError, OSError, RedisError):
-                self._redis = None
+            return self._redis
         try:
             url = resolve_redis_url()
             client = redis_connect(
@@ -255,8 +251,10 @@ class Notepad:
         if client is None:
             return 0
         try:
+            # Omit BLOCK. Redis XREAD BLOCK 0 waits forever; this runs
+            # on the canvas render thread.
             reply = client.xread(
-                {wire.CMD_STREAM: self._cursor}, count=CMD_BATCH, block=0
+                {wire.CMD_STREAM: self._cursor}, count=CMD_BATCH
             )
         except RedisError:
             self._redis = None
