@@ -156,7 +156,9 @@ registry and the real FINISHED payloads without a container. Its mirror is
 - Sandbox `REDIS_URL` is the per-run Redis sidecar; `MEGADESK_FACTORY_REDIS_URL` is
   the factory bus on the host pair.
 - AgentHandler exits when the job finishes; `--rm` removes the container.
-- Containers are labelled `megadesk.run_key=<guid>`, which is how `poll` and
-  `cancel` find one again after a manager restart.
+- Sandbox names are `mf-{repo}-ticket-{ticket}-{guid}` so two live WORKORDERs
+  for the same ticket do not share a container. They are labelled
+  `megadesk.run_key=<guid>`, which is how `poll` and `cancel` find one again
+  after a manager restart.
 - Redis sidecars (`megadesk.redis_for=<guid>`) are reaped when the agent sandbox
   is gone.
