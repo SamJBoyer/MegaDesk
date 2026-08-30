@@ -2,8 +2,8 @@
 
 The cut is the socket. ``FakeRealtime`` scripts what the model says and asks for;
 everything else is the production article — the real tool router, the real
-CODEQ:ASK payloads, and the real injection that keeps a thirty-second code
-question from stalling a sub-second voice loop.
+CodeScope HTTP client (faked), and the real injection that keeps a thirty-second
+code question from stalling a sub-second voice loop.
 
 The two halves are tested apart because they fail apart: the FE is a control
 surface that must publish canonical VOICE:CONTROL and render VOICE:EVENT, and the
@@ -12,12 +12,9 @@ BE is a router that must never block on an answer it cannot have yet.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 from conftest import (
     CLOUDORDER_CANONICAL_FIELDS,
-    CODEQ_ASK_CANONICAL_FIELDS,
     SARGENT_ASK_CANONICAL_FIELDS,
     VOICE_CONTROL_CANONICAL_FIELDS,
     VOICE_EVENT_CANONICAL_FIELDS,
@@ -56,18 +53,15 @@ ANSWER = "Because the pump outlives the Dear PyGui context."
 # --- helpers ---------------------------------------------------------------
 
 
-def seed_scope_session(persistent_client, *, repo: str, clone_path: Path) -> str:
+def seed_scope_session(
+    fake_codescope, *, repo: str = "widgets", url: str = "https://github.com/acme/widgets"
+) -> str:
     """Pretend CodeScope has a repo loaded, since VoiceDeck asks whoever does."""
-    session_id = scope_wire.new_session_id()
-    persistent_client.hset(
-        scope_wire.session_key(session_id),
-        mapping=scope_wire.session_fields(repo=repo, clone_path=str(clone_path)),
-    )
-    return session_id
+    return fake_codescope.seed_repo(repo=repo, url=url)["session_id"]
 
 
-def publish_answer(
-    redis_client,
+def queue_answer(
+    fake_codescope,
     *,
     session_id: str,
     question_id: str,
@@ -76,17 +70,21 @@ def publish_answer(
     final: bool = True,
     status: str = scope_wire.STATUS_OK,
 ) -> None:
-    """Answer as CodeScope would, on the stream VoiceDeck is watching."""
-    redis_client.xadd(
-        scope_wire.ANSWER_STREAM,
-        scope_wire.answer_fields(
-            session_id=session_id,
-            question_id=question_id,
-            repo=repo,
-            answer=answer,
-            final=final,
-            status=status,
-        ),
+    """Answer as CodeScope would, on the HTTP stream VoiceDeck is watching."""
+    fake_codescope.queue_answer(
+        question_id,
+        [
+            scope_wire.parse_answer(
+                scope_wire.answer_fields(
+                    session_id=session_id,
+                    question_id=question_id,
+                    repo=repo,
+                    answer=answer,
+                    final=final,
+                    status=status,
+                )
+            )
+        ],
     )
 
 
@@ -116,15 +114,15 @@ def controls(read_stream) -> list[tuple[str, str]]:
 # --- the timing problem ----------------------------------------------------
 
 
-def test_asking_returns_searching_immediately_and_publishes_the_ask(
-    voice_session, fake_realtime, redis_client, persistent_client, read_stream, tmp_path
+def test_asking_returns_searching_immediately_and_queues_the_ask(
+    voice_session, fake_realtime, fake_codescope, redis_client, read_stream
 ) -> None:
     """The whole design rests on this: the tool result is not the answer.
 
     Waiting for the agent here would leave the model holding a dead line for
     thirty seconds, which sounds exactly like a crash.
     """
-    scope_id = seed_scope_session(persistent_client, repo="widgets", clone_path=tmp_path)
+    scope_id = seed_scope_session(fake_codescope)
     voice_session.start()
 
     call_id, question_id = ask_for(voice_session, fake_realtime)
@@ -134,34 +132,27 @@ def test_asking_returns_searching_immediately_and_publishes_the_ask(
     assert ANSWER_PREFIX in result["detail"], "the model must be told where to look"
     assert TOOL_END_SESSION in result["detail"], "waiting is not a hang-up"
 
-    asks = read_stream(scope_wire.ASK_STREAM)
-    assert len(asks) == 1
-    _entry_id, ask = asks[0]
-    assert set(ask) == set(CODEQ_ASK_CANONICAL_FIELDS)
-    assert ask["question"] == QUESTION
-    assert ask["session_id"] == scope_id
-    assert ask["repo"] == "widgets"
-    assert ask["mode"] == scope_wire.MODE_ANSWER
-    assert question_id == ask["question_id"]
+    assert voice_session._scope_asks == [
+        (scope_id, QUESTION, question_id, scope_wire.MODE_ANSWER)
+    ]
+    assert fake_codescope.asks == [], "HTTP is not called until the answer pump"
     assert fake_realtime.injected == [], "nothing can be spoken before an answer exists"
 
 
 def test_an_answer_is_injected_for_the_model_to_speak(
-    voice_session, fake_realtime, redis_client, persistent_client, read_stream, tmp_path
+    voice_session, fake_realtime, fake_codescope, redis_client, read_stream
 ) -> None:
-    scope_id = seed_scope_session(persistent_client, repo="widgets", clone_path=tmp_path)
+    scope_id = seed_scope_session(fake_codescope)
     voice_session.start()
     _call_id, question_id = ask_for(voice_session, fake_realtime)
-
-    publish_answer(
-        redis_client, session_id=scope_id, question_id=question_id, answer=ANSWER
+    queue_answer(
+        fake_codescope, session_id=scope_id, question_id=question_id, answer=ANSWER
     )
     assert voice_session.pump_answers() == 1
 
     assert fake_realtime.injected == [f"{ANSWER_PREFIX} {ANSWER}"]
     assert voice_session.state == wire.STATE_SPEAKING
 
-    # The fake echoes the injection back the way the model does once it speaks.
     voice_session.pump_events()
     assert events_of(read_stream, wire.KIND_ANSWER) == [ANSWER], (
         "the marker is an instruction to the model, not something the user reads"
@@ -169,75 +160,48 @@ def test_an_answer_is_injected_for_the_model_to_speak(
 
 
 def test_streamed_sentences_are_injected_as_they_arrive(
-    voice_session, fake_realtime, redis_client, persistent_client, tmp_path
+    voice_session, fake_realtime, fake_codescope
 ) -> None:
     """Waiting for ``final`` would trade the whole point of streaming for tidiness."""
-    scope_id = seed_scope_session(persistent_client, repo="widgets", clone_path=tmp_path)
+    scope_id = seed_scope_session(fake_codescope)
     voice_session.start()
     _call_id, question_id = ask_for(voice_session, fake_realtime)
-
-    publish_answer(
-        redis_client,
-        session_id=scope_id,
-        question_id=question_id,
-        answer="First sentence.",
-        final=False,
+    fake_codescope.queue_answer(
+        question_id,
+        [
+            scope_wire.parse_answer(
+                scope_wire.answer_fields(
+                    session_id=scope_id,
+                    question_id=question_id,
+                    repo="widgets",
+                    answer="First sentence.",
+                    final=False,
+                )
+            ),
+            scope_wire.parse_answer(
+                scope_wire.answer_fields(
+                    session_id=scope_id,
+                    question_id=question_id,
+                    repo="widgets",
+                    answer="Second sentence.",
+                    final=True,
+                )
+            ),
+        ],
     )
-    assert voice_session.pump_answers() == 1
-    assert len(fake_realtime.injected) == 1
-    assert question_id in voice_session._pending, "the question is not done yet"
-
-    publish_answer(
-        redis_client,
-        session_id=scope_id,
-        question_id=question_id,
-        answer="Second sentence.",
-        final=True,
-    )
-    voice_session.pump_answers()
-
+    assert voice_session.pump_answers() == 2
     assert len(fake_realtime.injected) == 2
     assert question_id not in voice_session._pending
 
 
-def test_answers_to_questions_this_session_did_not_ask_are_ignored(
-    voice_session, fake_realtime, redis_client, persistent_client, tmp_path
-) -> None:
-    """The CodeScope FE and VoiceDeck share one answer stream."""
-    scope_id = seed_scope_session(persistent_client, repo="widgets", clone_path=tmp_path)
-    voice_session.start()
-
-    publish_answer(
-        redis_client, session_id=scope_id, question_id="typed-in-the-fe", answer=ANSWER
-    )
-
-    assert voice_session.pump_answers() == 0
-    assert fake_realtime.injected == []
-
-
-def test_an_answer_that_lands_between_polls_is_not_missed(
-    voice_session, fake_realtime, redis_client, persistent_client, tmp_path
-) -> None:
-    """The cursor is armed at start, so 'newer than now' cannot mean two nows."""
-    scope_id = seed_scope_session(persistent_client, repo="widgets", clone_path=tmp_path)
-    voice_session.start()
-    _call_id, question_id = ask_for(voice_session, fake_realtime)
-
-    voice_session.pump_answers()  # nothing yet; the cursor must not jump to "now"
-    publish_answer(redis_client, session_id=scope_id, question_id=question_id)
-
-    assert voice_session.pump_answers() == 1
-
-
 def test_a_failed_search_is_spoken_and_shown_rather_than_swallowed(
-    voice_session, fake_realtime, redis_client, persistent_client, read_stream, tmp_path
+    voice_session, fake_realtime, fake_codescope, redis_client, read_stream
 ) -> None:
-    scope_id = seed_scope_session(persistent_client, repo="widgets", clone_path=tmp_path)
+    scope_id = seed_scope_session(fake_codescope)
     voice_session.start()
     _call_id, question_id = ask_for(voice_session, fake_realtime)
-
-    publish_answer(
-        redis_client,
+    queue_answer(
+        fake_codescope,
         session_id=scope_id,
         question_id=question_id,
         answer="the agent could not start: no CURSOR_API_KEY",
@@ -251,7 +215,7 @@ def test_a_failed_search_is_spoken_and_shown_rather_than_swallowed(
 
 
 def test_asking_with_nothing_loaded_fails_the_tool_instead_of_the_stream(
-    voice_session, fake_realtime, redis_client, read_stream
+    voice_session, fake_realtime, fake_codescope, redis_client, read_stream
 ) -> None:
     voice_session.start()
     call_id = fake_realtime.call_tool(TOOL_ASK_CODEBASE, {"question": QUESTION})
@@ -260,7 +224,8 @@ def test_asking_with_nothing_loaded_fails_the_tool_instead_of_the_stream(
     result = fake_realtime.result_for(call_id)
     assert result["status"] == "error"
     assert "CodeScope" in result["detail"]
-    assert read_stream(scope_wire.ASK_STREAM) == []
+    assert fake_codescope.asks == []
+    assert voice_session._scope_asks == []
 
 
 # --- revise my prompt ------------------------------------------------------
@@ -362,18 +327,16 @@ def test_revise_my_prompt_without_text_fails_the_tool_instead_of_the_stream(
 # --- dispatch safety -------------------------------------------------------
 
 
-@pytest.mark.git
 def test_voice_publishes_a_cloudorder(
     voice_session,
     fake_realtime,
+    fake_codescope,
     redis_client,
-    persistent_client,
     read_stream,
     cloudorders,
-    git_floor,
 ) -> None:
-    """A spoken dispatch is a CLOUDORDER. The URL is read off the clone, not said."""
-    seed_scope_session(persistent_client, repo="widgets", clone_path=git_floor.dev_dir)
+    """A spoken dispatch is a CLOUDORDER. The URL is read off the session, not said."""
+    seed_scope_session(fake_codescope, url="https://github.com/acme/widgets")
     voice_session.start()
 
     call_id = fake_realtime.call_tool(
@@ -511,10 +474,10 @@ def test_send_without_choosing_is_refused(
 
 
 def test_set_repo_switches_the_target_and_reports_what_is_loaded(
-    voice_session, fake_realtime, redis_client, persistent_client, read_stream, tmp_path
+    voice_session, fake_realtime, fake_codescope, redis_client, read_stream
 ) -> None:
-    seed_scope_session(persistent_client, repo="widgets", clone_path=tmp_path)
-    seed_scope_session(persistent_client, repo="gadgets", clone_path=tmp_path)
+    seed_scope_session(fake_codescope, repo="widgets")
+    seed_scope_session(fake_codescope, repo="gadgets", url="https://github.com/acme/gadgets")
     voice_session.start()
 
     call_id = fake_realtime.call_tool(TOOL_SET_REPO, {"repo": "gadgets"})
@@ -526,10 +489,10 @@ def test_set_repo_switches_the_target_and_reports_what_is_loaded(
 
 
 def test_set_repo_for_something_unloaded_names_the_alternatives(
-    voice_session, fake_realtime, redis_client, persistent_client, tmp_path
+    voice_session, fake_realtime, fake_codescope
 ) -> None:
     """A bare refusal would leave the model guessing out loud."""
-    seed_scope_session(persistent_client, repo="widgets", clone_path=tmp_path)
+    seed_scope_session(fake_codescope)
     voice_session.start()
 
     call_id = fake_realtime.call_tool(TOOL_SET_REPO, {"repo": "sprockets"})
@@ -564,10 +527,10 @@ def test_ending_the_session_closes_the_transport(
 
 
 def test_end_session_is_ignored_while_a_search_is_in_flight(
-    voice_session, fake_realtime, persistent_client, tmp_path
+    voice_session, fake_realtime, fake_codescope
 ) -> None:
     """The logged hang-up: ask_codebase, then end_session a second later."""
-    seed_scope_session(persistent_client, repo="widgets", clone_path=tmp_path)
+    seed_scope_session(fake_codescope)
     voice_session.start()
     fake_realtime.say(QUESTION)
     ask_id = fake_realtime.call_tool(TOOL_ASK_CODEBASE, {"question": QUESTION})
@@ -582,15 +545,15 @@ def test_end_session_is_ignored_while_a_search_is_in_flight(
 
 
 def test_end_session_is_ignored_when_the_user_did_not_say_goodbye(
-    voice_session, fake_realtime, redis_client, persistent_client, tmp_path
+    voice_session, fake_realtime, fake_codescope, redis_client
 ) -> None:
     """A completed search is still not a reason to drop the socket."""
-    scope_id = seed_scope_session(persistent_client, repo="widgets", clone_path=tmp_path)
+    scope_id = seed_scope_session(fake_codescope)
     voice_session.start()
     fake_realtime.say(QUESTION)
     _call_id, question_id = ask_for(voice_session, fake_realtime)
-    publish_answer(
-        redis_client, session_id=scope_id, question_id=question_id, answer=ANSWER
+    queue_answer(
+        fake_codescope, session_id=scope_id, question_id=question_id, answer=ANSWER
     )
     voice_session.pump_answers()
 
@@ -873,20 +836,24 @@ def test_the_frontend_renders_the_conversation_as_it_happens(
 
 @pytest.mark.canvas
 def test_the_repo_combo_offers_what_codescope_has_loaded(
-    harness, redis_client, persistent_client, read_stream, tmp_path
+    harness, redis_client, read_stream
 ) -> None:
-    seed_scope_session(persistent_client, repo="widgets", clone_path=tmp_path)
-    deck = harness.voice_deck()
+    from CodeScopeManager.client import FakeCodeScopeClient, set_client
 
-    harness.wait_until(
-        lambda: deck.items("repo_target") == ["widgets"],
-        message="the combo to find the loaded repo",
-    )
-    # One loaded repo needs no choosing, and the model can ask about it unprompted.
-    assert deck.get("repo_target") == "widgets"
-
-    deck.select("repo_target", "widgets")
-    assert controls(read_stream)[-1] == (wire.ACTION_TARGET, "widgets")
+    fake = FakeCodeScopeClient()
+    fake.seed_repo(repo="widgets")
+    set_client(fake)
+    try:
+        deck = harness.voice_deck()
+        harness.wait_until(
+            lambda: deck.items("repo_target") == ["widgets"],
+            message="the combo to find the loaded repo",
+        )
+        assert deck.get("repo_target") == "widgets"
+        deck.select("repo_target", "widgets")
+        assert controls(read_stream)[-1] == (wire.ACTION_TARGET, "widgets")
+    finally:
+        set_client(None)
 
 
 @pytest.mark.canvas

@@ -1,5 +1,5 @@
 # CodeScope HTTP service. Build from the worktree root:
-#   docker build -f Nodes/CodeScope/Dockerfile -t codescope-http .
+#   docker build -f Nodes/Cloud/CodeScope/Dockerfile -t codescope-http .
 #
 # This is not the MegaDesk canvas image and not the MachineFactory sandbox.
 
@@ -24,16 +24,16 @@ RUN curl https://cursor.com/install -fsS | bash \
 WORKDIR /src
 
 COPY MegaDesk-Contracts /src/MegaDesk-Contracts
-COPY Nodes/CodeScope /src/Nodes/CodeScope
+COPY Nodes/Cloud/CodeScope /src/Nodes/Cloud/CodeScope
 
 RUN pip install --no-cache-dir --upgrade pip \
     && pip install --no-cache-dir \
         /src/MegaDesk-Contracts \
-        /src/Nodes/CodeScope
+        /src/Nodes/Cloud/CodeScope
 
 RUN mkdir -p /data/scope
 VOLUME ["/data/scope"]
 EXPOSE 8080
 
-WORKDIR /src/Nodes/CodeScope
+WORKDIR /src/Nodes/Cloud/CodeScope
 CMD ["python", "-m", "CodeScopeManager", "serve", "--host", "0.0.0.0", "--port", "8080"]

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "code-scope"
 version = "0.1.0"
-description = "MegaDesk node: ask questions about a cloned repository (FE) via a warm local Cursor agent (BE)"
+description = "MegaDesk cloud node: ask questions about a cloned repository over HTTP"
 requires-python = ">=3.10"
 dependencies = [
     "cursor-sdk>=0.1.0",

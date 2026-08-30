@@ -8,8 +8,9 @@ The agent is **local** (`AsyncClient.launch_bridge` + a git clone on disk). The
 process that serves HTTP must have git, disk, and `CURSOR_API_KEY`. That is why
 v1 on AWS is a **Lightsail Ubuntu VM**, not Lambda or Fargate.
 
-Canvas CodeScope (`CODEQ:ASK` / `CODEQ:ANSWER`) is unchanged. VoiceDeck still
-talks Redis until a later cut points it at this URL.
+Canvas CodeScope FE and VoiceDeck talk HTTP (`CODESCOPE_URL`). They do not
+publish `CODEQ:ASK`. The Redis poller (`python -m CodeScopeManager run`) is a
+local debug path only.
 
 ## What you get
 
@@ -40,7 +41,7 @@ SSE events are one JSON object per `data:` line, same field names as Redis
 |---|---|
 | `CODESCOPE_API_TOKEN` | Required to start `serve`. A long random string you mint. Stops anonymous internet scanners from driving the agent. |
 | `CURSOR_API_KEY` | Required for a real answer. Same User-level key MegaDesk already uses. |
-| `SCOPE_ROOT` | Optional. Clone + `sessions.json` directory. Defaults to `Nodes/CodeScope/Scope` locally, `/data/scope` in Docker. |
+| `SCOPE_ROOT` | Optional. Clone + `sessions.json` directory. Defaults to `Nodes/Cloud/CodeScope/Scope` locally, `/data/scope` in Docker. |
 | `GH_TOKEN` / `GITHUB_TOKEN` | Only if you clone private GitHub repos. Skip for a public-repo smoke test. |
 
 Never commit these. Never put AWS access keys in the app; the VM does not need
@@ -92,10 +93,10 @@ pytest tests/test_codescope_http.py
 
 ## Docker image (same bits you will run on Lightsail)
 
-From the **worktree root** (needs `MegaDesk-Contracts` and `Nodes/CodeScope`):
+From the **worktree root** (needs `MegaDesk-Contracts` and `Nodes/Cloud/CodeScope`):
 
 ```bash
-docker build -f Nodes/CodeScope/Dockerfile -t codescope-http .
+docker build -f Nodes/Cloud/CodeScope/Dockerfile -t codescope-http .
 docker run --rm -p 8080:8080 -v codescope-data:/data/scope `
   -e CODESCOPE_API_TOKEN -e CURSOR_API_KEY codescope-http
 ```
@@ -133,7 +134,7 @@ sudo usermod -aG docker ubuntu
 
 ```bash
 cd MegaDesk   # or whatever you cloned it as
-docker build -f Nodes/CodeScope/Dockerfile -t codescope-http .
+docker build -f Nodes/Cloud/CodeScope/Dockerfile -t codescope-http .
 printf 'CODESCOPE_API_TOKEN=%s\nCURSOR_API_KEY=%s\n' \
   '<token>' '<cursor_...>' > ~/.codescope.env
 chmod 600 ~/.codescope.env
@@ -156,5 +157,5 @@ returns `{"ok": true}` over HTTP.
 
 ## After this works
 
-Point VoiceDeck at `CODESCOPE_URL`. The `ask_codebase` handler becomes an HTTP
-POST; the answer pump reads SSE instead of `CODEQ:ANSWER`.
+Set `CODESCOPE_URL` and `CODESCOPE_API_TOKEN` on the machine that runs MegaDesk.
+VoiceDeck's `ask_codebase` POSTs `/sessions/{id}/ask`; the answer pump reads SSE.

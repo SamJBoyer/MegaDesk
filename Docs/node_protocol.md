@@ -4,6 +4,15 @@ Canonical reference for how Nodes are discovered, launched, hosted on the canvas
 
 A **node** is a modular tool inside MegaDesk. Nodes can expose a front-end (FE), a back-end (BE), voice tools, or any combination. Discovery and launch are driven by packaging entry points.
 
+Nodes come in two kinds:
+
+| Kind | Where the process runs | Catalog | Supervisor |
+|------|------------------------|---------|------------|
+| **Machine** | This computer. `BeSpec.argv` is a local subprocess. | Machine section | `LAUNCHREQUEST` when `FeSpec.backends` is set |
+| **Cloud** | Elsewhere (HTTP). The canvas FE and VoiceDeck are clients. | Cloud section | No local BE (`get_be_spec()` is `None`, empty `backends`) |
+
+`FeSpec.kind` is `"machine"` (default) or `"cloud"`. All current nodes are machine nodes except CodeScope. Cloud nodes live under `Nodes/Cloud/`.
+
 | Half | What it is | Who uses it |
 |------|------------|-------------|
 | **FE** | Always Dear PyGui. Integrated into the MegaDesk canvas shell. | MegaDesk canvas (`MegaDesk-Canvas/`) via `get_fe_spec()` → `FeSpec` |
@@ -62,7 +71,7 @@ Examples in-repo:
 | PRManager | `pr_manager` | FE only |
 | WorkDispatcher (`Nodes/HumanGates/WorkDispatcher`) | `work_dispatcher` | FE + tools |
 | AutoIntegrate (`Nodes/HumanGates/AutoIntegrate`) | `auto_integrate` | FE only |
-| CodeScope | `code_scope` | FE + BE + tools |
+| CodeScope (`Nodes/Cloud/CodeScope`) | `code_scope` | FE + tools (cloud; no local BE) |
 | VoiceDeck | `voice_deck` | BE + tools (FE is canvas chrome) |
 | GraphScope | `graph_scope` | FE only |
 | VisionBoard | `vision_board` | FE only |
@@ -70,7 +79,8 @@ Examples in-repo:
 | PromptImprover | `promptimprover` | FE + BE + tools |
 
 Nodes may be nested. Related ones are grouped by folder — `Nodes/Factory/` holds
-the two factories as siblings, `Nodes/HumanGates/` the two gates — and
+the two factories as siblings, `Nodes/HumanGates/` the two gates, `Nodes/Cloud/`
+the nodes whose process is not on this machine — and
 `scripts/refresh_nodes.py` discovers at any depth. Nesting groups nodes; it does not merge them: each keeps its own
 `pyproject.toml`, its own entry point and its own identity on the canvas.
 
@@ -111,6 +121,7 @@ Front-end description for MegaDesk graph hosting:
 | `parameters` | `tuple[str, ...]` | Names this node recognizes, usually from its `parameters.yaml`. Empty = none. |
 | `backend_parameters` | `Mapping[str, str]` | Packet dropped onto `SUPERVISOR:LAUNCHREQUEST` `parameters` (subset or rewrite of the graph values). Empty = `""` on the wire. |
 | `read_parameters` | `callable \| None` | `(tag_prefix) -> mapping` so the graph bar can Capture live sub-GUI values |
+| `kind` | `str` | `"machine"` (default) or `"cloud"`. Catalog groups by this. |
 
 `build` signature:
 
@@ -245,7 +256,7 @@ pip install -e Nodes/Factory/MachineFactory[canvas]   # FE + BE example, nested
 python main.py   # from MegaDesk-Canvas/ — starts Supervisor BE on launch
 ```
 
-To reinstall every node from scratch, run `python scripts/refresh_nodes.py` from the MEGADESK env — it uninstalls and editable-reinstalls every node under `Nodes/`, at any depth, then verifies discovery. It skips anything inside a nested git checkout, because CodeScope clones repos into `Nodes/CodeScope/Scope/` and one of them is usually MegaDesk itself. Before changing the Supervisor or a BE, run `python scripts/down_nodes.py`. To refresh contracts + canvas, run `python scripts/refresh_contracts.py`; to rebuild the MachineFactory sandbox image, `python scripts/rebuild_sandbox.py`. `python scripts/master_refresh.py` runs down → contracts → nodes → sandbox.
+To reinstall every node from scratch, run `python scripts/refresh_nodes.py` from the MEGADESK env — it uninstalls and editable-reinstalls every node under `Nodes/`, at any depth, then verifies discovery. It skips anything inside a nested git checkout, because CodeScope clones repos into `Nodes/Cloud/CodeScope/Scope/` and one of them is usually MegaDesk itself. Before changing the Supervisor or a BE, run `python scripts/down_nodes.py`. To refresh contracts + canvas, run `python scripts/refresh_contracts.py`; to rebuild the MachineFactory sandbox image, `python scripts/rebuild_sandbox.py`. `python scripts/master_refresh.py` runs down → contracts → nodes → sandbox.
 
 ### Hosted shell (`MegaDeskMember`)
 

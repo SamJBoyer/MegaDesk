@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Mapping, Optional, Protocol, runtime_checkable
 
+KIND_MACHINE = "machine"
+KIND_CLOUD = "cloud"
+NODE_KINDS = (KIND_MACHINE, KIND_CLOUD)
+
 
 @dataclass(frozen=True)
 class FeSpec:
@@ -17,6 +21,10 @@ class FeSpec:
     MegaDesk owns the shell (header, close, position, size). The FE only adds
     widgets under ``parent``. Store cleanup on the parent with
     ``dpg.set_item_user_data(parent, cleanup_fn)``.
+
+    ``kind`` is ``machine`` (process on this computer, Supervisor-launched BE)
+    or ``cloud`` (process elsewhere; this FE is a client). Catalog groups by it.
+    Default ``machine``. Cloud nodes return no ``BeSpec`` and empty ``backends``.
 
     ``backends`` is the set of Supervisor ``node_endpoint`` names the canvas
     ``XADD``s to ``SUPERVISOR:LAUNCHREQUEST`` when this FE is hosted (drop or graph open).
@@ -42,6 +50,7 @@ class FeSpec:
     parameters: tuple[str, ...] = ()
     backend_parameters: Mapping[str, str] = field(default_factory=dict)
     read_parameters: Callable[[str], Mapping[str, str]] | None = None
+    kind: str = KIND_MACHINE
 
 
 @dataclass(frozen=True)
@@ -58,8 +67,8 @@ class ToolHost(Protocol):
     """What VoiceDeck gives a node tool handler when the model calls it.
 
     Handlers live in the node. The voice session is the host: Redis, the
-    loaded CodeScope target, and the pending-question map the answer pump
-    already watches.
+    loaded CodeScope target (HTTP client of the cloud node), and the
+    pending-question map the answer pump already watches.
     """
 
     target_repo: str
@@ -89,6 +98,15 @@ class ToolHost(Protocol):
     def repo_url(self, scope_session_id: str) -> str: ...
 
     def remember_question(self, question_id: str, call_id: str) -> None: ...
+
+    def queue_scope_ask(
+        self,
+        session_id: str,
+        question: str,
+        question_id: str,
+        *,
+        mode: str = "",
+    ) -> None: ...
 
 
 @dataclass(frozen=True)

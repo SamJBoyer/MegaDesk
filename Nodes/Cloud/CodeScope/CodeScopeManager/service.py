@@ -1,8 +1,8 @@
 """CodeScope without Redis: clone a repo, keep a warm agent, stream answers.
 
-The canvas BE still consumes CODEQ:ASK. This module is the same work for an
-HTTP process: a JSON session file under SCOPE_ROOT instead of a Redis hash,
-and an iterator of CODEQ:ANSWER field dicts instead of XADD.
+The canvas FE and VoiceDeck are HTTP clients of this process. A JSON session
+file under SCOPE_ROOT stands in for a Redis hash, and callers iterate
+CODEQ:ANSWER field dicts instead of XREAD.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from megadesk_contracts import (
     AgentStartupError,
     CloneError,
     ensure_clone,
+    refresh_clone,
     repo_name_from_url,
 )
 from megadesk_contracts.wire import code_scope as wire
@@ -71,6 +72,7 @@ def public_session(session: dict[str, str]) -> dict[str, str]:
     return {
         "session_id": session["session_id"],
         "repo": session["repo"],
+        "url": session.get("url") or "",
         "status": session["status"],
         "model": session.get("model") or DEFAULT_MODEL,
     }
@@ -193,6 +195,15 @@ class ScopeService:
         session["clone_path"] = str(clone)
         session["status"] = wire.SESSION_READY
         return self.store.put(session)
+
+    def sync(self, session_id: str) -> dict[str, str]:
+        session = self.store.get(session_id)
+        sha = refresh_clone(Path(session["clone_path"]))
+        session["status"] = wire.SESSION_READY
+        self.store.put(session)
+        public = public_session(session)
+        public["sha"] = sha
+        return public
 
     def ask(
         self,

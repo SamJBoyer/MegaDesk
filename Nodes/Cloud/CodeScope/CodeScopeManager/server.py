@@ -37,6 +37,7 @@ class RepoIn(BaseModel):
 class AskIn(BaseModel):
     question: str
     mode: str = Field(default=wire.MODE_ANSWER)
+    question_id: str = ""
 
 
 def _bearer_token(authorization: Optional[str]) -> str:
@@ -100,6 +101,20 @@ def create_app(
             ) from exc
         return public_session(session)
 
+    @app.post("/sessions/{session_id}/sync", dependencies=[Depends(require_token)])
+    def sync(session_id: str) -> dict[str, str]:
+        try:
+            return scoped.sync(session_id)
+        except KeyError:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No CodeScope session {session_id}",
+            )
+        except CloneError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+            ) from exc
+
     @app.get("/sessions/{session_id}", dependencies=[Depends(require_token)])
     def get_session(session_id: str) -> dict[str, str]:
         try:
@@ -127,7 +142,12 @@ def create_app(
             )
 
         def events() -> Iterator[str]:
-            for payload in scoped.ask(session_id, question, mode=body.mode):
+            for payload in scoped.ask(
+                session_id,
+                question,
+                mode=body.mode,
+                question_id=body.question_id,
+            ):
                 yield f"data: {json.dumps(payload)}\n\n"
 
         return StreamingResponse(events(), media_type="text/event-stream")

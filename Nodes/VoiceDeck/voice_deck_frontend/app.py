@@ -17,9 +17,10 @@ from typing import Optional
 
 import dearpygui.dearpygui as dpg
 import redis
-from megadesk_contracts import resolve_ephemeral_db, resolve_persistent_db, redis_connect, frame_pump, resolve_redis_url
-from megadesk_contracts.wire import code_scope as scope_wire
+from megadesk_contracts import resolve_ephemeral_db, redis_connect, frame_pump, resolve_redis_url
 from megadesk_contracts.wire import voice as wire
+
+from CodeScopeManager.client import get_client
 
 log = logging.getLogger("voice_deck.fe")
 
@@ -65,7 +66,6 @@ class VoiceDeck:
         self._scroll_max: Optional[int] = None
         self._wrap = 460
         self._redis: Optional[redis.Redis] = None
-        self._persistent: Optional[redis.Redis] = None
         self._connect_redis()
 
     # --- plumbing ---
@@ -81,14 +81,8 @@ class VoiceDeck:
                 socket_connect_timeout=2,
             )
             self._redis.ping()
-            self._persistent = redis_connect(
-                self.redis_url,
-                db=resolve_persistent_db(self.redis_url),
-                socket_connect_timeout=2,
-            )
         except (redis.RedisError, OSError, ValueError):
             self._redis = None
-            self._persistent = None
 
     # --- UI ---
 
@@ -215,19 +209,14 @@ class VoiceDeck:
             self._read_events()
 
     def _refresh_repos(self) -> None:
-        if self._persistent is None:
-            return
         try:
+            client = get_client()
+            if not client.configured():
+                return
             repos = sorted(
-                {
-                    repo
-                    for key in self._persistent.scan_iter(
-                        match=f"{scope_wire.SESSION_PREFIX}*", count=100
-                    )
-                    if (repo := self._persistent.hget(key, "repo"))
-                }
+                {str(item.get("repo") or "") for item in client.list_repos() if item.get("repo")}
             )
-        except redis.RedisError:
+        except Exception:
             return
         self._ui_queue.put(("repos", repos))
 

@@ -16,7 +16,16 @@ from megadesk_contracts.discovery import (
     load_fe_spec,
     load_tool_spec,
 )
-from megadesk_contracts.exec_spec import BeSpec, FeSpec, ToolHost, ToolSpec, compose_tool_specs
+from megadesk_contracts.exec_spec import (
+    KIND_CLOUD,
+    KIND_MACHINE,
+    NODE_KINDS,
+    BeSpec,
+    FeSpec,
+    ToolHost,
+    ToolSpec,
+    compose_tool_specs,
+)
 from megadesk_contracts import frame_pump, wire
 from megadesk_contracts.node_logging import configure_node_logging
 from megadesk_contracts.node_runtime import (
@@ -95,6 +104,9 @@ from megadesk_contracts.supervisor_client import (
 )
 __all__ = [
     "ENTRY_POINT_GROUP",
+    "KIND_CLOUD",
+    "KIND_MACHINE",
+    "NODE_KINDS",
     "AgentAuditLog",
     "AgentError",
     "AgentFactory",

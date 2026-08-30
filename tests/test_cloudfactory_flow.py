@@ -920,27 +920,22 @@ def test_a_run_shows_its_status_in_the_queue(
 
 
 @pytest.mark.canvas
-@pytest.mark.git
 def test_a_spoken_order_reaches_a_cloud_agent(
     harness,
     voice_session,
     fake_realtime,
+    fake_codescope,
     cloud_factory,
     fake_cloud_factory,
     redis_client,
     persistent_client,
     read_stream,
-    git_floor,
 ) -> None:
     """The whole voice path, with only the model and the VM faked."""
-    from megadesk_contracts.wire import code_scope as scope_wire
     from VoiceDeckManager.tools import TOOL_DISPATCH_DOC_AGENT
 
-    persistent_client.hset(
-        scope_wire.session_key(scope_wire.new_session_id()),
-        mapping=scope_wire.session_fields(
-            repo="widgets", clone_path=str(git_floor.dev_dir)
-        ),
+    fake_codescope.seed_repo(
+        repo="widgets", url="https://github.com/acme/widgets.git"
     )
     fe = harness.drop("cloud_factory")
     voice_session.start()
@@ -959,8 +954,7 @@ def test_a_spoken_order_reaches_a_cloud_agent(
     launch = fake_cloud_factory.launches[0]
     assert launch["title"] == TITLE
     assert INSTRUCTIONS in launch["instructions"]
-    # The URL came off the clone on disk, since nobody said it out loud.
-    assert launch["repo_url"].endswith("origin.git")
+    assert launch["repo_url"] == "https://github.com/acme/widgets.git"
     assert len(runs_on(persistent_client)) == 1
 
 

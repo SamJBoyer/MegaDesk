@@ -239,21 +239,19 @@ live in `megadesk_contracts.wire`.
 
 | Fake | Replaces | Left real |
 |---|---|---|
-| `FakeCodeAgent` | `cursor_sdk` behind CodeScope | Clone on disk, `CODEQ:ASK` group, session hash, every `CODEQ:ANSWER` |
+| `FakeCodeAgent` | `cursor_sdk` behind CodeScope | HTTP clone + SSE answers (canvas FE); Redis `CODEQ:*` for the local poller |
+| `FakeCodeScopeClient` | CodeScope HTTP for VoiceDeck | Tool router, queued SSE, out-of-band injection |
 | `FakeRealtime` | OpenAI Realtime socket and both audio devices | Tool router, Redis events, out-of-band answer injection |
 | `FakeCloudFactory` | Cursor's VM, branch, pull request | `CLOUDORDER` group, run registry, `CLOUDFINISHED`, retry rules |
 | `FakeMachineFactory` | Docker daemon, container, and Redis sidecar | `WORKORDER` group, `AGENTHANDLER`, `FINISHED:<repo>` |
 
-`FakeCodeAgent` has two faces: `run_once()` as a stand-in BE for FE tests, and
-`runner_factory` feeding canned chunks to the real `CodeScopeManager`.
-
-`CODESCOPE:SESSION:<id>`, `CLOUDRUN:<agent_id>` live
-on the **persistent** DB. Host pytest owns 14/15 and flushes both.
+`FakeCodeAgent` has two faces: `runner_factory` feeding canned chunks to the HTTP
+`ScopeService`, and `run_once()` as a stand-in for the local Redis poller.
 
 Two timing rules the suite pins:
 
-- Answers must not be read from `$` on every poll.
-  `test_an_answer_that_lands_between_polls_is_not_missed`.
+- VoiceDeck must return `searching` without waiting for SSE.
+  `test_asking_returns_searching_immediately_and_queues_the_ask`.
 - Control messages from before the BE woke up are ignored.
   `test_a_start_command_from_before_the_backend_woke_up_is_ignored`.
 

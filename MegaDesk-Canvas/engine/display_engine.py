@@ -8,7 +8,7 @@ from typing import Callable, Optional
 
 import dearpygui.dearpygui as dpg
 
-from megadesk_contracts import FeSpec
+from megadesk_contracts import KIND_CLOUD, KIND_MACHINE, FeSpec
 
 from engine.graph_model import GraphModel, available_graphs, remember_last_graph
 from engine.icons import ICON_PX, get_icon_texture_for_path
@@ -445,49 +445,63 @@ class DisplayEngine:
             autosize_x=False,
             autosize_y=False,
         ):
-            palette_entries: list[tuple[str, str, str, str | None]] = []
-            for spec in all_fe_specs():
-                palette_entries.append(
-                    (
-                        palette_key(spec.name),
-                        spec.name,
-                        spec.description or "",
-                        spec.icon,
-                    )
-                )
+            specs = list(all_fe_specs())
+            machine = [spec for spec in specs if spec.kind != KIND_CLOUD]
+            cloud = [spec for spec in specs if spec.kind == KIND_CLOUD]
+            self._add_palette_kind(KIND_MACHINE, machine, cols=cols, cell_w=cell_w)
+            self._add_palette_kind(KIND_CLOUD, cloud, cols=cols, cell_w=cell_w)
 
-            for i in range(0, len(palette_entries), cols):
-                with dpg.group(horizontal=True):
-                    for key, label, description, icon_path in palette_entries[
-                        i : i + cols
-                    ]:
-                        tex = get_icon_texture_for_path(icon_path, tag_suffix=key)
-                        with dpg.group():
-                            btn = dpg.add_image_button(
-                                tex,
-                                width=ICON_PX,
-                                height=ICON_PX,
-                            )
-                            with dpg.drag_payload(
-                                parent=btn,
-                                drag_data=key,
-                                payload_type=PAYLOAD_TYPE,
-                            ):
-                                dpg.add_text(f"Drop: {label}")
-                            dpg.add_text(
-                                label,
-                                wrap=cell_w - 4,
-                                color=(40, 40, 45, 255),
-                            )
-                            with dpg.tooltip(btn):
-                                dpg.add_text(label)
-                                if description:
-                                    dpg.add_text(
-                                        description,
-                                        wrap=220,
-                                        color=(90, 90, 95, 255),
-                                    )
-                dpg.add_spacer(height=6)
+    def _add_palette_kind(
+        self,
+        kind: str,
+        specs: list[FeSpec],
+        *,
+        cols: int,
+        cell_w: int,
+    ) -> None:
+        dpg.add_text(kind.title(), color=(90, 95, 105, 255))
+        if not specs:
+            dpg.add_spacer(height=4)
+            return
+        entries = [
+            (
+                palette_key(spec.name),
+                spec.name,
+                spec.description or "",
+                spec.icon,
+            )
+            for spec in specs
+        ]
+        for i in range(0, len(entries), cols):
+            with dpg.group(horizontal=True):
+                for key, label, description, icon_path in entries[i : i + cols]:
+                    tex = get_icon_texture_for_path(icon_path, tag_suffix=key)
+                    with dpg.group():
+                        btn = dpg.add_image_button(
+                            tex,
+                            width=ICON_PX,
+                            height=ICON_PX,
+                        )
+                        with dpg.drag_payload(
+                            parent=btn,
+                            drag_data=key,
+                            payload_type=PAYLOAD_TYPE,
+                        ):
+                            dpg.add_text(f"Drop: {label}")
+                        dpg.add_text(
+                            label,
+                            wrap=cell_w - 4,
+                            color=(40, 40, 45, 255),
+                        )
+                        with dpg.tooltip(btn):
+                            dpg.add_text(label)
+                            if description:
+                                dpg.add_text(
+                                    description,
+                                    wrap=220,
+                                    color=(90, 90, 95, 255),
+                                )
+            dpg.add_spacer(height=6)
 
     def on_viewport_resize(self) -> None:
         self.relayout_chrome()

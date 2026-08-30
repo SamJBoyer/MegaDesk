@@ -2,7 +2,7 @@
 
 MegaDesk-Canvas (MDC/Canvas): This program is the central command center and workspace for a MegaDesk project. The MDC creates the canvas that displays the Node's front ends and allows you to create new graphs. The MDC is also responsible for controlling the supervisor via panel, and hosts VoiceDeck as an always-on chrome strip (not a Catalog node). 
 
-Nodes: Programs in MegaDesk that perform some useful action or utility. Nodes can have a front-end (FE) that can be dragged and dropped on the Canvas and/or a backend (BE) that are managed by the Supervisor. 
+Nodes: Programs in MegaDesk that perform some useful action or utility. Nodes can have a front-end (FE) that can be dragged and dropped on the Canvas and/or a backend (BE) that are managed by the Supervisor. **Machine nodes** run on this computer. **Cloud nodes** run elsewhere; the canvas FE is a client. CodeScope is a cloud node (`Nodes/Cloud/CodeScope`). 
 
 Sub-GUI: a name for the front-end GUI part of a Node that is dropped on the Canvas. 
 

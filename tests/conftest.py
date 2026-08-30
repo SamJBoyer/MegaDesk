@@ -27,7 +27,7 @@ sys.path[:0] = [
         "Nodes/HumanGates/WorkDispatcher",
         "Nodes/HumanGates/AutoIntegrate",
         "Nodes/PRManager",
-        "Nodes/CodeScope",
+        "Nodes/Cloud/CodeScope",
         "Nodes/VoiceDeck",
         "Nodes/Factory/MachineFactory",
         "Nodes/Factory/CloudFactory",
@@ -434,6 +434,32 @@ def pr_scope_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture
+def codescope_http(scope_root: Path):
+    """In-process CodeScope HTTP service for canvas FE tests."""
+    from fastapi.testclient import TestClient
+    from CodeScopeManager.client import CodeScopeClient, set_client
+    from CodeScopeManager.server import create_app
+    from CodeScopeManager.service import ScopeService
+    from megadesk_contracts.testing import FakeCodeAgent
+
+    agent = FakeCodeAgent(redis=None)
+    service = ScopeService(root=scope_root, runner_factory=agent.runner_factory)
+    transport = TestClient(create_app(service=service, api_token="test-codescope-token"))
+    client = CodeScopeClient(
+        base_url="http://codescope.test",
+        token="test-codescope-token",
+        transport=transport,
+    )
+    set_client(client)
+    try:
+        yield {"client": client, "service": service, "agent": agent, "root": scope_root}
+    finally:
+        set_client(None)
+        service.close()
+        transport.close()
+
+
+@pytest.fixture
 def fake_code_agent(redis_client):
     """Canned answers about code: no ``cursor_sdk``, no agent, no network."""
     from megadesk_contracts.testing import FakeCodeAgent
@@ -518,6 +544,14 @@ def machine_factory(redis_client, fake_machine_factory):
 
 
 @pytest.fixture
+def fake_codescope():
+    """In-memory CodeScope HTTP stand-in: seeded repos, queued SSE answers."""
+    from CodeScopeManager.client import FakeCodeScopeClient
+
+    return FakeCodeScopeClient()
+
+
+@pytest.fixture
 def fake_realtime():
     """A scripted realtime socket: no microphone, no websocket, no API key."""
     from megadesk_contracts.testing import FakeRealtime
@@ -526,11 +560,11 @@ def fake_realtime():
 
 
 @pytest.fixture
-def voice_session(redis_client, persistent_client, fake_realtime):
+def voice_session(redis_client, persistent_client, fake_realtime, fake_codescope):
     """The real VoiceDeck BE with its transport swapped out.
 
-    Everything around the socket stays real: the tool router, the CODEQ payloads,
-    and the injection path.
+    Everything around the socket stays real: the tool router, the CodeScope HTTP
+    client (faked), and the injection path.
     """
     from VoiceDeckManager.session import VoiceSession
 
@@ -539,6 +573,7 @@ def voice_session(redis_client, persistent_client, fake_realtime):
         persistent=persistent_client,
         transport_factory=lambda **_kwargs: fake_realtime,
         session_id="voice-test",
+        codescope=fake_codescope,
     )
     try:
         yield session

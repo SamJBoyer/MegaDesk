@@ -101,6 +101,7 @@ def test_opening_a_repo_clones_it_and_asking_streams_sentences(
         {
             "session_id": session_id,
             "repo": "widgets",
+            "url": str(origin_repo),
             "status": wire.SESSION_READY,
             "model": "auto",
         }
@@ -123,6 +124,22 @@ def test_opening_a_repo_clones_it_and_asking_streams_sentences(
     assert agent.questions == [QUESTION]
     assert service.store.get(session_id)["agent_id"] == agent.agent_id
     assert service.store.get(session_id)["status"] == wire.SESSION_READY
+
+
+@pytest.mark.git
+def test_the_http_client_opens_a_repo_and_streams_an_ask(
+    tmp_path: Path, origin_repo: Path
+) -> None:
+    from CodeScopeManager.client import CodeScopeClient
+
+    transport, _service, agent = make_client(tmp_path)
+    agent.add_answer("frame pump", ANSWER)
+    client = CodeScopeClient(token=TOKEN, transport=transport)
+    opened = client.open_repo(str(origin_repo))
+    events = list(client.ask(opened["session_id"], QUESTION))
+    assert [event["final"] for event in events] == [False, True]
+    assert events[0]["answer"].startswith("The pump is a module global")
+    assert agent.questions == [QUESTION]
 
 
 @pytest.mark.git

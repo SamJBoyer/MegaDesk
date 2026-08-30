@@ -57,7 +57,7 @@ from megadesk_contracts import (
 | **PRManager** | Does not speak Redis. Lists open PRs whose merge-check `mergeable` status succeeded, pulls the tracked PR into a local Scope, and opens it in the browser, VS Code, or Cursor. |
 | **Supervisor** (Canvas-owned, `MegaDesk-Canvas/supervisor/`) | Consumes `SUPERVISOR:LAUNCHREQUEST` / `SUPERVISOR:KILLREQUEST` on DB 0; writes `RUNNINGNODES:<unique_id>` + singleton/alive on DB 1. Bootstrapped by canvas startup via `ensure_supervisor_running()` — not a Catalog node. |
 | **MegaDesk canvas (`MegaDesk-Canvas/`)** | On graph drop/open of a MegaDesk FE that also exposes a BE, `XADD`s `SUPERVISOR:LAUNCHREQUEST` with `FeSpec.backend_parameters` |
-| **CodeScope** | Consumes `CODEQ:ASK`, publishes `CODEQ:ANSWER` on DB 0; owns `CODESCOPE:SESSION:<id>` on DB 1 |
-| **VoiceDeck** | Canvas chrome FE + `voice_deck` BE. `VOICE:CONTROL` / `VOICE:EVENT` on DB 0; publishes `CODEQ:ASK` and `CLOUDORDER`. Never puts audio on Redis |
+| **CodeScope** | Cloud node. Canvas FE + VoiceDeck talk HTTP (`CODESCOPE_URL`). No Supervisor BE. The Redis `CODEQ:*` poller is a local debug path only. |
+| **VoiceDeck** | Canvas chrome FE + `voice_deck` BE. `VOICE:CONTROL` / `VOICE:EVENT` on DB 0; asks CodeScope over HTTP; publishes `CLOUDORDER`. Never puts audio on Redis |
 | **CloudFactory** | Consumes `CLOUDORDER`, publishes `CLOUDFINISHED` on DB 0; owns `CLOUDRUN:<agent_id>` on DB 1 |
 | **PromptImprover** | Consumes `SARGENT:ASK`, publishes `SARGENT:ANSWER` on DB 0. One OpenAI chat-completions call per ask. VoiceDeck speaks the rewrite via `revise_my_prompt`. |
