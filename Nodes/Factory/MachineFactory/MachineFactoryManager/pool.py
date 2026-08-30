@@ -5,15 +5,26 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 from pathlib import Path
 
-from megadesk_contracts import DEFAULT_REDIS_URL, redis_url_with_db, resolve_ephemeral_db
+from megadesk_contracts import (
+    DEFAULT_REDIS_URL,
+    FACTORY_ACL_USER,
+    allowlisted_clone_source,
+    ensure_factory_acl_user,
+    factory_ipc_url,
+    redis_url_with_db,
+    resolve_ephemeral_db,
+    resolve_redis_url,
+    validate_git_ref,
+)
 from megadesk_contracts.agent_audit import agent_audit_bind_args
-from megadesk_contracts.wire.factory import DEFAULT_STARTING_REF
 
 log = logging.getLogger("pool")
 
@@ -58,6 +69,52 @@ RUN_KEY_LABEL = "megadesk.run_key"
 REDIS_RUN_LABEL = "megadesk.redis_for"
 CONTAINER_NAME_PREFIX = "mf-"
 REDIS_NAME_PREFIX = "mf-redis-"
+CONTAINER_SECRETS_DIR = "/run/megadesk-secrets"
+CONTAINER_TOKEN_FILE = f"{CONTAINER_SECRETS_DIR}/github_token"
+CONTAINER_ASKPASS = "/app/AgentHandler/git_askpass.py"
+_SECRET_PATTERNS = (
+    re.compile(r"(?i)(GH_TOKEN=|GITHUB_TOKEN=|CURSOR_API_KEY=)\S+"),
+    re.compile(r"(://[^:@/\s]+:)[^@/\s]+@"),
+    re.compile(r"(?i)(x-access-token:)[^@/\s]+"),
+)
+
+
+def redact_secrets(text: str, *secrets: str) -> str:
+    """Strip tokens out of docker argv and error strings."""
+    out = text or ""
+    for secret in secrets:
+        if secret:
+            out = out.replace(secret, "***")
+    for pattern in _SECRET_PATTERNS:
+        if "://" in pattern.pattern:
+            out = pattern.sub(r"\1***@", out)
+        else:
+            out = pattern.sub(r"\1***", out)
+    return out
+
+
+def secrets_dir_for(guid: str) -> Path:
+    token = re.sub(r"[^a-zA-Z0-9_.-]", "-", (guid or "run").lower())[:48]
+    return Path(tempfile.gettempdir()) / f"megadesk-mf-secrets-{token}"
+
+
+def cleanup_sandbox_secrets(guid: str) -> None:
+    path = secrets_dir_for(guid)
+    if path.is_dir():
+        shutil.rmtree(path, ignore_errors=True)
+
+
+def write_github_token_file(guid: str, token: str) -> Path:
+    """Host-side 0600 token file, deleted when the sandbox is removed."""
+    root = secrets_dir_for(guid)
+    if root.exists():
+        shutil.rmtree(root, ignore_errors=True)
+    root.mkdir(mode=0o700, parents=True)
+    path = root / "github_token"
+    path.write_text(token, encoding="utf-8")
+    os.chmod(path, 0o600)
+    os.chmod(root, 0o700)
+    return root
 
 
 def _docker(args: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -70,13 +127,14 @@ def _docker(args: list[str], *, check: bool = True) -> subprocess.CompletedProce
             capture_output=True,
         )
     except subprocess.CalledProcessError as exc:
-        err = (exc.stderr or "").strip()
-        out = (exc.stdout or "").strip()
+        err = redact_secrets((exc.stderr or "").strip())
+        out = redact_secrets((exc.stdout or "").strip())
+        cmd = redact_secrets(" ".join(args))
         if err:
             log.error("docker %s failed (code=%s): %s", args[0], exc.returncode, err)
         if out:
             log.error("docker %s stdout: %s", args[0], out)
-        raise
+        raise RuntimeError(f"docker {args[0]} failed: {err or cmd}") from None
 
 
 def _follow_container_logs(container_name: str) -> None:
@@ -257,6 +315,7 @@ def stop_redis_sidecar(run_key: str) -> None:
     if name:
         log.info("Removing Redis sidecar %s for run %s", name, run_key)
         remove_container(name)
+    cleanup_sandbox_secrets(run_key)
 
 
 def _wait_redis_ready(name: str, *, timeout_sec: float = 20.0) -> None:
@@ -323,12 +382,24 @@ def start_ticket_sandbox(
         print("CURSOR_API_KEY is required to start sandboxes", file=sys.stderr)
         raise SystemExit(1)
 
+    try:
+        resolved_url, _name = allowlisted_clone_source(repo_url, allow_local=False)
+        starting_ref = validate_git_ref(ref)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
+
     gh_token = resolve_github_token()
     if auto_pr and not gh_token:
         raise RuntimeError(
             "GH_TOKEN, GITHUB_TOKEN, or `gh auth login` is required to push "
             "and open a PR from the sandbox"
         )
+
+    acl_password = ensure_factory_acl_user(resolve_redis_url(LOCAL_REDIS_URL))
+    factory_url = factory_ipc_url(factory_redis_url_for_container(), acl_password)
+    secrets_root: Path | None = None
+    if gh_token:
+        secrets_root = write_github_token_file(guid, gh_token)
 
     ensure_network()
     redis_name = start_redis_sidecar(guid=guid)
@@ -338,9 +409,17 @@ def start_ticket_sandbox(
         log.info("Removing existing container %s before restart", name)
         remove_container(name)
 
-    starting_ref = (ref or "").strip() or DEFAULT_STARTING_REF
     subject_url = f"redis://{redis_name}:6379/0"
-    factory_url = factory_redis_url_for_container()
+    secret_args: list[str] = []
+    if secrets_root is not None:
+        secret_args = [
+            "-v",
+            f"{secrets_root}:{CONTAINER_SECRETS_DIR}:ro",
+            "-e",
+            f"MEGADESK_GITHUB_TOKEN_FILE={CONTAINER_TOKEN_FILE}",
+            "-e",
+            f"GIT_ASKPASS={CONTAINER_ASKPASS}",
+        ]
     args = [
         "run",
         "-d",
@@ -363,7 +442,7 @@ def start_ticket_sandbox(
         "-e",
         f"REPO_NAME={repo}",
         "-e",
-        f"REPO_URL={repo_url}",
+        f"REPO_URL={resolved_url}",
         "-e",
         f"TICKET={ticket}",
         "-e",
@@ -376,20 +455,20 @@ def start_ticket_sandbox(
         f"STARTING_REF={starting_ref}",
         "-e",
         "GIT_TERMINAL_PROMPT=0",
-        *([f"-e", f"GH_TOKEN={gh_token}"] if gh_token else []),
-        *([f"-e", f"GITHUB_TOKEN={gh_token}"] if gh_token else []),
+        *secret_args,
         *agent_audit_bind_args(guid),
         IMAGE_NAME,
     ]
     log.info(
-        "Starting sandbox %s clone=%s ref=%s guid=%s ticket_id=%s redis=%s github_auth=%s",
+        "Starting sandbox %s clone=%s ref=%s guid=%s ticket_id=%s redis=%s github_auth=%s factory_user=%s",
         name,
-        repo_url,
+        resolved_url,
         starting_ref,
         guid,
         ticket_id,
         redis_name,
         "present" if gh_token else "absent",
+        FACTORY_ACL_USER,
     )
     try:
         _docker(args)

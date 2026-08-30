@@ -36,4 +36,6 @@ VOLUME ["/data/scope"]
 EXPOSE 8080
 
 WORKDIR /src/Nodes/Cloud/CodeScope
-CMD ["python", "-m", "CodeScopeManager", "serve", "--host", "0.0.0.0", "--port", "8080"]
+# Loopback is the process default. Publishing a Docker port requires the
+# orchestrator to pass --host 0.0.0.0 explicitly (see README).
+CMD ["python", "-m", "CodeScopeManager", "serve", "--host", "127.0.0.1", "--port", "8080"]

@@ -48,6 +48,16 @@ def make_client(
     return TestClient(app), service, agent
 
 
+def test_default_bind_is_loopback() -> None:
+    from CodeScopeManager.server import DEFAULT_HOST
+    from CodeScopeManager.__main__ import build_parser
+
+    assert DEFAULT_HOST == "127.0.0.1"
+    parser = build_parser()
+    args = parser.parse_args(["serve"])
+    assert args.host == "127.0.0.1"
+
+
 def test_health_is_public(tmp_path: Path) -> None:
     client, _service, _agent = make_client(tmp_path)
     response = client.get("/health")
@@ -76,6 +86,39 @@ def test_an_unrecognized_url_is_rejected(tmp_path: Path) -> None:
     )
     assert response.status_code == 400
     assert "Unrecognized" in response.json()["detail"]
+
+
+def test_a_non_github_https_url_is_rejected(tmp_path: Path) -> None:
+    client, _service, _agent = make_client(tmp_path)
+    response = client.post(
+        "/repos",
+        json={"url": "https://example.com/acme/widgets.git"},
+        headers=AUTH,
+    )
+    assert response.status_code == 400
+    assert "Unrecognized" in response.json()["detail"]
+    assert not (tmp_path / "Scope" / "widgets").exists()
+
+
+def test_a_file_url_is_rejected(tmp_path: Path) -> None:
+    client, _service, _agent = make_client(tmp_path)
+    response = client.post(
+        "/repos", json={"url": "file:///tmp/widgets"}, headers=AUTH
+    )
+    assert response.status_code == 400
+
+
+def test_a_wrong_length_bearer_is_unauthorized(tmp_path: Path) -> None:
+    client, _service, _agent = make_client(tmp_path)
+    response = client.get("/repos", headers={"Authorization": "Bearer x"})
+    assert response.status_code == 401
+
+
+def test_openapi_docs_are_disabled(tmp_path: Path) -> None:
+    client, _service, _agent = make_client(tmp_path)
+    assert client.get("/docs").status_code == 404
+    assert client.get("/redoc").status_code == 404
+    assert client.get("/openapi.json").status_code == 404
 
 
 @pytest.mark.git

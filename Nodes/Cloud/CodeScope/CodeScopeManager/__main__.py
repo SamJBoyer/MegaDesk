@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="Start the CODEQ:ASK poller (default)")
     run.set_defaults(func=cmd_run)
     http = sub.add_parser("serve", help="Start the HTTP service (no Redis)")
-    http.add_argument("--host", default="0.0.0.0", help="Bind address")
+    http.add_argument("--host", default="127.0.0.1", help="Bind address")
     http.add_argument("--port", type=int, default=8080, help="Bind port")
     http.set_defaults(func=cmd_serve)
     return parser

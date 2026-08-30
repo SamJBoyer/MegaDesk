@@ -13,7 +13,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from megadesk_contracts.repo import CloneError, ensure_clone, is_clone, repo_name_from_url
+from megadesk_contracts.repo import (
+    CloneError,
+    allowlisted_clone_source,
+    ensure_clone,
+    is_clone,
+)
 from megadesk_contracts.wire import notepad as wire
 
 ENV_NOTES_ROOT = "NOTEPAD_ROOT"
@@ -202,8 +207,10 @@ class Pad:
         if not text:
             raise PadError("repository URL is empty")
         try:
-            name = repo_name_from_url(text)
-            clone = ensure_clone(url=text, root=scope or default_scope_root(), name=name)
+            resolved, name = allowlisted_clone_source(text, allow_local=True)
+            clone = ensure_clone(
+                url=resolved, root=scope or default_scope_root(), name=name
+            )
         except (CloneError, ValueError) as exc:
             raise PadError(str(exc)) from exc
         self.repo_root = clone

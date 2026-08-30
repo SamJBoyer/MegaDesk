@@ -2,6 +2,9 @@
 
 Replaces the old Floor worktree mount + gitdir pointer rewrite. The sandbox owns
 a plain clone under ``WORKSPACE``; factory IPC stays on the host Redis bus.
+
+GitHub credentials come from ``MEGADESK_GITHUB_TOKEN_FILE`` + ``GIT_ASKPASS``,
+never from a token embedded in the remote URL.
 """
 
 from __future__ import annotations
@@ -12,14 +15,73 @@ import re
 import subprocess
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse, urlunparse
 
+from megadesk_contracts.repo import allowlisted_clone_source, validate_git_ref
 from megadesk_contracts.wire.factory import DEFAULT_STARTING_REF
 
 log = logging.getLogger("agent_handler.repo_clone")
 
 _GIT_TIMEOUT_SEC = 300
 _DEFAULT_REF = DEFAULT_STARTING_REF
+_ASKPASS_MODULE = str(Path(__file__).with_name("git_askpass.py"))
+_SECRET_PATTERNS = (
+    re.compile(r"(?i)(GH_TOKEN=|GITHUB_TOKEN=|CURSOR_API_KEY=)\S+"),
+    re.compile(r"(://[^:@/\s]+:)[^@/\s]+@"),
+    re.compile(r"(?i)(x-access-token:)[^@/\s]+"),
+)
+
+
+def redact_secrets(text: str, *secrets: str) -> str:
+    """Strip planted tokens out of git/docker error strings."""
+    out = text or ""
+    for secret in secrets:
+        if secret:
+            out = out.replace(secret, "***")
+    for pattern in _SECRET_PATTERNS:
+        if "://" in pattern.pattern:
+            out = pattern.sub(r"\1***@", out)
+        else:
+            out = pattern.sub(r"\1***", out)
+    return out
+
+
+def _github_token() -> str:
+    path = (os.environ.get("MEGADESK_GITHUB_TOKEN_FILE") or "").strip()
+    if path:
+        try:
+            token = Path(path).read_text(encoding="utf-8").strip()
+        except OSError:
+            token = ""
+        if token:
+            return token
+    return (
+        os.environ.get("GH_TOKEN")
+        or os.environ.get("GITHUB_TOKEN")
+        or ""
+    ).strip()
+
+
+def _auth_url(url: str) -> str:
+    """Return the clone URL unchanged. Tokens must not be interpolated here."""
+    return (url or "").strip()
+
+
+def _git_env() -> dict[str, str]:
+    env: dict[str, str] = {"GIT_TERMINAL_PROMPT": "0"}
+    token_file = (os.environ.get("MEGADESK_GITHUB_TOKEN_FILE") or "").strip()
+    if token_file:
+        env["MEGADESK_GITHUB_TOKEN_FILE"] = token_file
+        env["GIT_ASKPASS"] = os.environ.get("GIT_ASKPASS") or _ASKPASS_MODULE
+        env["GIT_TERMINAL_PROMPT"] = "0"
+    return env
+
+
+def _gh_env() -> dict[str, str]:
+    env = _git_env()
+    token = _github_token()
+    if token:
+        env["GH_TOKEN"] = token
+    return env
 
 
 def _run(
@@ -31,6 +93,7 @@ def _run(
 ) -> subprocess.CompletedProcess[str]:
     merged = os.environ.copy()
     merged.setdefault("GIT_TERMINAL_PROMPT", "0")
+    merged.update(_git_env())
     if env:
         merged.update(env)
     result = subprocess.run(
@@ -44,30 +107,10 @@ def _run(
     )
     if check and result.returncode != 0:
         err = (result.stderr or result.stdout or "").strip()
-        raise RuntimeError(f"{' '.join(args)} failed: {err}")
+        token = _github_token()
+        safe_args = redact_secrets(" ".join(args), token)
+        raise RuntimeError(f"{safe_args} failed: {redact_secrets(err, token)}")
     return result
-
-
-def _github_token() -> str:
-    return (
-        os.environ.get("GH_TOKEN")
-        or os.environ.get("GITHUB_TOKEN")
-        or ""
-    ).strip()
-
-
-def _auth_url(url: str) -> str:
-    """Embed GH_TOKEN into an https URL when present so clone/push can auth."""
-    token = _github_token()
-    if not token or not url.startswith("https://"):
-        return url
-    parsed = urlparse(url)
-    if parsed.username:
-        return url
-    netloc = f"x-access-token:{token}@{parsed.hostname}"
-    if parsed.port:
-        netloc = f"{netloc}:{parsed.port}"
-    return urlunparse(parsed._replace(netloc=netloc))
 
 
 def ticket_branch(ticket: str) -> str:
@@ -88,9 +131,12 @@ class SandboxRepo:
         auto_pr: bool = True,
     ) -> None:
         self.workspace = Path(workspace)
-        self.repo_url = (repo_url or "").strip()
+        text = (repo_url or "").strip()
+        self.repo_url = (
+            allowlisted_clone_source(text, allow_local=False)[0] if text else ""
+        )
         self.ticket = (ticket or "").strip()
-        self.starting_ref = (starting_ref or _DEFAULT_REF).strip() or _DEFAULT_REF
+        self.starting_ref = validate_git_ref(starting_ref)
         self.auto_pr = bool(auto_pr)
         self.branch = ticket_branch(self.ticket)
         self.pr_url = ""
@@ -193,6 +239,7 @@ class SandboxRepo:
             ],
             cwd=self.workspace,
             check=False,
+            env=_gh_env(),
         )
         text = (created.stdout or created.stderr or "").strip()
         if created.returncode != 0:
@@ -211,10 +258,13 @@ class SandboxRepo:
                 ],
                 cwd=self.workspace,
                 check=False,
+                env=_gh_env(),
             )
             text = (listed.stdout or "").strip()
             if listed.returncode != 0 or not text:
-                raise RuntimeError(f"gh pr create failed: {created.stderr or created.stdout}")
+                token = _github_token()
+                detail = redact_secrets(created.stderr or created.stdout or "", token)
+                raise RuntimeError(f"gh pr create failed: {detail}")
         # gh pr create prints the URL on success.
         match = re.search(r"https://github\.com/[^\s]+/pull/\d+", text)
         self.pr_url = match.group(0) if match else text.splitlines()[-1].strip()

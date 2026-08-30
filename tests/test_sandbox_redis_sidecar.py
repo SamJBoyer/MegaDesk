@@ -46,6 +46,17 @@ def test_factory_redis_url_for_container_defaults_live_pair(
     assert factory_redis_url_for_container() == "redis://host.docker.internal:6379/0"
 
 
+def test_factory_ipc_url_is_not_an_unauthenticated_admin_url() -> None:
+    from megadesk_contracts import FACTORY_ACL_USER, factory_ipc_url
+
+    url = factory_ipc_url(
+        "redis://host.docker.internal:6379/14", password="acl-test-pw"
+    )
+    assert url.startswith(f"redis://{FACTORY_ACL_USER}:")
+    assert "@host.docker.internal:6379/14" in url
+    assert url != "redis://host.docker.internal:6379/14"
+
+
 def test_list_redis_sidecars_reads_run_keys_from_labels() -> None:
     from unittest.mock import patch
 
