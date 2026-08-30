@@ -7,13 +7,13 @@ from typing import Mapping, Optional
 
 from megadesk_contracts import BeSpec, FeSpec, load_parameter_names, normalize_parameters
 
-from pr_manager_app import build_ui, read_parameters
+from pr_manager_app import DEFAULT_HEIGHT, DEFAULT_WIDTH, build_ui, read_parameters
 
 _ICON = str(
     Path(__file__).resolve().parent / "Etc" / "Artwork" / "icon.png"
 )
 
-# Names this node recognizes, declared in parameters.yaml: GIT_URL.
+# Names this node recognizes, declared in parameters.yaml.
 PARAMETERS = load_parameter_names(__file__)
 
 
@@ -31,8 +31,8 @@ def get_fe_spec(
         name="pr_manager",
         description="Show mergeable PRs, pull them locally, open in VS Code or Cursor.",
         icon=icon,
-        default_width=560,
-        default_height=160,
+        default_width=DEFAULT_WIDTH,
+        default_height=DEFAULT_HEIGHT,
         build=build,
         parameters=PARAMETERS,
         read_parameters=read_parameters,

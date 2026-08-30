@@ -31,6 +31,7 @@ def test_load_parameter_names_is_empty_when_the_file_is_missing(tmp_path: Path) 
 
 def test_human_gates_declare_their_parameters() -> None:
     import auto_integrate_node
+    import pr_manager_node
     import work_dispatcher_node
 
     assert load_parameter_names(work_dispatcher_node.__file__) == (
@@ -38,7 +39,14 @@ def test_human_gates_declare_their_parameters() -> None:
         "ISSUE_LABEL",
         "MAX_DEPTH",
     )
-    assert load_parameter_names(auto_integrate_node.__file__) == ("GIT_URL",)
+    assert load_parameter_names(auto_integrate_node.__file__) == (
+        "GIT_URL",
+        "MAX_DEPTH",
+    )
+    assert load_parameter_names(pr_manager_node.__file__) == (
+        "GIT_URL",
+        "MAX_DEPTH",
+    )
 
 
 def test_normalize_parameters_keeps_declared_names_only() -> None:

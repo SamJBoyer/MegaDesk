@@ -16,9 +16,9 @@ is genuinely different, not because the panel is:
 
 A repo URL with a connection lamp, and a list of tickets. WorkDispatcher also
 has a **target label** dropdown filled from the labels that actually exist on
-the connected repo, saved into the graph as `ISSUE_LABEL`, and a **depth**
-field that sizes the node to fit that many tickets. AutoIntegrate has no
-label: merge-check's fail signal *is* its queue. Clicking a WorkDispatcher
+the connected repo, saved into the graph as `ISSUE_LABEL`. Both gates have a
+**depth** field that sizes the node to fit that many tickets. AutoIntegrate has
+no label: merge-check's fail signal *is* its queue. Clicking a WorkDispatcher
 ticket dispatches it and moves the GitHub issue from `agent-ready` to
 `in-progress`.
 

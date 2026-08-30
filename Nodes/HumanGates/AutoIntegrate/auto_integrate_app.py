@@ -51,6 +51,14 @@ DEFAULT_FACTORY = "machine"
 
 # Graph parameters this node recognizes; declared in parameters.yaml.
 PARAM_GIT_URL = "GIT_URL"
+PARAM_MAX_DEPTH = "MAX_DEPTH"
+
+HEADER_H = 48
+ROW_H = 26
+DEFAULT_DEPTH = 2
+DEFAULT_WIDTH = 520
+DEFAULT_HEIGHT = HEADER_H + DEFAULT_DEPTH * ROW_H + 10
+MAX_DEPTH_LIMIT = 20
 
 COLOR_GREEN = (80, 200, 80, 255)
 COLOR_RED = (220, 70, 70, 255)
@@ -64,6 +72,15 @@ pull request is mergeable again. Keep the branch's own changes intact and \
 change nothing the conflict does not require.
 
 {detail}"""
+
+
+def _clamp_depth(value: object) -> int:
+    try:
+        depth = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_DEPTH
+    return max(1, min(MAX_DEPTH_LIMIT, depth))
+
 
 # Keep live instances alive while their embed windows exist.
 _LIVE: dict[str, "AutoIntegrate"] = {}
@@ -86,13 +103,14 @@ class AutoIntegrate:
         self._state_lock = threading.Lock()
         values = coerce_parameters(parameters)
         self._current_repo_url = values.get(PARAM_GIT_URL, "").strip()
+        self._max_depth = _clamp_depth(values.get(PARAM_MAX_DEPTH, "") or DEFAULT_DEPTH)
         self._rows: dict[int, GateRow] = {}
         self._redis: Optional[redis.Redis] = None
         self.redis_url = resolve_redis_url()
         self._root_tag = "primary"
+        self._content_parent = ""
         self._frame_registered = False
-        self._row_h = 26
-        self._scroll_max: Optional[int] = None
+        self._row_h = ROW_H
         self._connect_redis()
 
     def _tag(self, suffix: str) -> str:
@@ -114,13 +132,13 @@ class AutoIntegrate:
         parent: str,
         *,
         tag_prefix: str,
-        width: int = 520,
-        height: int = 160,
+        width: int = DEFAULT_WIDTH,
+        height: int = DEFAULT_HEIGHT,
     ) -> None:
         """Fill the host content parent with Auto Integrate widgets."""
         self._root_tag = tag_prefix
-        _ = width
-        self._scroll_max = max(self._row_h * 2, height - 48) if height else None
+        self._content_parent = parent
+        _ = width, height
 
         theme_tag = self._tag("gate_theme")
         if not dpg.does_item_exist(theme_tag):
@@ -138,7 +156,7 @@ class AutoIntegrate:
                 dpg.add_input_text(
                     tag=self._tag("git_url"),
                     default_value=self._current_repo_url,
-                    width=-20,
+                    width=-80,
                     hint="https://github.com/owner/repo",
                     callback=self._on_url_changed,
                     on_enter=True,
@@ -151,6 +169,16 @@ class AutoIntegrate:
                         color=COLOR_DIM,
                         tag=self._tag("conn_light"),
                     )
+                dpg.add_input_int(
+                    tag=self._tag("max_depth"),
+                    default_value=self._max_depth,
+                    width=48,
+                    min_value=1,
+                    max_value=MAX_DEPTH_LIMIT,
+                    min_clamped=True,
+                    max_clamped=True,
+                    callback=self._on_depth_changed,
+                )
 
             dpg.add_text(
                 "Idle", tag=self._tag("status_text"), color=(160, 160, 160)
@@ -158,10 +186,11 @@ class AutoIntegrate:
             dpg.add_child_window(
                 tag=self._tag("issue_scroll"),
                 width=-1,
-                height=self._row_h * 2,
+                height=self._list_height(),
                 border=True,
             )
 
+        self._apply_layout()
         dpg.set_item_user_data(parent, self.shutdown)
         self._start_services()
         _LIVE[tag_prefix] = self
@@ -222,7 +251,6 @@ class AutoIntegrate:
                 self._rows.pop(rid, None)
         for row in rows:
             self._ensure_row(row)
-        self._resize_scroll()
 
     # --- polling ---
 
@@ -317,15 +345,26 @@ class AutoIntegrate:
             dpg.set_value(tag, text)
             dpg.configure_item(tag, color=color)
 
-    def _resize_scroll(self) -> None:
+    def _list_height(self) -> int:
+        return self._max_depth * self._row_h
+
+    def _apply_layout(self) -> None:
+        list_h = self._list_height()
         scroll = self._tag("issue_scroll")
-        if not dpg.does_item_exist(scroll):
-            return
-        n = max(2, len(self._rows))
-        h = n * self._row_h
-        if self._scroll_max is not None:
-            h = min(h, self._scroll_max)
-        dpg.configure_item(scroll, height=h)
+        if dpg.does_item_exist(scroll):
+            dpg.configure_item(scroll, height=list_h)
+        content = self._content_parent or f"{self._root_tag}::content"
+        if content and dpg.does_item_exist(content):
+            dpg.configure_item(content, height=HEADER_H + list_h + 10)
+
+    def _on_depth_changed(self, sender, app_data, user_data=None) -> None:
+        depth = _clamp_depth(
+            app_data if app_data is not None else dpg.get_value(sender)
+        )
+        self._max_depth = depth
+        if dpg.does_item_exist(sender):
+            dpg.set_value(sender, depth)
+        self._apply_layout()
 
     def _row_label(self, row: GateRow) -> str:
         """The branch is what the operator is deciding about, so lead with it."""
@@ -490,8 +529,8 @@ def build_ui(
     parent: str,
     *,
     tag_prefix: str,
-    width: int = 520,
-    height: int = 160,
+    width: int = DEFAULT_WIDTH,
+    height: int = DEFAULT_HEIGHT,
     parameters: Optional[Mapping[str, str]] = None,
 ) -> None:
     """Module-level builder for FeSpec / MegaDesk graph hosting."""
@@ -508,7 +547,14 @@ def read_parameters(tag_prefix: str) -> dict[str, str]:
     url_tag = f"{tag_prefix}::git_url"
     if not dpg.does_item_exist(url_tag):
         return {}
-    return {PARAM_GIT_URL: (dpg.get_value(url_tag) or "").strip()}
+    depth_tag = f"{tag_prefix}::max_depth"
+    depth = DEFAULT_DEPTH
+    if dpg.does_item_exist(depth_tag):
+        depth = _clamp_depth(dpg.get_value(depth_tag))
+    return {
+        PARAM_GIT_URL: (dpg.get_value(url_tag) or "").strip(),
+        PARAM_MAX_DEPTH: str(depth),
+    }
 
 
 def main() -> None:
