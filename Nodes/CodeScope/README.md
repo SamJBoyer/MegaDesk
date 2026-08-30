@@ -60,6 +60,7 @@ race it.
 - Redis at `REDIS_URL`
 - `CURSOR_API_KEY` for the BE
 - `pip install -e Nodes/CodeScope[canvas]`
+- HTTP service (no Redis): see [`Docs/codescope_service.md`](../../Docs/codescope_service.md) — `python -m CodeScopeManager serve`
 
 ## Notes
 

@@ -1,4 +1,4 @@
-"""CLI entry for CodeScopeManager: poll CODEQ:ASK and answer from a clone."""
+"""CLI entry for CodeScopeManager: Redis poller or HTTP service."""
 
 from __future__ import annotations
 
@@ -13,17 +13,28 @@ def cmd_run(_args: argparse.Namespace) -> None:
     manager_main()
 
 
+def cmd_serve(args: argparse.Namespace) -> None:
+    from CodeScopeManager.server import DEFAULT_HOST, DEFAULT_PORT, serve
+
+    serve(host=args.host or DEFAULT_HOST, port=int(args.port or DEFAULT_PORT))
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="CodeScopeManager",
         description=(
             "CodeScopeManager: consume the CODEQ:ASK stream and answer questions "
-            "about a cloned repository with a warm local Cursor agent."
+            "about a cloned repository with a warm local Cursor agent. "
+            "'serve' exposes the same work over HTTP (no Redis)."
         ),
     )
     sub = parser.add_subparsers(dest="command")
     run = sub.add_parser("run", help="Start the CODEQ:ASK poller (default)")
     run.set_defaults(func=cmd_run)
+    http = sub.add_parser("serve", help="Start the HTTP service (no Redis)")
+    http.add_argument("--host", default="0.0.0.0", help="Bind address")
+    http.add_argument("--port", type=int, default=8080, help="Bind port")
+    http.set_defaults(func=cmd_serve)
     return parser
 
 

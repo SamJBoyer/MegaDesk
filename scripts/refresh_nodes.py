@@ -18,7 +18,7 @@ import tomllib
 from pathlib import Path
 
 ENV_NAME = "MEGADESK"
-SKIP_EXTRAS = {"dev", "test", "tests", "docs", "lint", "sandbox"}
+SKIP_EXTRAS = {"dev", "test", "tests", "docs", "lint", "sandbox", "service"}
 REPO_ROOT = Path(__file__).resolve().parent.parent
 # Build leftovers carry pyproject.toml files that are not nodes.
 SKIP_DIRS = {".venv", "venv", "build", "dist", "node_modules"}
