@@ -16,7 +16,6 @@ from megadesk_contracts import (
 )
 from megadesk_contracts.log_session import attach_log_session, session_log_path
 
-from engine.canvas_api import attach_canvas_api
 from engine.display_engine import (
     CATALOG_BODY_TAG,
     CATALOG_TOGGLE_TAG,
@@ -237,7 +236,6 @@ def build_canvas(
         engine.on_viewport_resize()
 
     dpg.set_viewport_resize_callback(_on_resize)
-    attach_canvas_api(engine)
     return engine
 
 
@@ -289,13 +287,22 @@ def main() -> None:
         # Start empty rather than not at all: the graph bar can pick another file.
         log.error("Graph %s not loaded: %s", model.path, exc)
 
+    from engine.canvas_api import attach_canvas_api
+
     engine = build_canvas(model)
+    attach_canvas_api(engine)
 
     while dpg.is_dearpygui_running():
         engine.sync_members()
+        api = getattr(engine, "canvas_api", None)
+        if api is not None:
+            api.drain_commands()
         dpg.render_dearpygui_frame()
 
     model.save()
+    api = getattr(engine, "canvas_api", None)
+    if api is not None:
+        api.detach()
     shutdown_voice_deck_panel()
     frame_pump.reset()
     dpg.destroy_context()

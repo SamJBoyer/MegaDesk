@@ -145,3 +145,25 @@ def test_two_frontends_share_one_live_pump(harness, fake_gh) -> None:
         message="WorkDispatcher to drain with a second FE on the board",
     )
     assert manager.exists("issue_scroll")
+
+
+def test_canvas_api_types_and_clicks_like_the_node_driver(harness) -> None:
+    from engine.canvas_api import CanvasApi
+
+    driver = harness.drop("notepad")
+    api = CanvasApi(harness.engine)
+
+    names = {item["name"] for item in api.list_nodes()}
+    assert {"notepad", "graph_bar", "voice_deck"} <= names
+
+    selected = api.select_node("notepad")
+    assert selected["member_id"] == driver.member_id
+    assert harness.engine._selected_member_id == driver.member_id
+
+    api.type_into("notepad", "body", "from the canvas api")
+    harness.pump(2)
+    assert driver.get("body") == "from the canvas api"
+
+    api.click("notepad", "new_btn")
+    harness.pump(2)
+    assert driver.exists("tab_note-2")
