@@ -17,7 +17,6 @@ A node is basically just a script. Almost anything can be a node, as long as it 
 Have a pyproject wrapper that contains MEGADESK metadata. This is how the Canvas discovers available nodes.
 Have get_fe_spec(), get_be_spec(), get_tool_spec(). Methods that are called by the Canvas, Supervisor, or VoiceDeck to get setup/teardown instructions. 
 
-
 Implementation of what the methods due is left to node-based implementation. 
 
 Nodes I use:
@@ -27,6 +26,8 @@ Nodes I use:
 - GraphScope: tracks sandbox agent's langgraph execution state and visualizes for the user 
 - PrManager: pull request manager to quickly validate agent's work and merge. 
 - AutoIntegrate: looks for merge conflicts and allows you to dispatch an agent to merge them via the factory pathway 
+
+These functional nodes help me get work done using a few working graphs with LangGraph. My project will soon have more integrations with the "what should I build" part of running a factory.
 
 Nodes I made but don't use: 
 - VisionBoard: lucid-chart-like sticky note white board. Currently needs more attention for data management 
