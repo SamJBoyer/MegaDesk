@@ -49,32 +49,118 @@ from voice_deck.panel import (
 
 
 def _apply_daytime_theme() -> None:
-    """White / light-gray daytime chrome for panels and widgets."""
+    """Light sage-green daytime chrome for panels, widgets, and the node grid."""
     with dpg.theme() as theme:
         with dpg.theme_component(dpg.mvAll):
-            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (245, 247, 250, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (250, 251, 253, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_PopupBg, (255, 255, 255, 250))
-            dpg.add_theme_color(dpg.mvThemeCol_Border, (200, 205, 215, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_Text, (30, 32, 38, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_TextDisabled, (130, 135, 145, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_WindowBg, (236, 246, 238, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ChildBg, (242, 250, 244, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_PopupBg, (252, 255, 252, 250))
+            dpg.add_theme_color(dpg.mvThemeCol_Border, (176, 204, 184, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_Text, (28, 40, 32, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TextDisabled, (108, 128, 114, 255))
             dpg.add_theme_color(dpg.mvThemeCol_FrameBg, (255, 255, 255, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (235, 240, 248, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (220, 228, 240, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_TitleBg, (230, 234, 240, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, (220, 226, 235, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_Button, (235, 238, 244, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (220, 228, 240, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (200, 214, 235, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_Header, (220, 228, 240, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, (210, 220, 235, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_HeaderActive, (190, 205, 230, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_CheckMark, (50, 110, 200, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarBg, (240, 242, 246, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrab, (190, 195, 205, 255))
-            dpg.add_theme_color(dpg.mvThemeCol_Separator, (200, 205, 215, 255))
-            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 3)
-            dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, 4)
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgHovered, (220, 240, 226, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_FrameBgActive, (198, 228, 206, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBg, (214, 234, 218, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TitleBgActive, (196, 224, 204, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_Button, (224, 240, 226, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonHovered, (200, 228, 208, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ButtonActive, (168, 208, 178, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_Header, (210, 234, 216, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderHovered, (190, 222, 198, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_HeaderActive, (168, 208, 178, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_CheckMark, (40, 140, 72, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarBg, (232, 244, 234, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_ScrollbarGrab, (168, 196, 174, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_Separator, (176, 204, 184, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_Tab, (214, 234, 218, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TabHovered, (190, 222, 198, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_TabActive, (236, 246, 238, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrab, (72, 160, 96, 255))
+            dpg.add_theme_color(dpg.mvThemeCol_SliderGrabActive, (48, 140, 80, 255))
+            dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 4)
+            dpg.add_theme_style(dpg.mvStyleVar_WindowRounding, 6)
+            dpg.add_theme_color(
+                dpg.mvNodeCol_GridBackground,
+                (228, 242, 230, 255),
+                category=dpg.mvThemeCat_Nodes,
+            )
+            dpg.add_theme_color(
+                dpg.mvNodeCol_GridLine,
+                (196, 218, 200, 255),
+                category=dpg.mvThemeCat_Nodes,
+            )
+            dpg.add_theme_color(
+                dpg.mvNodeCol_NodeBackground,
+                (250, 254, 250, 255),
+                category=dpg.mvThemeCat_Nodes,
+            )
+            dpg.add_theme_color(
+                dpg.mvNodeCol_NodeBackgroundHovered,
+                (240, 250, 242, 255),
+                category=dpg.mvThemeCat_Nodes,
+            )
+            dpg.add_theme_color(
+                dpg.mvNodeCol_NodeBackgroundSelected,
+                (220, 240, 226, 255),
+                category=dpg.mvThemeCat_Nodes,
+            )
+            dpg.add_theme_color(
+                dpg.mvNodeCol_NodeOutline,
+                (160, 188, 168, 255),
+                category=dpg.mvThemeCat_Nodes,
+            )
+            dpg.add_theme_color(
+                dpg.mvNodeCol_TitleBar,
+                (186, 218, 192, 255),
+                category=dpg.mvThemeCat_Nodes,
+            )
+            dpg.add_theme_color(
+                dpg.mvNodeCol_TitleBarHovered,
+                (166, 206, 174, 255),
+                category=dpg.mvThemeCat_Nodes,
+            )
+            dpg.add_theme_color(
+                dpg.mvNodeCol_TitleBarSelected,
+                (146, 190, 156, 255),
+                category=dpg.mvThemeCat_Nodes,
+            )
+            dpg.add_theme_color(
+                dpg.mvNodeCol_Link, (48, 140, 80, 255), category=dpg.mvThemeCat_Nodes
+            )
+            dpg.add_theme_color(
+                dpg.mvNodeCol_LinkHovered,
+                (72, 160, 96, 255),
+                category=dpg.mvThemeCat_Nodes,
+            )
+            dpg.add_theme_color(
+                dpg.mvNodeCol_Pin, (48, 140, 80, 255), category=dpg.mvThemeCat_Nodes
+            )
+            dpg.add_theme_color(
+                dpg.mvNodesCol_MiniMapBackground,
+                (220, 236, 224, 220),
+                category=dpg.mvThemeCat_Nodes,
+            )
+            dpg.add_theme_color(
+                dpg.mvNodesCol_MiniMapCanvas,
+                (236, 246, 238, 255),
+                category=dpg.mvThemeCat_Nodes,
+            )
+            dpg.add_theme_color(
+                dpg.mvNodesCol_MiniMapNodeBackground,
+                (168, 208, 178, 255),
+                category=dpg.mvThemeCat_Nodes,
+            )
+            dpg.add_theme_color(
+                dpg.mvNodesCol_MiniMapOutline,
+                (160, 188, 168, 255),
+                category=dpg.mvThemeCat_Nodes,
+            )
+            dpg.add_theme_style(
+                dpg.mvNodeStyleVar_NodeCornerRounding,
+                6,
+                category=dpg.mvThemeCat_Nodes,
+            )
     dpg.bind_theme(theme)
 
 
