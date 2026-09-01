@@ -13,7 +13,7 @@ Two seams get their own tests because they fail independently:
 
 from __future__ import annotations
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 import pytest
 from conftest import SARGENT_ANSWER_CANONICAL_FIELDS, SARGENT_ASK_CANONICAL_FIELDS
 from megadesk_contracts.wire import sargent as wire

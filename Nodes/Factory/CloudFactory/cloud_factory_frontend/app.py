@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass
 from typing import Optional
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 import redis
 from megadesk_contracts import (
     frame_pump,

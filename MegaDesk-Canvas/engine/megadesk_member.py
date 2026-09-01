@@ -7,7 +7,7 @@ import traceback
 from typing import Any, Mapping, Optional
 from uuid import uuid4
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 
 from megadesk_contracts import FeSpec, normalize_parameters
 

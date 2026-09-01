@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Callable, Optional
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 
 from megadesk_contracts import KIND_CLOUD, KIND_MACHINE, FeSpec
 

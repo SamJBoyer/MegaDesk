@@ -171,7 +171,7 @@ def test_capture_writes_the_git_url_into_the_graph(
 ) -> None:
     from engine.graph_bar import CAPTURE_TAG
     from megadesk_contracts.testing import invoke_callback
-    import dearpygui.dearpygui as dpg
+    from megadesk_contracts import host as dpg
     import json
 
     driver = harness.drop(NODE)

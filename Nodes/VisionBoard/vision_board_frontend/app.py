@@ -12,7 +12,7 @@ from __future__ import annotations
 import math
 from typing import Any, Mapping, Optional
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 
 from vision_board_frontend.board import (
     CONTAINER_HEADER,

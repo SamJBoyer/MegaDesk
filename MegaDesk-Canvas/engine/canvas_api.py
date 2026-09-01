@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 import redis
 from megadesk_contracts import (
     redis_connect,

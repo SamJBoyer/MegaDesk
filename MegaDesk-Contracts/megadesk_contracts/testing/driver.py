@@ -12,7 +12,7 @@ import inspect
 import re
 from typing import Any, Callable, Optional
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 
 
 class WidgetMissing(AssertionError):

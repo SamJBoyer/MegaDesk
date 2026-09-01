@@ -12,7 +12,7 @@ import queue
 import threading
 from typing import Optional
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 from megadesk_contracts import frame_pump
 from megadesk_contracts.wire import code_scope as wire
 

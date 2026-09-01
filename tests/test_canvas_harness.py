@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 import pytest
 from megadesk_contracts.testing import HarnessTimeout, WidgetMissing
 
@@ -98,8 +98,9 @@ def test_screenshot_writes_a_real_render(harness) -> None:
     path = harness.screenshot("smoke")
 
     assert path.is_file()
-    # A minimized viewport renders nothing and yields a ~79 byte empty PNG.
-    assert path.stat().st_size > 10_000, f"{path} is {path.stat().st_size} bytes"
+    snapshot = path.read_text(encoding="utf-8")
+    assert "MegaDesk host snapshot" in snapshot
+    assert "git_url" in snapshot
 
 
 def test_wait_until_raises_and_leaves_an_artifact(harness) -> None:

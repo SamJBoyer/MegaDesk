@@ -14,7 +14,7 @@ import threading
 from dataclasses import dataclass
 from typing import Mapping, Optional
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 import redis
 from megadesk_contracts import (
     coerce_parameters,
@@ -531,7 +531,7 @@ class AutoIntegrate:
 
         self._stale.add(issue_id)
         self._drop_row(issue_id)
-        self._resize_scroll()
+        self._apply_layout()
         self._set_status(f"Dispatched {branch} → {channel}", COLOR_BLUE)
 
 

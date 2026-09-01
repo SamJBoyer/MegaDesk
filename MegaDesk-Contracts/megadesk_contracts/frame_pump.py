@@ -1,4 +1,4 @@
-"""Shared Dear PyGui frame pump so multiple embedded FE tools can drain UI."""
+"""Shared frame pump so multiple embedded FE tools can drain UI."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ _armed = False
 
 def register(callback: Callable[[], None]) -> None:
     """Register a per-frame callback (idempotent arm of the shared pump)."""
-    import dearpygui.dearpygui as dpg
+    from megadesk_contracts import host as dpg
 
     global _armed
     if callback not in _callbacks:
@@ -41,7 +41,7 @@ def unregister(callback: Callable[[], None]) -> None:
 
 
 def reset() -> None:
-    """Drop all callbacks and disarm — call on DPG context teardown.
+    """Drop all callbacks and disarm — call on host context teardown.
 
     Module state outlives ``destroy_context()``, so without this a second
     context in the same process stays armed with callbacks bound to widgets

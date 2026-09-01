@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 from megadesk_contracts import SupervisorClient, discover_backends, ensure_supervisor_running, frame_pump
 from megadesk_contracts.log_session import session_log_path
 

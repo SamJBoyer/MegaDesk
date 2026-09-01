@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Optional
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 from megadesk_contracts import coerce_parameters, frame_pump
 from megadesk_contracts.human_gate import (
     MERGE_CHECK_SUCCESS,
