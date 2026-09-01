@@ -136,6 +136,26 @@ def _apply_daytime_theme() -> None:
             dpg.add_theme_color(
                 dpg.mvNodeCol_Pin, (48, 140, 80, 255), category=dpg.mvThemeCat_Nodes
             )
+            dpg.add_theme_color(
+                dpg.mvNodesCol_MiniMapBackground,
+                (220, 236, 224, 220),
+                category=dpg.mvThemeCat_Nodes,
+            )
+            dpg.add_theme_color(
+                dpg.mvNodesCol_MiniMapCanvas,
+                (236, 246, 238, 255),
+                category=dpg.mvThemeCat_Nodes,
+            )
+            dpg.add_theme_color(
+                dpg.mvNodesCol_MiniMapNodeBackground,
+                (168, 208, 178, 255),
+                category=dpg.mvThemeCat_Nodes,
+            )
+            dpg.add_theme_color(
+                dpg.mvNodesCol_MiniMapOutline,
+                (160, 188, 168, 255),
+                category=dpg.mvThemeCat_Nodes,
+            )
             dpg.add_theme_style(
                 dpg.mvNodeStyleVar_NodeCornerRounding,
                 6,
