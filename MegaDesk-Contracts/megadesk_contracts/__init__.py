@@ -95,6 +95,7 @@ from megadesk_contracts.repo import (
     validate_git_ref,
 )
 from megadesk_contracts.supervisor_client import (
+    DEFAULT_REDIS_PORT,
     DEFAULT_REDIS_URL,
     ENV_DEV_FLUSH_MODE,
     ENV_FACTORY_REDIS_URL,
@@ -143,6 +144,7 @@ __all__ = [
     "RunStatus",
     "ToolHost",
     "ToolSpec",
+    "DEFAULT_REDIS_PORT",
     "DEFAULT_REDIS_URL",
     "ENV_DEV_FLUSH_MODE",
     "ENV_FACTORY_REDIS_URL",

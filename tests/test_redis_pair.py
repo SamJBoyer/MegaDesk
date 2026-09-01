@@ -2,6 +2,7 @@
 
 import pytest
 from megadesk_contracts import (
+    DEFAULT_REDIS_PORT,
     HOST_PYTEST_EPHEMERAL_DB,
     HOST_PYTEST_PERSISTENT_DB,
     REDIS_DB_EPHEMERAL,
@@ -65,6 +66,8 @@ def test_factory_url_prefers_the_dedicated_env(monkeypatch) -> None:
 def test_live_constants_are_the_default_pair() -> None:
     assert REDIS_DB_EPHEMERAL == 0
     assert REDIS_DB_PERSISTENT == 1
+    assert DEFAULT_REDIS_PORT == 6380
+    assert DEFAULT_REDIS_PORT != 6379
 
 
 def test_supervisor_on_wire_key_names() -> None:

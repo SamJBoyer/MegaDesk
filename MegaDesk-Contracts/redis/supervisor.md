@@ -89,8 +89,7 @@ supervisor recreates consumer groups, `SUPERVISOR:ALIVE`, and
 flush. The BE is **not** launched via `SUPERVISOR:LAUNCHREQUEST` and is
 **not** a Catalog / FeSpec drop.
 
-Redis provision (prefer existing server at `REDIS_URL`, else Docker `megadesk-redis` +
-optional Insight on `5540` when the URL host is loopback) happens inside the
+Redis provision (boot Docker `megadesk-redis` + Insight on `5540` when the URL host is loopback, then connect to `REDIS_URL`; fall back to an already-reachable server when Docker is unavailable) happens inside the
 Supervisor BE — see `MegaDesk-Canvas/supervisor/redis_provision.py`.
 
 ---
@@ -266,9 +265,9 @@ this key on DB 1.
 
 | Setting | Convention |
 |---------|------------|
-| Connection | **`REDIS_URL`** (default `redis://localhost:6379/0`) |
-| Prefer | Attach to existing Redis at that URL |
-| Else (loopback host only) | Docker container `megadesk-redis` (`redis:7`, host port from URL) + optional `megadesk-redis-insight` on port `5540` |
+| Connection | **`REDIS_URL`** (default `redis://localhost:6380/0`) |
+| Prefer | Boot Docker `megadesk-redis` (and `megadesk-redis-insight`) on that URL |
+| Else | Attach to an already-reachable server at `REDIS_URL` (Docker unavailable, or non-loopback host) |
 
 See `MegaDesk-Canvas/supervisor/redis_provision.py`. `SupervisorClient` and
 `ensure_supervisor_running()` also honor `REDIS_URL`.

@@ -5,7 +5,7 @@ hashes. The live pair is always ``(0, 1)``. ``REDIS_URL`` names the ephemeral
 index of *this* process; persistent is ephemeral + 1, except URLs that name
 db 0 or 1 stay on the live pair. See ``resolve_redis_pair``.
 
-Connection standard: ``REDIS_URL`` (default ``redis://localhost:6379/0``).
+Connection standard: ``REDIS_URL`` (default ``redis://localhost:6380/0``).
 Ephemeral vs persistent is selected via the ``db`` argument on ``Redis.from_url``.
 """
 
@@ -22,7 +22,8 @@ from urllib.parse import urlparse, urlunparse
 import redis
 
 
-DEFAULT_REDIS_URL = "redis://localhost:6379/0"
+DEFAULT_REDIS_PORT = 6380
+DEFAULT_REDIS_URL = f"redis://localhost:{DEFAULT_REDIS_PORT}/0"
 REDIS_DB_EPHEMERAL = 0
 REDIS_DB_PERSISTENT = 1
 HOST_PYTEST_EPHEMERAL_DB = 14

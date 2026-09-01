@@ -1,11 +1,13 @@
-"""Attach to Redis via REDIS_URL or provision Docker Redis + Insights.
+"""Boot MegaDesk Redis (and Insight) or attach to REDIS_URL.
 
 Redis databases:
   ephemeral — control plane (LAUNCHREQUEST / KILLREQUEST / NODEEXIT, node streams)
   persistent — supervisor state (singleton, RUNNINGNODES, alive heartbeat)
   Live pair is (0, 1); ``resolve_redis_pair`` selects the pair for this process.
 
-Connection standard: ``REDIS_URL`` (default ``redis://localhost:6379/0``).
+Connection standard: ``REDIS_URL`` (default ``redis://localhost:6380/0``).
+Loopback + Docker boots named ``megadesk-redis`` / ``megadesk-redis-insight``
+on that URL so a random Redis on 6379 is not picked up.
 """
 
 from __future__ import annotations
@@ -33,8 +35,9 @@ from megadesk_contracts.supervisor_client import (
 REDIS_CONTAINER = "megadesk-redis"
 INSIGHTS_CONTAINER = "megadesk-redis-insight"
 INSIGHTS_PORT = 5540
+REDIS_CONTAINER_PORT = 6379
 ENV_REDIS_INSIGHT = "MEGADESK_REDIS_INSIGHT"
-_INSIGHT_TRUTHY = frozenset({"1", "true", "yes", "on"})
+_INSIGHT_FALSEY = frozenset({"0", "false", "no", "off"})
 
 ALIVE_TTL_SECONDS = 5
 SINGLETON_TTL_SECONDS = 10
@@ -58,9 +61,11 @@ def ping_redis(redis_url: Optional[str] = None, timeout: float = 1.0) -> bool:
 
 
 def redis_insight_enabled() -> bool:
-    """Redis Insight is opt-in; default does not publish port 5540."""
+    """Redis Insight starts with MegaDesk Redis; opt out with MEGADESK_REDIS_INSIGHT=0."""
     raw = (os.environ.get(ENV_REDIS_INSIGHT) or "").strip().lower()
-    return raw in _INSIGHT_TRUTHY
+    if not raw:
+        return True
+    return raw not in _INSIGHT_FALSEY
 
 
 def _redis_publish_args(port: int) -> list[str]:
@@ -69,9 +74,9 @@ def _redis_publish_args(port: int) -> list[str]:
     ``--requirepass`` is only applied when *creating* a container and
     ``REDIS_PASSWORD`` is set. An already-running operator Redis is never
     rewritten. ``REDIS_URL`` must then include the password
-    (``redis://:password@localhost:6379/0``).
+    (``redis://:password@localhost:6380/0``).
     """
-    args = ["-p", f"127.0.0.1:{int(port)}:6379"]
+    args = ["-p", f"127.0.0.1:{int(port)}:{REDIS_CONTAINER_PORT}"]
     password = (os.environ.get("REDIS_PASSWORD") or "").strip()
     if password:
         args.extend(["redis:7", "redis-server", "--requirepass", password])
@@ -105,7 +110,32 @@ def _container_running(name: str) -> bool:
     return result.returncode == 0 and result.stdout.strip().lower() == "true"
 
 
-def _ensure_container(name: str, run_args: list[str]) -> None:
+def _published_host_port(name: str, container_port: int) -> Optional[int]:
+    result = subprocess.run(
+        ["docker", "port", name, str(container_port)],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    if result.returncode != 0:
+        return None
+    line = (result.stdout or "").strip().splitlines()
+    if not line:
+        return None
+    try:
+        return int(line[0].rsplit(":", 1)[-1])
+    except ValueError:
+        return None
+
+
+def _ensure_container(
+    name: str,
+    run_args: list[str],
+    *,
+    expected_host_port: Optional[int] = None,
+    container_port: int = REDIS_CONTAINER_PORT,
+) -> None:
     inspect = subprocess.run(
         ["docker", "inspect", name],
         capture_output=True,
@@ -114,10 +144,31 @@ def _ensure_container(name: str, run_args: list[str]) -> None:
         check=False,
     )
     if inspect.returncode == 0:
-        if not _container_running(name):
-            subprocess.run(["docker", "start", name], check=True, capture_output=True, text=True)
-        return
-    subprocess.run(["docker", "run", "-d", "--name", name, *run_args], check=True, capture_output=True, text=True)
+        mismatch = (
+            expected_host_port is not None
+            and _published_host_port(name, container_port) != expected_host_port
+        )
+        if not mismatch:
+            if not _container_running(name):
+                subprocess.run(
+                    ["docker", "start", name],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            return
+        subprocess.run(
+            ["docker", "rm", "-f", name],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    subprocess.run(
+        ["docker", "run", "-d", "--name", name, *run_args],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
 
 @dataclass
@@ -139,47 +190,64 @@ def connect_handles(redis_url: Optional[str] = None) -> RedisHandles:
 
 
 def provision_redis(redis_url: Optional[str] = None) -> RedisHandles:
-    """Prefer existing Redis at REDIS_URL; otherwise start Docker Redis.
+    """Boot MegaDesk Redis on loopback, then connect to REDIS_URL.
 
-    Docker auto-provision only runs when the URL host is loopback. Published
-    ports bind ``127.0.0.1`` only. Redis Insight starts only when
-    ``MEGADESK_REDIS_INSIGHT=1``.
+    Docker auto-provision only runs when the URL host is loopback. Named
+    containers ``megadesk-redis`` and ``megadesk-redis-insight`` are started
+    *before* attaching, so a random Redis already listening on 6379 is not
+    used. Published ports bind ``127.0.0.1`` only. Redis Insight is on by
+    default; set ``MEGADESK_REDIS_INSIGHT=0`` to skip it. When Docker is
+    unavailable, fall back to whatever is already reachable at ``REDIS_URL``.
     """
     url = resolve_redis_url(redis_url)
+    host, port = redis_url_host_port(url)
+
+    if host in _LOOPBACK_HOSTS and _docker_available():
+        docker_ready = False
+        try:
+            _ensure_container(
+                REDIS_CONTAINER,
+                _redis_publish_args(port),
+                expected_host_port=port,
+                container_port=REDIS_CONTAINER_PORT,
+            )
+            docker_ready = True
+        except Exception:
+            docker_ready = False
+        if docker_ready and redis_insight_enabled():
+            try:
+                _ensure_container(
+                    INSIGHTS_CONTAINER,
+                    [
+                        "-p",
+                        f"127.0.0.1:{INSIGHTS_PORT}:5540",
+                        "redis/redisinsight:latest",
+                    ],
+                    expected_host_port=INSIGHTS_PORT,
+                    container_port=INSIGHTS_PORT,
+                )
+            except Exception:
+                pass
+        if docker_ready:
+            deadline = time.time() + 30
+            while time.time() < deadline:
+                if ping_redis(url):
+                    return connect_handles(url)
+                time.sleep(0.5)
+            raise RuntimeError(f"Docker Redis started but {url} never became reachable")
+
     if ping_redis(url):
         return connect_handles(url)
 
-    host, port = redis_url_host_port(url)
     if host not in _LOOPBACK_HOSTS:
         raise RuntimeError(
             f"Redis is not reachable at {url}. "
             "Start Redis or set REDIS_URL to a reachable server."
         )
-
-    if not _docker_available():
-        raise RuntimeError(
-            f"Redis is not reachable at {url} and Docker is unavailable. "
-            "Start Redis locally, install/start Docker, or set REDIS_URL."
-        )
-
-    _ensure_container(REDIS_CONTAINER, _redis_publish_args(port))
-    if redis_insight_enabled():
-        _ensure_container(
-            INSIGHTS_CONTAINER,
-            [
-                "-p",
-                f"127.0.0.1:{INSIGHTS_PORT}:5540",
-                "redis/redisinsight:latest",
-            ],
-        )
-
-    deadline = time.time() + 30
-    while time.time() < deadline:
-        if ping_redis(url):
-            return connect_handles(url)
-        time.sleep(0.5)
-
-    raise RuntimeError(f"Docker Redis started but {url} never became reachable")
+    raise RuntimeError(
+        f"Redis is not reachable at {url}. "
+        "Start MegaDesk Redis, install/start Docker, or set REDIS_URL."
+    )
 
 
 def mark_supervisor_alive(persistent: redis.Redis, ttl: int = ALIVE_TTL_SECONDS) -> None:

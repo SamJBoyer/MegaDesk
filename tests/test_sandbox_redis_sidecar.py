@@ -46,14 +46,24 @@ def test_factory_redis_url_for_container_uses_host_ephemeral_db(
     assert factory_redis_url_for_container() == "redis://host.docker.internal:6379/14"
 
 
+def test_factory_redis_url_for_container_copies_host_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from MachineFactoryManager.pool import factory_redis_url_for_container
+
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/14")
+    monkeypatch.delenv("REDIS_URL_CONTAINER", raising=False)
+    assert factory_redis_url_for_container() == "redis://host.docker.internal:6379/14"
+
+
 def test_factory_redis_url_for_container_defaults_live_pair(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from MachineFactoryManager.pool import factory_redis_url_for_container
 
-    monkeypatch.setenv("REDIS_URL", "redis://localhost:6379/0")
+    monkeypatch.setenv("REDIS_URL", "redis://localhost:6380/0")
     monkeypatch.delenv("REDIS_URL_CONTAINER", raising=False)
-    assert factory_redis_url_for_container() == "redis://host.docker.internal:6379/0"
+    assert factory_redis_url_for_container() == "redis://host.docker.internal:6380/0"
 
 
 def test_sandbox_dockerfile_runs_as_non_root() -> None:
