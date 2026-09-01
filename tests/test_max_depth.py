@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 import pytest
 from auto_integrate_app import ROW_H as AI_ROW_H
 from pr_manager_app import ROW_H as PM_ROW_H

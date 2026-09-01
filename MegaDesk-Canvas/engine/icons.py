@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 
 logger = logging.getLogger(__name__)
 

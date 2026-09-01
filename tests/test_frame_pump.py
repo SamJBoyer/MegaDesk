@@ -19,7 +19,7 @@ from __future__ import annotations
 import contextlib
 from typing import Iterator
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 import pytest
 from megadesk_contracts import frame_pump
 

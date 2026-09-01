@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 import pytest
 from megadesk_contracts.human_gate import (
     LABEL_AGENT_READY,

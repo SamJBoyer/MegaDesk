@@ -17,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 
 from megadesk_contracts import frame_pump
 from megadesk_contracts.testing.driver import NodeDriver

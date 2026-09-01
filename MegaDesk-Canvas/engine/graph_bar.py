@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 
 from engine.display_engine import DisplayEngine
 from engine.graph_model import GRAPH_SUFFIX, GRAPHS_DIR, GraphError, graph_path_for_name

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 import pytest
 from megadesk_contracts.log_session import begin_log_session, session_log_path
 from megadesk_contracts.testing import CanvasHarness, invoke_callback

@@ -15,7 +15,7 @@ import queue
 import threading
 from typing import Optional
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 import redis
 from megadesk_contracts import resolve_ephemeral_db, redis_connect, frame_pump, resolve_redis_url
 from megadesk_contracts.wire import voice as wire

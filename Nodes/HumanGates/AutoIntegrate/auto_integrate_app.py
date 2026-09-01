@@ -14,7 +14,7 @@ import threading
 from dataclasses import dataclass
 from typing import Mapping, Optional
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 import redis
 from megadesk_contracts import (
     coerce_parameters,

@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from pathlib import Path
 
-import dearpygui.dearpygui as dpg
+from megadesk_contracts import host as dpg
 from megadesk_contracts import (
     ENV_CANVAS_ROOT,
     dev_flush_mode_enabled,
@@ -292,12 +293,16 @@ def main() -> None:
     engine = build_canvas(model)
     attach_canvas_api(engine)
 
-    while dpg.is_dearpygui_running():
-        engine.sync_members()
-        api = getattr(engine, "canvas_api", None)
-        if api is not None:
-            api.drain_commands()
-        dpg.render_dearpygui_frame()
+    try:
+        while dpg.is_dearpygui_running():
+            engine.sync_members()
+            api = getattr(engine, "canvas_api", None)
+            if api is not None:
+                api.drain_commands()
+            dpg.render_dearpygui_frame()
+            time.sleep(0.016)
+    except KeyboardInterrupt:
+        log.info("Canvas stopped")
 
     model.save()
     api = getattr(engine, "canvas_api", None)

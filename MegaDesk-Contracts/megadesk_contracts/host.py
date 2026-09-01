@@ -57,6 +57,7 @@ mvStyleVar_WindowPadding = 3
 mvStyleVar_ItemSpacing = 4
 mvStyleVar_ChildBorderSize = 5
 mvNodeStyleVar_NodePadding = 0
+mvNodeMiniMap_Location_BottomRight = 3
 
 _WIDGETS: dict[str, "Widget"] = {}
 _STACK: list[str] = []
@@ -66,6 +67,12 @@ _CLIPBOARD = ""
 _SELECTED: list[str] = []
 _HOVERED: set[str] = set()
 _VIEWPORT = [1280, 800]
+_RUNNING = False
+_FRAME = 0
+_FRAME_CALLBACKS: dict[int, list[Callable[..., Any]]] = {}
+_RESIZE_CALLBACK: Callable[..., Any] | None = None
+_FOCUSED: Optional[str] = None
+_LAST_IMAGE_PATH: Any = None
 
 
 @dataclass
@@ -103,7 +110,7 @@ def is_visual() -> bool:
 
 def reset() -> None:
     """Drop every widget. Call on canvas teardown (and between harness boots)."""
-    global _ANON, _CLIPBOARD
+    global _ANON, _CLIPBOARD, _FOCUSED
     for widget in list(_WIDGETS.values()):
         widget.element = None
     _WIDGETS.clear()
@@ -112,6 +119,7 @@ def reset() -> None:
     _HOVERED.clear()
     _ANON = 0
     _CLIPBOARD = ""
+    _FOCUSED = None
 
 
 def _ui() -> Any:
@@ -385,7 +393,10 @@ def set_clipboard_text(text: str) -> None:
 
 
 def focus_item(tag: Any) -> None:
-    widget = _WIDGETS.get(str(tag))
+    global _FOCUSED
+    ident = str(tag)
+    _FOCUSED = ident
+    widget = _WIDGETS.get(ident)
     if widget is not None and widget.element is not None:
         try:
             widget.element.run_method("focus")
@@ -441,9 +452,7 @@ def get_viewport_client_height() -> int:
 
 
 def get_frame_count() -> int:
-    from megadesk_contracts import frame_pump
-
-    return frame_pump.get_frame_count()
+    return int(_FRAME)
 
 
 def get_drawing_mouse_pos() -> tuple[float, float]:
@@ -503,9 +512,9 @@ class _Context:
         self.widget = widget
         self.tag = widget.tag
 
-    def __enter__(self) -> Widget:
+    def __enter__(self) -> str:
         _STACK.append(self.widget.tag)
-        return self.widget
+        return self.widget.tag
 
     def __exit__(self, *_exc: object) -> None:
         if _STACK and _STACK[-1] == self.widget.tag:
@@ -600,10 +609,9 @@ def add_drawlist(**kwargs: Any) -> str:
     return ctx.widget.tag
 
 
-@contextmanager
-def theme(tag: str | None = None, **_kwargs: Any) -> Iterator[str]:
+def theme(tag: str | None = None, **_kwargs: Any) -> _Context:
     widget = _create("theme", tag=tag)
-    yield widget.tag
+    return _Context(widget)
 
 
 @contextmanager
@@ -611,10 +619,9 @@ def theme_component(*_args: Any, **_kwargs: Any) -> Iterator[None]:
     yield
 
 
-@contextmanager
-def handler_registry(tag: str | None = None, **_kwargs: Any) -> Iterator[str]:
+def handler_registry(tag: str | None = None, **_kwargs: Any) -> _Context:
     widget = _create("handlers", tag=tag)
-    yield widget.tag
+    return _Context(widget)
 
 
 def add_handler_registry(tag: str | None = None, **kwargs: Any) -> str:
@@ -660,13 +667,12 @@ def tooltip(parent: Any = None, **_kwargs: Any) -> Iterator[None]:
             _STACK.pop()
 
 
-@contextmanager
 def file_dialog(
     tag: str | None = None,
     show: bool = False,
     callback: Callable[..., Any] | None = None,
     **kwargs: Any,
-) -> Iterator[str]:
+) -> _Context:
     widget = _create(
         "file_dialog",
         tag=tag,
@@ -674,26 +680,40 @@ def file_dialog(
         callback=callback,
         extra=dict(kwargs),
     )
-    yield widget.tag
+    return _Context(widget)
 
 
-@contextmanager
 def node(
     label: str = "",
     pos: list[float] | None = None,
     tag: str | None = None,
     parent: Any = None,
+    show: bool = True,
     **kwargs: Any,
-) -> Iterator[str]:
+) -> _Context:
     widget = _create(
         "node",
         tag=tag,
         parent=parent,
         label=label,
         pos=list(pos or [0.0, 0.0]),
+        show=show,
         extra=dict(kwargs),
     )
-    yield widget.tag
+    return _Context(widget)
+
+
+def add_node(
+    label: str = "",
+    pos: list[float] | None = None,
+    tag: str | None = None,
+    parent: Any = None,
+    show: bool = True,
+    **kwargs: Any,
+) -> str:
+    return node(
+        label=label, pos=pos, tag=tag, parent=parent, show=show, **kwargs
+    ).widget.tag
 
 
 @contextmanager
@@ -701,10 +721,34 @@ def node_attribute(*_args: Any, **_kwargs: Any) -> Iterator[None]:
     yield
 
 
-@contextmanager
-def node_editor(tag: str | None = None, parent: Any = None, **kwargs: Any) -> Iterator[str]:
+def node_editor(tag: str | None = None, parent: Any = None, **kwargs: Any) -> _Context:
     widget = _create("editor", tag=tag, parent=parent, extra=dict(kwargs))
-    yield widget.tag
+    return _Context(widget)
+
+
+def window(
+    label: str = "",
+    tag: str | None = None,
+    parent: Any = None,
+    pos: Any = None,
+    width: Any = None,
+    height: Any = None,
+    **kwargs: Any,
+) -> _Context:
+    position = [0.0, 0.0]
+    if pos is not None:
+        position = [float(pos[0]), float(pos[1])]
+    widget = _create(
+        "window",
+        tag=tag,
+        parent=parent,
+        label=label,
+        pos=position,
+        width=width,
+        height=height,
+        extra=dict(kwargs),
+    )
+    return _Context(widget)
 
 
 def add_input_text(
@@ -1087,6 +1131,10 @@ def _image_src(src: Any) -> Any:
     """Turn a local icon path into something NiceGUI can render."""
     if not src:
         return None
+    if str(src) in _WIDGETS:
+        stored = _WIDGETS[str(src)].extra.get("path")
+        if stored:
+            src = stored
     try:
         path = Path(src)
         if path.is_file():
@@ -1434,3 +1482,138 @@ def _sync_visual(widget: Widget) -> None:
                     tabs.value = tab_el
     except Exception:
         pass
+
+
+def bind_theme(_theme: Any = None) -> None:
+    return
+
+
+def get_item_rect_min(tag: Any) -> list[float]:
+    return get_item_pos(tag)
+
+
+def get_item_height(tag: Any) -> int:
+    widget = _WIDGETS.get(str(tag))
+    if widget is None:
+        return 0
+    try:
+        return int(widget.height or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def get_focused_item() -> Optional[str]:
+    return _FOCUSED
+
+
+def get_item_type(tag: Any) -> str:
+    widget = _WIDGETS.get(str(tag))
+    if widget is None:
+        return ""
+    mapping = {
+        "input": "mvAppItemType::InputText",
+        "textarea": "mvAppItemType::InputText",
+        "input_int": "mvAppItemType::InputInt",
+    }
+    return mapping.get(widget.kind, f"mvAppItemType::{widget.kind}")
+
+
+def add_texture_registry(tag: str | None = None, **kwargs: Any) -> str:
+    return _create("texture_registry", tag=tag, extra=dict(kwargs)).tag
+
+
+def load_image(path: Any) -> tuple[int, int, int, list[float]]:
+    global _LAST_IMAGE_PATH
+    _LAST_IMAGE_PATH = path
+    return (48, 48, 4, [])
+
+
+def add_static_texture(
+    width: int,
+    height: int,
+    data: Any = None,
+    tag: str | None = None,
+    parent: Any = None,
+    **kwargs: Any,
+) -> str:
+    return _create(
+        "texture",
+        tag=tag,
+        parent=parent,
+        width=width,
+        height=height,
+        extra={"data": data, "path": _LAST_IMAGE_PATH, **kwargs},
+    ).tag
+
+
+def create_context() -> None:
+    global _RUNNING, _FRAME, _RESIZE_CALLBACK
+    reset()
+    _FRAME_CALLBACKS.clear()
+    _FRAME = 0
+    _RESIZE_CALLBACK = None
+    _RUNNING = True
+
+
+def destroy_context() -> None:
+    global _RUNNING, _RESIZE_CALLBACK
+    _RUNNING = False
+    _RESIZE_CALLBACK = None
+    _FRAME_CALLBACKS.clear()
+    reset()
+
+
+def is_dearpygui_running() -> bool:
+    return bool(_RUNNING)
+
+
+def create_viewport(
+    title: str = "",
+    width: int = 1280,
+    height: int = 800,
+    x_pos: int = 0,
+    y_pos: int = 0,
+    **_kwargs: Any,
+) -> None:
+    _ = title, x_pos, y_pos
+    set_viewport_size(width, height)
+
+
+def setup_dearpygui() -> None:
+    return
+
+
+def show_viewport(*_args: Any, **_kwargs: Any) -> None:
+    return
+
+
+def set_primary_window(_tag: Any, _value: Any = True) -> None:
+    return
+
+
+def set_viewport_resize_callback(callback: Callable[..., Any] | None) -> None:
+    global _RESIZE_CALLBACK
+    _RESIZE_CALLBACK = callback
+
+
+def set_frame_callback(frame: int, callback: Callable[..., Any]) -> None:
+    _FRAME_CALLBACKS.setdefault(int(frame), []).append(callback)
+
+
+def render_dearpygui_frame() -> None:
+    global _FRAME
+    if not _RUNNING:
+        return
+    _FRAME += 1
+    for callback in list(_FRAME_CALLBACKS.pop(_FRAME, [])):
+        try:
+            callback()
+        except Exception:
+            pass
+
+
+def output_frame_buffer(file: str = "", **_kwargs: Any) -> None:
+    """Write a host widget snapshot for harness screenshots."""
+    target = Path(file)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(dump_tree(), encoding="utf-8")
