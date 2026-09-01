@@ -531,7 +531,7 @@ class AutoIntegrate:
 
         self._stale.add(issue_id)
         self._drop_row(issue_id)
-        self._resize_scroll()
+        self._apply_layout()
         self._set_status(f"Dispatched {branch} → {channel}", COLOR_BLUE)
 
 
