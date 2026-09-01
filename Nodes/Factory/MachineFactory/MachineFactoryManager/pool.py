@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 from megadesk_contracts import (
+    DEFAULT_REDIS_PORT,
     DEFAULT_REDIS_URL,
     FACTORY_ACL_USER,
     allowlisted_clone_source,
@@ -25,13 +26,14 @@ from megadesk_contracts import (
     validate_git_ref,
 )
 from megadesk_contracts.agent_audit import agent_audit_bind_args
+from megadesk_contracts.supervisor_client import redis_url_host_port
 
 log = logging.getLogger("pool")
 
 IMAGE_NAME = os.environ.get("MACHINE_FACTORY_IMAGE", "machine-factory-agent:latest")
 REDIS_IMAGE = os.environ.get("MACHINE_FACTORY_REDIS_IMAGE", "redis:7-alpine")
 NETWORK_NAME = os.environ.get("MACHINE_FACTORY_NETWORK", "machine-factory-net")
-DEFAULT_FACTORY_REDIS_URL = "redis://host.docker.internal:6379/0"
+DEFAULT_FACTORY_REDIS_URL = f"redis://host.docker.internal:{DEFAULT_REDIS_PORT}/0"
 LOCAL_REDIS_URL = os.environ.get("REDIS_URL", DEFAULT_REDIS_URL)
 _GH_AUTH_TIMEOUT_SEC = 10
 
@@ -195,10 +197,16 @@ def _follow_container_logs(container_name: str) -> None:
 
 def factory_redis_url_for_container() -> str:
     """Host Redis as seen from inside a sandbox container (factory IPC bus)."""
-    base = os.environ.get("REDIS_URL_CONTAINER", DEFAULT_FACTORY_REDIS_URL)
-    # Prefer the process pair's ephemeral DB when the host REDIS_URL is set.
     host = os.environ.get("REDIS_URL", LOCAL_REDIS_URL)
-    return redis_url_with_db(base, resolve_ephemeral_db(host))
+    ephemeral_db = resolve_ephemeral_db(host)
+    configured = (os.environ.get("REDIS_URL_CONTAINER") or "").strip()
+    if configured:
+        return redis_url_with_db(configured, ephemeral_db)
+    _, port = redis_url_host_port(resolve_redis_url(host))
+    base = DEFAULT_FACTORY_REDIS_URL
+    if port != DEFAULT_REDIS_PORT:
+        base = f"redis://host.docker.internal:{port}/0"
+    return redis_url_with_db(base, ephemeral_db)
 
 
 def require_local_redis() -> None:

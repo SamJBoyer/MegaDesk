@@ -22,7 +22,7 @@ patch, which wire helpers to build payloads with) are injected by `conftest`.
 ```bash
 conda activate MEGADESK
 pip install -r requirements-dev.txt
-redis-server            # any local instance; tests use DBs 14/15
+redis-server --port 6380   # MegaDesk Redis port; tests use DBs 14/15
 pytest                  # from the repo root
 ```
 

@@ -30,8 +30,10 @@ start_xvfb() {
 }
 
 start_redis() {
-  if redis-cli ping 2>/dev/null | grep -q PONG; then
-    echo "==> redis already running"
+  # Port must match DEFAULT_REDIS_PORT in megadesk_contracts (not 6379).
+  local port=6380
+  if redis-cli -p "$port" ping 2>/dev/null | grep -q PONG; then
+    echo "==> redis already running on ${port}"
     return 0
   fi
 
@@ -41,20 +43,20 @@ start_redis() {
   fi
 
   if [[ -f /etc/redis/redis.conf ]]; then
-    sudo redis-server /etc/redis/redis.conf --daemonize yes
+    sudo redis-server /etc/redis/redis.conf --daemonize yes --port "$port"
   else
-    redis-server --daemonize yes --bind 127.0.0.1 --protected-mode yes
+    redis-server --daemonize yes --bind 127.0.0.1 --port "$port" --protected-mode yes
   fi
 
   for _ in $(seq 1 50); do
-    if redis-cli ping 2>/dev/null | grep -q PONG; then
-      echo "==> redis ready"
+    if redis-cli -p "$port" ping 2>/dev/null | grep -q PONG; then
+      echo "==> redis ready on ${port}"
       return 0
     fi
     sleep 0.1
   done
 
-  echo "error: redis did not become ready" >&2
+  echo "error: redis did not become ready on ${port}" >&2
   exit 1
 }
 

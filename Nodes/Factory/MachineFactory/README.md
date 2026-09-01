@@ -59,8 +59,8 @@ gone.
 ## Prerequisites
 
 - Python 3.12+, Git, Docker
-- Redis reachable at `REDIS_URL` (default `redis://localhost:6379/0`; this project
-  never starts Redis for you)
+- Redis reachable at `REDIS_URL` (default `redis://localhost:6380/0`). Supervisor
+  boots Docker `megadesk-redis` on that port when Docker is available.
 - `CURSOR_API_KEY` in the process environment, set User-level so MegaDesk and
   Supervisor inherit it:
 

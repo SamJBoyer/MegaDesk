@@ -22,20 +22,20 @@ status vocabulary they both report in.
 | Setting | Convention |
 |---------|------------|
 | Env var | **`REDIS_URL`** (required standard for all clients) |
-| Default | `redis://localhost:6379/0` (`DEFAULT_REDIS_URL` in `megadesk_contracts`) |
+| Default | `redis://localhost:6380/0` (`DEFAULT_REDIS_URL` in `megadesk_contracts`; port `6380` so a random Redis on `6379` is not used) |
 | Resolve helper | `resolve_redis_url()` — explicit arg → `REDIS_URL` → default |
 | Pair helper | `resolve_redis_pair()` — live `(0, 1)`; otherwise even `N` → `(N, N+1)` |
 | DB selection | Same URL; pass `db=resolve_ephemeral_db(url)` / `resolve_persistent_db(url)` to `Redis.from_url` |
 | Factory IPC (sandbox) | **`MEGADESK_FACTORY_REDIS_URL`** — AgentHandler's bus on the host pair; sandbox `REDIS_URL` is a Redis **sidecar** for agent MegaDesk |
-| Docker → host | `REDIS_URL_CONTAINER` / container `REDIS_URL`, typically `redis://host.docker.internal:6379/{db}` |
+| Docker → host | `REDIS_URL_CONTAINER` / container `REDIS_URL`, typically `redis://host.docker.internal:6380/{db}` |
 
 Do **not** hardcode host/port. Prefer `redis_connect(url, db=resolve_ephemeral_db(url))` — redis-py 8 ignores a `db=` keyword when the URL already names a database.
 
 **`DEV_FLUSH_MODE`** — debug convenience, default on. When MegaDesk-Canvas `main()` boots, unless the env var is explicitly falsey (`0` / `false` / `no` / `off`, case-insensitive), it FLUSHDB's live DB 0 then DB 1 (`flush_live_redis_pair`) **before** `ensure_supervisor_running()`. Disable with `set DEV_FLUSH_MODE=0` (Windows) or `export DEV_FLUSH_MODE=0`. Pytest, `python -m supervisor` alone, and agent sandboxes never flush 0/1.
 
-MachineFactory, WorkDispatcher, `SupervisorClient`, and Supervisor provision all read **`REDIS_URL`**. They **do not** start Redis. The Canvas-owned Supervisor BE may attach to an existing Redis at `REDIS_URL` or (when the URL host is loopback) provision Docker Redis if none is reachable.
+MachineFactory, WorkDispatcher, `SupervisorClient`, and Supervisor provision all read **`REDIS_URL`**. They **do not** start Redis. The Canvas-owned Supervisor BE boots Docker `megadesk-redis` (and `megadesk-redis-insight`) when the URL host is loopback and Docker is available, then connects to that URL. A random Redis on `6379` is ignored unless `REDIS_URL` points at it. When Docker is unavailable, it attaches to whatever is already reachable at `REDIS_URL`.
 
-**Bind.** Auto-provision publishes Redis as `127.0.0.1:{port}:6379`, not `{port}:6379`. Redis Insight is **opt-in** (`MEGADESK_REDIS_INSIGHT=1`) and, when started, publishes `127.0.0.1:5540:5540`. Neither service is published on `0.0.0.0`. Do not add `--requirepass` to an operator Redis that is already running. When **creating** a new container, `REDIS_PASSWORD` (if set) is passed as `--requirepass`; `REDIS_URL` must then include that password (`redis://:password@localhost:6379/0`). Existing URL resolution goes through `Redis.from_url` — do not hardcode host/port.
+**Bind.** Auto-provision publishes Redis as `127.0.0.1:{port}:6379`, not `{port}:6379`. The programmed MegaDesk port is **`6380`** (`DEFAULT_REDIS_PORT`). Redis Insight starts with MegaDesk Redis (opt out with `MEGADESK_REDIS_INSIGHT=0`) and publishes `127.0.0.1:5540:5540`. Neither service is published on `0.0.0.0`. Do not add `--requirepass` to an operator Redis that is already running. When **creating** a new container, `REDIS_PASSWORD` (if set) is passed as `--requirepass`; `REDIS_URL` must then include that password (`redis://:password@localhost:6380/0`). Existing URL resolution goes through `Redis.from_url` — do not hardcode host/port.
 
 **Factory ACL.** A MachineFactory sandbox talks to the host pair as Redis user `megadesk-factory` (`megadesk_contracts.FACTORY_ACL_USER`). That user may use factory keys only (`WORKORDER`, `FINISHED:*`, `AGENTHANDLER:*`, `GRAPHRUN:*`, `GRAPHEVENT`) and is denied `FLUSHDB` / `FLUSHALL` / `CONFIG` / `ACL` / `DEBUG` / `MODULE` / `SCRIPT` plus Supervisor keys (`SUPERVISOR:*`, `NODEEXIT`, `NODE:SHUTDOWN*`, `RUNNINGNODES:*`, `NODEHB:*`). The factory manager applies `ACL SETUSER` as admin before launch. If ACL cannot be applied, sandbox launch fails rather than injecting an unauthenticated URL. Host canvas / supervisor / MachineFactory **manager** keep the default/admin user.
 
@@ -45,7 +45,7 @@ One-time / operator Redis: run as admin (or let the factory manager do it):
 ACL SETUSER megadesk-factory reset on ><password> resetkeys ~WORKORDER ~FINISHED:* ~AGENTHANDLER:* ~GRAPHRUN:* ~GRAPHEVENT resetchannels -@all +@read +@write +@stream +@hash +@connection -@admin -@dangerous -FLUSHDB -FLUSHALL -CONFIG -ACL -DEBUG -MODULE -SCRIPT
 ```
 
-`MEGADESK_FACTORY_REDIS_PASSWORD` pins the password; otherwise the manager generates one for the process. The sandbox URL is `redis://megadesk-factory:<password>@host.docker.internal:6379/{db}`.
+`MEGADESK_FACTORY_REDIS_PASSWORD` pins the password; otherwise the manager generates one for the process. The sandbox URL is `redis://megadesk-factory:<password>@host.docker.internal:6380/{db}`.
 
 ## Databases
 

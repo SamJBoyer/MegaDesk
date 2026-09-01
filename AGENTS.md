@@ -56,7 +56,7 @@ Most breakage here is at the seam between two modules, not inside one, so verify
 </logging>
 <Redis-policy>
 
-We use a Redis **pair** per MegaDesk process. DB 0 is the live ephemeral bus and DB 1 is live persistent state. All clients connect via **`REDIS_URL`** (default `redis://localhost:6379/0`; see `DEFAULT_REDIS_URL` / `resolve_redis_url()` / `resolve_redis_pair()` in `megadesk_contracts`). Do not hardcode host/port. `REDIS_URL` names the ephemeral index; persistent is that index + 1, except URLs that name db 0 or 1 stay on the live pair.
+We use a Redis **pair** per MegaDesk process. DB 0 is the live ephemeral bus and DB 1 is live persistent state. All clients connect via **`REDIS_URL`** (default `redis://localhost:6380/0`; see `DEFAULT_REDIS_URL` / `DEFAULT_REDIS_PORT` / `resolve_redis_url()` / `resolve_redis_pair()` in `megadesk_contracts`). Do not hardcode host/port. `REDIS_URL` names the ephemeral index; persistent is that index + 1, except URLs that name db 0 or 1 stay on the live pair.
 
 **DB 0 (live ephemeral)** — streams / default node traffic:
 - **SUPERVISOR:LAUNCHREQUEST** — consume `node_endpoint` + `parameters` (JSON object of graph kvps, or `""`); discover BE via `MegaDesk.nodes` → `BeSpec`; `Popen` with `MEGADESK_*` env (including `MEGADESK_PARAMETERS`)
