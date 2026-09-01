@@ -13,7 +13,7 @@ two share, and where they honestly differ, is in [Factory](../README.md).
 
 | Half | What it does |
 |------|--------------|
-| FE (`cloud_factory_frontend/app.py`) | Queued CLOUDORDERs, boot lamp, live agents, reject |
+| FE (`cloud_factory_frontend/app.py`) | Queued CLOUDORDERs with a status lamp per order, live agents, reject |
 | BE (`CloudFactoryManager/`) | Consume `CLOUDORDER`, launch cloud agents, follow them until a PR URL, cancel the VM; `CLOUDFINISHED` only on failure / cancel |
 
 ## How a cloud agent differs from a local one

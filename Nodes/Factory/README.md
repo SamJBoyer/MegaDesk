@@ -60,9 +60,9 @@ the only one retried, on the provider's own advice. A run that started and faile
 reports `error`, and the transcript is what to look at.
 
 The FEs follow the same split. Both show **queued work orders** and **live
-agents**. CloudFactory puts a lamp between those two panels: it blinks blue
-while an agent is still booting (the VM takes a while, and an empty live list
-is not a crash) and turns red if the launch failed or the run errored.
+agents**. CloudFactory puts a lamp on each queued order: it blinks blue while
+that ticket is still booting (the VM takes a while, and an empty live list is
+not a crash) and turns red if that launch failed or the run errored.
 MachineFactory keeps a corner lamp that turns red if an error has been thrown,
 and also shows active sandboxes. Node logs are in the Supervisor Logs
 tab, not on the factory.
