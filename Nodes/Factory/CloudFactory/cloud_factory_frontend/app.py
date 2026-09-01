@@ -102,6 +102,7 @@ class CloudFactoryFE:
         self._live: list[LiveRow] = []
         self._selected_key = ""
         self._queue_keys: list[str] | None = None
+        self._col_w = 176
 
     def _tag(self, suffix: str) -> str:
         return f"{self._root_tag}::{suffix}"
@@ -148,7 +149,8 @@ class CloudFactoryFE:
     ) -> None:
         self._root_tag = tag_prefix
         _ = width, height
-        col_w = 176
+        self._col_w = 176
+        col_w = self._col_w
 
         theme = self._tag("queue_theme")
         if not dpg.does_item_exist(theme):
@@ -156,8 +158,9 @@ class CloudFactoryFE:
                 with dpg.theme_component(dpg.mvChildWindow):
                     dpg.add_theme_style(dpg.mvStyleVar_WindowPadding, 2, 2)
                     dpg.add_theme_style(dpg.mvStyleVar_ItemSpacing, 2, 1)
-                with dpg.theme_component(dpg.mvSelectable):
+                with dpg.theme_component(dpg.mvButton):
                     dpg.add_theme_style(dpg.mvStyleVar_FramePadding, 2, 1)
+                    dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 2)
 
         with dpg.group(parent=parent):
             with dpg.group(horizontal=True):
@@ -204,6 +207,9 @@ class CloudFactoryFE:
         if self._frame_registered:
             frame_pump.unregister(self._on_frame)
             self._frame_registered = False
+        theme = self._tag("queue_theme")
+        if dpg.does_item_exist(theme):
+            dpg.delete_item(theme)
         self._redis = None
         self._persistent = None
         _LIVE.pop(self._root_tag, None)
@@ -389,11 +395,12 @@ class CloudFactoryFE:
                         color=COLOR_OK,
                         tag=self._tag(f"queue_lamp_{key}"),
                     )
-                dpg.add_selectable(
+                dpg.add_button(
                     label=row.label,
                     tag=self._tag(f"queue_item_{key}"),
-                    width=-1,
-                    default_value=(key == self._selected_key),
+                    width=max(40, self._col_w - QUEUE_LAMP_W - 16),
+                    height=QUEUE_ROW_H - 2,
+                    small=True,
                     callback=self._on_select_order,
                     user_data=key,
                 )
@@ -415,17 +422,7 @@ class CloudFactoryFE:
             )
 
     def _on_select_order(self, sender=None, app_data=None, user_data=None) -> None:
-        key = str(user_data or "")
-        want = True if app_data is None else bool(app_data)
-        if want:
-            self._selected_key = key
-        elif self._selected_key == key:
-            self._selected_key = ""
-        for row in self._orders:
-            row_key = _row_key(row)
-            tag = self._tag(f"queue_item_{row_key}")
-            if dpg.does_item_exist(tag):
-                dpg.set_value(tag, row_key == self._selected_key)
+        self._selected_key = str(user_data or "")
 
     def _refresh_widgets(self) -> None:
         self._refresh_queue()
