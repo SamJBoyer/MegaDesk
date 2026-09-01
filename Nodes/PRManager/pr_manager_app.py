@@ -33,6 +33,7 @@ ENV_SCOPE_ROOT = "PR_SCOPE_ROOT"
 
 HEADER_H = 48
 ROW_H = 26
+NAME_W = 160
 DEFAULT_DEPTH = 2
 DEFAULT_WIDTH = 560
 DEFAULT_HEIGHT = HEADER_H + DEFAULT_DEPTH * ROW_H + 10
@@ -71,6 +72,16 @@ def short_pr_url(url: str) -> str:
     if len(text) <= 48:
         return text
     return "…" + text[-47:]
+
+
+def close_pr(owner: str, repo: str, number: int) -> tuple[bool, str]:
+    """Close an open pull request. ``(ok, message)``; never raises."""
+    ok, _stdout, err = run_gh(
+        "pr", "close", str(int(number)), "--repo", f"{owner}/{repo}"
+    )
+    if not ok:
+        return False, err or "Failed to close pull request"
+    return True, f"Rejected PR #{int(number)}"
 
 
 def open_pr_url(url: str) -> tuple[bool, str]:
@@ -200,7 +211,9 @@ class PRManager:
         self._max_depth = _clamp_depth(values.get(PARAM_MAX_DEPTH, "") or DEFAULT_DEPTH)
         self._items: dict[int, MergeIssue] = {}
         self._dismissed: set[int] = set()
+        self._rejected: set[int] = set()
         self._jobs: queue.Queue[tuple[int, Optional[str]]] = queue.Queue()
+        self._reject_jobs: queue.Queue[int] = queue.Queue()
         self._root_tag = "primary"
         self._content_parent = ""
         self._frame_registered = False
@@ -242,6 +255,15 @@ class PRManager:
 
             if issue_id is not None:
                 self._do_pull(issue_id, then_open=then_open)
+                last_list = time.monotonic()
+                continue
+
+            try:
+                reject_id = self._reject_jobs.get_nowait()
+            except queue.Empty:
+                reject_id = None
+            if reject_id is not None:
+                self._do_reject(reject_id)
                 last_list = time.monotonic()
                 continue
 
@@ -326,11 +348,17 @@ class PRManager:
                 self._sync_rows(msg[1])
             elif kind == "pulled":
                 self._on_pulled(msg[1], msg[2], msg[3])
+            elif kind == "rejected":
+                self._hide_row(msg[1], f"Rejected {msg[2]}", COLOR_OK)
+            elif kind == "reject_failed":
+                self._rejected.discard(msg[1])
+                self._set_status(msg[2], COLOR_ERR)
 
     def _sync_rows(self, issues: list[MergeIssue]) -> None:
         live_ids = {issue.id for issue in issues}
         self._dismissed &= live_ids
-        visible = [issue for issue in issues if issue.id not in self._dismissed]
+        hidden = self._dismissed | self._rejected
+        visible = [issue for issue in issues if issue.id not in hidden]
         seen = {issue.id for issue in visible}
         for rid in list(self._items):
             if rid not in seen:
@@ -341,11 +369,8 @@ class PRManager:
             self._add_row(issue)
 
     def _row_label(self, item: MergeIssue) -> str:
-        bits = [item.name]
-        short = short_pr_url(item.pr_url)
-        if short:
-            bits.append(short)
-        return "  —  ".join(bits)
+        name = (item.name or "").strip()
+        return name or f"PR #{item.id}"
 
     def _list_height(self) -> int:
         return self._max_depth * self._row_h
@@ -385,7 +410,7 @@ class PRManager:
 
     def _set_row_enabled(self, issue: MergeIssue) -> None:
         has_pr = self._has_pr(issue)
-        for suffix in ("open_pr", "pull", "vscode", "cursor"):
+        for suffix in ("open_pr", "pull", "vscode", "cursor", "reject"):
             tag = self._tag(f"{suffix}::{issue.id}")
             if dpg.does_item_exist(tag):
                 dpg.configure_item(tag, enabled=has_pr)
@@ -401,7 +426,7 @@ class PRManager:
             self._items[issue.id] = issue
             name_tag = self._tag(f"name::{issue.id}")
             if dpg.does_item_exist(name_tag):
-                dpg.set_value(name_tag, self._row_label(issue))
+                dpg.configure_item(name_tag, label=self._row_label(issue))
             self._set_row_enabled(issue)
             return
 
@@ -414,6 +439,11 @@ class PRManager:
         self._items[issue.id] = issue
         has_pr = self._has_pr(issue)
         with dpg.group(parent=scroll, horizontal=True, tag=row_tag):
+            dpg.add_button(
+                label=self._row_label(issue),
+                width=NAME_W,
+                tag=self._tag(f"name::{issue.id}"),
+            )
             dpg.add_button(
                 label="open PR",
                 width=70,
@@ -446,7 +476,14 @@ class PRManager:
                 user_data=issue.id,
                 enabled=has_pr,
             )
-            dpg.add_text(self._row_label(issue), tag=self._tag(f"name::{issue.id}"))
+            dpg.add_button(
+                label="reject",
+                width=50,
+                tag=self._tag(f"reject::{issue.id}"),
+                callback=self._on_reject,
+                user_data=issue.id,
+                enabled=has_pr,
+            )
             dpg.add_button(
                 label="dismiss",
                 width=60,
@@ -473,6 +510,14 @@ class PRManager:
 
     def _on_cursor(self, _sender: str, _app_data: object, issue_id: int) -> None:
         self._open_or_pull(issue_id, "cursor")
+
+    def _on_reject(self, _sender: str, _app_data: object, issue_id: int) -> None:
+        item = self._items.get(issue_id)
+        if item is None:
+            return
+        self._rejected.add(issue_id)
+        self._set_status("Rejecting PR…", COLOR_INFO)
+        self._reject_jobs.put(issue_id)
 
     def _open_or_pull(self, issue_id: int, editor: str) -> None:
         item = self._items.get(issue_id)
@@ -511,6 +556,28 @@ class PRManager:
             return
         self._ui_queue.put(("pulled", issue_id, path, then_open))
 
+    def _do_reject(self, issue_id: int) -> None:
+        item = self._items.get(issue_id)
+        name = item.name if item else f"PR #{issue_id}"
+        with self._url_lock:
+            url = self._current_repo_url
+        parsed = parse_github_repo(url)
+        if not parsed:
+            self._ui_queue.put(
+                (
+                    "reject_failed",
+                    issue_id,
+                    "Unsupported URL (GitHub https or SSH required)",
+                )
+            )
+            return
+        owner, repo = parsed
+        ok, msg = close_pr(owner, repo, issue_id)
+        if not ok:
+            self._ui_queue.put(("reject_failed", issue_id, msg))
+            return
+        self._ui_queue.put(("rejected", issue_id, name))
+
     def _on_pulled(
         self, issue_id: int, path: Path, then_open: Optional[str]
     ) -> None:
@@ -522,14 +589,19 @@ class PRManager:
             ok, msg = open_in_editor(then_open, path)
             self._set_status(msg, COLOR_OK if ok else COLOR_ERR)
 
+    def _hide_row(
+        self, issue_id: int, status: str, color: tuple[int, int, int, int]
+    ) -> None:
+        item = self._items.pop(issue_id, None)
+        if item is not None and item.row_tag and dpg.does_item_exist(item.row_tag):
+            dpg.delete_item(item.row_tag)
+        self._set_status(status, color)
+
     def _on_dismiss_row(self, _sender: str, _app_data: object, issue_id: int) -> None:
         item = self._items.get(issue_id)
         name = item.name if item else str(issue_id)
         self._dismissed.add(issue_id)
-        dropped = self._items.pop(issue_id, item)
-        if dropped is not None and dropped.row_tag and dpg.does_item_exist(dropped.row_tag):
-            dpg.delete_item(dropped.row_tag)
-        self._set_status(f"Dismissed {name}", COLOR_OK)
+        self._hide_row(issue_id, f"Dismissed {name}", COLOR_OK)
 
     def build_ui(
         self,

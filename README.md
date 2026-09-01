@@ -51,7 +51,7 @@ Individual modules:
   - Factories (`Nodes/Factory/`): the two nodes that deploy agents. Same three verbs, same status words, same shape — one runs them here, one runs them in the cloud, and a graph should be able to choose without the choice changing what an agent can do. See [`Nodes/Factory/README.md`](Nodes/Factory/README.md).
     - MachineFactory: FE + BE node — Redis WORKORDER poller that launches Docker agent sandboxes against git worktrees, plus a Floor monitor panel. Hands back a pull-request URL.
     - CloudFactory: FE + BE node — follows Cursor **cloud** agents to a PR. Orders come from WorkDispatcher or VoiceDeck; this panel does not take a GitHub URL or issue text.
-  - PRManager: FE-only Dear PyGui tool that lists open PRs whose merge-check `mergeable` status succeeded, pulls the tracked PR into a gitignored `Scope/`, and opens it in the browser, VS Code, or Cursor.
+  - PRManager: FE-only Dear PyGui tool that lists open PRs whose merge-check `mergeable` status succeeded, shows each PR's title, pulls the tracked PR into a gitignored `Scope/`, opens it in the browser, VS Code, or Cursor, and can reject (close) a PR so it leaves the board.
   - Human gates (`Nodes/HumanGates/`): the nodes where a person approves a step. See [`Nodes/HumanGates/README.md`](Nodes/HumanGates/README.md).
     - WorkDispatcher: FE-only tool that lists `agent-ready` GitHub issues and publishes a WORKORDER or a CLOUDORDER.
     - AutoIntegrate: FE-only tool that lists PRs whose merge-check `mergeable` status failed and orders a factory to fix that pull request on the PR's own branch.
