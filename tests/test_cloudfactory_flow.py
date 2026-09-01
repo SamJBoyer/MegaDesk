@@ -116,6 +116,14 @@ def pending_orders(cloud_factory) -> int:
     return cloud_factory.pending_count
 
 
+def queue_labels(fe) -> list[str]:
+    """Queue row labels. The queue is a list of lamp+selectable rows, not a listbox."""
+    labels = fe.user_data("queue_list")
+    if isinstance(labels, list):
+        return [str(item) for item in labels]
+    return [fe.label(suffix) for suffix in fe.suffixes(r"^queue_item_")]
+
+
 # --- launching -------------------------------------------------------------
 
 
@@ -833,6 +841,30 @@ def test_launch_attaches_order_pictures_to_the_prompt(
 # --- the frontend ----------------------------------------------------------
 
 
+def test_each_order_gets_its_own_lamp_state() -> None:
+    """One shared lamp would paint every ticket with the worst status in the queue."""
+    from cloud_factory_frontend.app import (
+        LAMP_ERROR,
+        LAMP_OK,
+        LAMP_STARTING,
+        lamp_for_order,
+    )
+
+    assert lamp_for_order(status="", order_id="boot") == LAMP_STARTING
+    assert lamp_for_order(status=wire.STATUS_STARTUP_ERROR, order_id="dead") is LAMP_ERROR
+    assert lamp_for_order(status=wire.STATUS_ERROR, order_id="dead") is LAMP_ERROR
+    assert lamp_for_order(status=wire.STATUS_RUNNING, order_id="live") is LAMP_OK
+    assert (
+        lamp_for_order(
+            status=wire.STATUS_RUNNING,
+            pr_url="https://github.com/acme/widgets/pull/1",
+            order_id="done",
+        )
+        is LAMP_OK
+    )
+    assert lamp_for_order(status=wire.STATUS_CANCELLED, order_id="nope") is LAMP_OK
+
+
 @pytest.mark.canvas
 def test_work_dispatcher_publishes_a_canonical_cloudorder(
     harness, redis_client, fake_gh, cloudorders, cloud_factory, fake_cloud_factory
@@ -856,7 +888,7 @@ def test_work_dispatcher_publishes_a_canonical_cloudorder(
     assert cloud_factory.poll_orders() == 1
     fe = harness.drop("cloud_factory")
     harness.wait_until(
-        lambda: any(TITLE in item for item in fe.items("queue_list")),
+        lambda: any(TITLE in item for item in queue_labels(fe)),
         message="the processed order to reach the CloudFactory queue",
     )
 
@@ -865,12 +897,12 @@ def test_work_dispatcher_publishes_a_canonical_cloudorder(
 def test_processed_orders_and_live_agents_share_the_machine_factory_layout(
     harness, redis_client, persistent_client
 ) -> None:
-    store_order(redis_client)
+    order_id = store_order(redis_client)
     seed_run(persistent_client)
     fe = harness.drop("cloud_factory")
 
     harness.wait_until(
-        lambda: any(TITLE in item for item in fe.items("queue_list")),
+        lambda: any(TITLE in item for item in queue_labels(fe)),
         message="the processed order to appear",
     )
     harness.wait_until(
@@ -879,7 +911,8 @@ def test_processed_orders_and_live_agents_share_the_machine_factory_layout(
     )
     assert fe.exists("queue_list")
     assert fe.exists("live_list")
-    assert fe.exists("error_lamp")
+    assert fe.exists(f"queue_lamp_{order_id}")
+    assert not fe.exists("error_lamp")
     assert fe.exists("reject_btn")
     assert not fe.exists("draft_list")
     assert not fe.exists("docker_list")
@@ -916,7 +949,7 @@ def test_a_run_shows_its_status_in_the_queue(
         lambda: fe.items("live_list") == ["(no live agents)"],
         message="the live list to clear after handoff",
     )
-    assert all(wire.STATUS_FINISHED not in item for item in fe.items("queue_list"))
+    assert all(wire.STATUS_FINISHED not in item for item in queue_labels(fe))
 
 
 @pytest.mark.canvas
@@ -947,7 +980,7 @@ def test_a_spoken_order_reaches_a_cloud_agent(
 
     assert cloud_factory.poll_orders() == 1
     harness.wait_until(
-        lambda: any(TITLE in item for item in fe.items("queue_list")),
+        lambda: any(TITLE in item for item in queue_labels(fe)),
         message="the spoken order to reach the CloudFactory queue",
     )
 
@@ -959,61 +992,89 @@ def test_a_spoken_order_reaches_a_cloud_agent(
 
 
 @pytest.mark.canvas
-def test_a_run_that_never_started_turns_the_lamp_red(
-    harness, redis_client, read_stream
+def test_a_run_that_never_started_turns_that_orders_lamp_red(
+    harness, redis_client
 ) -> None:
-    fe = harness.drop("cloud_factory")
+    order_id = store_order(redis_client)
     redis_client.xadd(
         wire.CLOUDFINISHED_STREAM,
         wire.cloudfinished_fields(
-            order_id=wire.new_order_id(), status=wire.STATUS_STARTUP_ERROR
+            order_id=order_id, status=wire.STATUS_STARTUP_ERROR
         ),
     )
+    fe = harness.drop("cloud_factory")
 
     harness.wait_until(
-        lambda: fe.user_data("error_lamp") is True,
-        message="the error lamp to turn red",
+        lambda: fe.exists(f"queue_lamp_{order_id}")
+        and fe.user_data(f"queue_lamp_{order_id}") is True,
+        message="that order's lamp to turn red",
     )
 
 
 @pytest.mark.canvas
-def test_a_queued_order_blinks_the_lamp_while_no_agent_exists(
+def test_a_queued_order_blinks_its_own_lamp_while_no_agent_exists(
     harness, redis_client
 ) -> None:
-    store_order(redis_client)
+    order_id = store_order(redis_client)
     fe = harness.drop("cloud_factory")
 
     harness.wait_until(
-        lambda: any(TITLE in item for item in fe.items("queue_list")),
+        lambda: any(TITLE in item for item in queue_labels(fe)),
         message="the queued order to appear",
     )
     harness.wait_until(
-        lambda: fe.user_data("error_lamp") == "starting",
-        message="the lamp to blink starting while the agent is still booting",
+        lambda: fe.user_data(f"queue_lamp_{order_id}") == "starting",
+        message="that order's lamp to blink starting while the agent is still booting",
     )
     assert all("running" not in item for item in fe.items("live_list"))
+
+
+@pytest.mark.canvas
+def test_queued_orders_do_not_share_one_lamp(
+    harness, redis_client, persistent_client
+) -> None:
+    booting = store_order(redis_client, title="Booting ticket")
+    dead = store_order(redis_client, title="Dead ticket")
+    live = store_order(redis_client, title="Live ticket")
+    redis_client.xadd(
+        wire.CLOUDFINISHED_STREAM,
+        wire.cloudfinished_fields(
+            order_id=dead, status=wire.STATUS_STARTUP_ERROR
+        ),
+    )
+    seed_run(persistent_client, order_id=live, status=wire.STATUS_RUNNING)
+    fe = harness.drop("cloud_factory")
+
+    harness.wait_until(
+        lambda: fe.exists(f"queue_lamp_{booting}")
+        and fe.exists(f"queue_lamp_{dead}")
+        and fe.exists(f"queue_lamp_{live}"),
+        message="each queued order to grow its own lamp",
+    )
+    assert fe.user_data(f"queue_lamp_{booting}") == "starting"
+    assert fe.user_data(f"queue_lamp_{dead}") is True
+    assert fe.user_data(f"queue_lamp_{live}") is False
 
 
 @pytest.mark.canvas
 def test_reject_refuses_a_queued_order_before_it_launches(
     harness, redis_client, read_stream
 ) -> None:
-    store_order(redis_client)
+    order_id = store_order(redis_client)
     fe = harness.drop("cloud_factory")
 
     harness.wait_until(
-        lambda: any(TITLE in item for item in fe.items("queue_list")),
+        lambda: fe.exists(f"queue_item_{order_id}"),
         message="the queued order to appear",
     )
-    label = next(item for item in fe.items("queue_list") if TITLE in item)
-    fe.select("queue_list", label)
+    fe.click(f"queue_item_{order_id}")
     fe.click("reject_btn")
 
     harness.wait_until(
-        lambda: any(wire.STATUS_CANCELLED in item for item in fe.items("queue_list")),
+        lambda: any(wire.STATUS_CANCELLED in item for item in queue_labels(fe)),
         message="the rejected order to show cancelled",
     )
     reports = [fields for _id, fields in read_stream(wire.CLOUDFINISHED_STREAM)]
     assert reports[-1]["status"] == wire.STATUS_CANCELLED
     assert reports[-1]["agent_id"] == ""
-    assert fe.user_data("error_lamp") is False
+    assert fe.user_data(f"queue_lamp_{order_id}") is False
