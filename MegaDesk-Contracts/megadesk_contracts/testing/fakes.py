@@ -97,11 +97,11 @@ class FakeGh:
 
     Answers ``gh repo view``, ``gh label list``, ``gh label create``,
     ``gh issue list --label …``, ``gh issue edit``, ``gh issue close``,
-    ``gh pr list`` and ``gh pr view``, and fails loudly on anything else so a
-    changed argv surfaces as a test failure rather than a hang. ``issue list``
-    filters by ``--label`` and ``--state`` the way the real CLI does; ``pr list``
-    filters by ``--base`` / ``--state`` and returns a ``statusCheckRollup``
-    matching merge-check's ``mergeable`` check.
+    ``gh pr list``, ``gh pr view`` and ``gh pr close``, and fails loudly on
+    anything else so a changed argv surfaces as a test failure rather than a
+    hang. ``issue list`` filters by ``--label`` and ``--state`` the way the real
+    CLI does; ``pr list`` filters by ``--base`` / ``--state`` and returns a
+    ``statusCheckRollup`` matching merge-check's ``mergeable`` check.
     """
 
     def __init__(
@@ -230,6 +230,10 @@ class FakeGh:
     def pr_lists(self) -> int:
         return sum(1 for call in self.calls if call[:2] == ("pr", "list"))
 
+    @property
+    def pr_closes(self) -> int:
+        return sum(1 for call in self.calls if call[:2] == ("pr", "close"))
+
     def _status_rollup(self, pr: PullRequest) -> list[dict[str, Any]]:
         state = (pr.merge_check or "").strip().upper()
         if not state:
@@ -298,6 +302,16 @@ class FakeGh:
                         ),
                         "",
                     )
+            return False, "", f"PR #{number} not found"
+        if args[:2] == ("pr", "close"):
+            try:
+                number = int(args[2])
+            except (IndexError, ValueError):
+                return False, "", "FakeGh pr close needs a number"
+            for pr in self.pull_requests:
+                if pr.number == number:
+                    pr.state = "closed"
+                    return True, "", ""
             return False, "", f"PR #{number} not found"
         if args[:2] == ("issue", "list"):
             if self.issue_error:

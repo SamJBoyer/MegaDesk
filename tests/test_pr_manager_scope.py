@@ -114,3 +114,28 @@ def test_open_in_editor_reports_a_missing_cli(monkeypatch, tmp_path: Path) -> No
     ok, msg = pr_manager_app.open_in_editor("vscode", tmp_path)
     assert not ok
     assert "not found" in msg
+
+
+def test_close_pr_closes_the_github_pr(monkeypatch) -> None:
+    from megadesk_contracts.testing import FakeGh
+    import pr_manager_app
+
+    gh = FakeGh()
+    gh.add_merge_success(4, "t4-ticket")
+    monkeypatch.setattr(pr_manager_app, "run_gh", gh)
+
+    ok, msg = pr_manager_app.close_pr("acme", "widgets", 4)
+    assert ok
+    assert "4" in msg
+    assert gh.pr_closes == 1
+    assert gh.pull_requests[0].state == "closed"
+
+
+def test_close_pr_reports_a_missing_pr(monkeypatch) -> None:
+    from megadesk_contracts.testing import FakeGh
+    import pr_manager_app
+
+    monkeypatch.setattr(pr_manager_app, "run_gh", FakeGh())
+    ok, msg = pr_manager_app.close_pr("acme", "widgets", 9)
+    assert not ok
+    assert "9" in msg

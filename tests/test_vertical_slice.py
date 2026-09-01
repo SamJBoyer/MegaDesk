@@ -105,7 +105,9 @@ def test_ticket_factory_merge_vertical_slice(
     redis_client.delete(f"AGENTHANDLER:{guid}")
 
     harness.wait_for_widget(manager, "name::2")
+    assert manager.label("name::2") == "PR #2 can merge into dev"
     assert manager.enabled("open_pr::2")
+    assert manager.shown("reject::2")
     assert manager.shown("dismiss::2")
     assert run.pr_url
     harness.screenshot("vertical-slice-merge-success-pr")

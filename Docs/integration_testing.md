@@ -175,7 +175,7 @@ real widget callbacks.
 
 **`FakeGh`** — monkeypatches `run_gh` on both human gates and on
 `pr_manager_app` for `gh repo view`, `gh label list`, `gh issue list --label …`,
-`gh issue close`, `gh pr list` and `gh pr view`. Issue lists are filtered by
+`gh issue close`, `gh pr list`, `gh pr view` and `gh pr close`. Issue lists are filtered by
 label (`agent-ready` vs whatever the WorkDispatcher dropdown targets).
 `add_merge_success` / `add_merge_fail` register open PRs with a `mergeable`
 check, the signal merge-check posts.
@@ -209,10 +209,11 @@ host DB lanes; if `REDIS_URL` already names a non-live pair, conftest honors it.
 | T2b | `gh repo view` failing surfaces on `status_text` | Errors swallowed |
 | T3 | `FakeAgent` consumes; group has zero pending; `FINISHED:{repo}` has the four canonical fields (`ticket_name`, `ticket_id`, `status`, `pr_url`) | Consumer-group and ack |
 | T3b | A second pass returns nothing | Redelivery of acked entries |
-| T4 | Seed a mergeable PR, pump. Row widgets exist, open-PR / pull / vscode / cursor visible | GitHub list → GUI; frame-pump drain |
+| T4 | Seed a mergeable PR, pump. Row shows the ticket name plus open-PR / pull / vscode / cursor / reject | GitHub list → GUI; frame-pump drain; title clipped |
 | T4b | An `agent-ready` issue is never rendered on PRManager | Queue filter inverted |
 | T5 | An unchecked or conflicting PR is not listed on PRManager | Status filter inverted |
 | T7 | Click dismiss. Row gone, GitHub PR still open | Local hide vs GUI teardown |
+| T7b | Click reject. GitHub PR closed; row stays gone on the next poll even if the PR is reopened | Close vs local hide; rejected PRs returning |
 | T9 | Click pull. PR head lands under `PR_SCOPE_ROOT/<repo>/pr-<n>/` | Button → scoped checkout |
 | T9b | A second pull hard-resets the same checkout onto a newer PR head | Stale Scope |
 | T8 | Full chain in one canvas: dispatch → FakeAgent, mergeable PR row | Two FEs sharing the pump |

@@ -264,9 +264,7 @@ def test_t4_mergeable_pr_populates_a_pr_row(fake_gh, harness) -> None:
     manager = connect_manager(harness)
 
     harness.wait_for_widget(manager, "name::4")
-    label = manager.get("name::4")
-    assert "t4-ticket" in label
-    assert "pull/4" in label
+    assert manager.label("name::4") == "t4-ticket"
     assert manager.exists("open_pr::4")
     assert manager.enabled("open_pr::4")
     assert manager.exists("pull::4")
@@ -275,6 +273,8 @@ def test_t4_mergeable_pr_populates_a_pr_row(fake_gh, harness) -> None:
     assert manager.enabled("vscode::4")
     assert manager.exists("cursor::4")
     assert manager.enabled("cursor::4")
+    assert manager.shown("reject::4")
+    assert manager.enabled("reject::4")
     assert manager.shown("dismiss::4")
 
 
@@ -290,7 +290,7 @@ def test_t4b_agent_ready_issue_is_not_shown(fake_gh, harness) -> None:
     assert manager.suffixes(r"^name::") == []
 
 
-# --- T5 / T7: unchecked PRs stay off the board; dismiss is local ----------
+# --- T5 / T7: unchecked PRs stay off the board; dismiss is local; reject closes --
 
 
 def test_t5_a_pr_without_a_mergeable_status_is_not_listed(fake_gh, harness) -> None:
@@ -317,11 +317,41 @@ def test_t7_dismiss_hides_the_row(fake_gh, harness) -> None:
     harness.pump(4)
 
     assert fake_gh.issue_closes == 0, "dismiss must not close GitHub issues"
+    assert fake_gh.pr_closes == 0, "dismiss must not close GitHub pull requests"
     assert not manager.exists("name::7"), "the row widget outlived its dismiss"
     assert not manager.exists("open_pr::7")
     assert not manager.exists("pull::7")
     assert not manager.exists("vscode::7")
     assert not manager.exists("cursor::7")
+    assert not manager.exists("reject::7")
+
+
+def test_t7b_reject_closes_the_pr_and_it_does_not_return(fake_gh, harness) -> None:
+    """Reject closes the GitHub PR; the row stays gone even if it is still open."""
+    fake_gh.add_merge_success(8, "t7b-ticket", "https://github.com/acme/widgets/pull/8")
+    manager = connect_manager(harness)
+    harness.wait_for_widget(manager, "name::8")
+    assert manager.label("name::8") == "t7b-ticket"
+    assert manager.shown("reject::8")
+    assert manager.enabled("reject::8")
+
+    manager.click("reject::8")
+    harness.wait_until(
+        lambda: not manager.exists("name::8") and fake_gh.pr_closes >= 1,
+        message="rejected PR row to leave the board",
+    )
+    assert fake_gh.pr_closes == 1
+    closed = next(pr for pr in fake_gh.pull_requests if pr.number == 8)
+    assert closed.state == "closed"
+
+    lists_after_close = fake_gh.pr_lists
+    closed.state = "open"
+    harness.wait_until(
+        lambda: fake_gh.pr_lists > lists_after_close,
+        message="PRManager to poll again after reject",
+    )
+    assert not manager.exists("name::8"), "a rejected PR reappeared on the next poll"
+    harness.screenshot("t7b-rejected-pr-gone")
 
 
 # --- T8: the whole chain over one shared frame pump ------------------------
@@ -362,13 +392,14 @@ def test_t8_full_chain_from_dispatch_to_mergeable_pr(
     )
     assert not dispatcher.exists("ticket_btn_88")
 
-    label = manager.get("name::12")
+    label = manager.label("name::12")
     assert "t8-pr" in label
     assert run.pr_url
     assert manager.enabled("open_pr::12")
     assert manager.enabled("pull::12")
     assert manager.enabled("vscode::12")
     assert manager.enabled("cursor::12")
+    assert manager.shown("reject::12")
     assert manager.shown("dismiss::12")
     harness.screenshot("t8-merge-success-pr")
 
